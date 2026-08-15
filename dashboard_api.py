@@ -1,8 +1,16 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 import requests
 from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return send_from_directory('static-src', 'index.html')
+
+@app.route('/assets/<path:filename>')
+def assets(filename):
+    return send_from_directory('static-src/assets', filename)
 
 def get_secrets():
     secrets = {}
@@ -248,4 +256,4 @@ def health():
     return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5003, debug=True)

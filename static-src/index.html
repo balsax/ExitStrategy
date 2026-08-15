@@ -36,6 +36,34 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:8px}
 .updated{font-size:11px;color:#6b82a0;text-align:right;margin-top:.5rem}
 
+/* Navigation */
+.nav{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
+.navbtn{background:#0f1628;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:border-color .2s,color .2s,background .2s}
+.navbtn:hover{border-color:#2a3a5a;color:#a0b0c0}
+.navbtn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.page{display:none}
+.page.active{display:block}
+
+/* Placeholder pages */
+.placeholder-wrap{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:3rem 1.5rem;text-align:center}
+.placeholder-icon{font-size:40px;margin-bottom:.75rem}
+.placeholder-title{font-size:16px;font-weight:600;margin-bottom:.4rem}
+.placeholder-desc{font-size:13px;color:#6b82a0;max-width:420px;margin:0 auto}
+.placeholder-badge{display:inline-block;margin-top:1rem;font-size:11px;color:#e8a030;background:#1a1500;border:.5px solid #7a6020;border-radius:6px;padding:3px 10px}
+
+/* Not-connected banner (used on built-but-unwired pages) */
+.notice{display:flex;align-items:center;gap:8px;background:#1a1500;border:.5px solid #7a6020;border-radius:8px;padding:.6rem .9rem;font-size:12px;color:#e8a030;margin-bottom:10px}
+
+/* Process icons (P&ID components — no card chrome, shape communicates function) */
+.picon{display:flex;align-items:center;justify-content:center;height:70px}
+.picon svg{display:block;overflow:visible}
+.pstate{font-size:11px;color:#6b82a0;text-align:center;margin-top:1px}
+.preadout{font-size:12px;color:#8fa3bd;text-align:center;line-height:1.4;font-weight:500}
+.gauge-needle{transition:transform 1s ease}
+.pump-rotor{transform-origin:center;transform-box:fill-box}
+#wcanvas.running .pump-rotor{animation:pump-spin 1.1s linear infinite}
+@keyframes pump-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
 /* Flow diagram */
 .flow-wrap{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:1.25rem;margin-bottom:10px}
 .flow-canvas{position:relative;width:100%;height:420px}
@@ -45,9 +73,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .nb{border-radius:10px;border:1px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;gap:2px;transition:filter .2s,box-shadow .2s;position:relative}
 .nd:hover .nb{box-shadow:0 0 12px rgba(74,159,212,.3)}
 .ni{font-size:18px}
-.nl{font-size:9px;font-weight:500;text-align:center;margin-top:1px}
-.nv{font-size:10px;text-align:center}
-.nbadge{font-size:8px;padding:1px 5px;border-radius:3px;margin-top:3px}
+.nl{font-size:12px;font-weight:600;text-align:center;margin-top:2px}
+.nv{font-size:13px;font-weight:500;text-align:center}
+.nbadge{font-size:11px;padding:2px 6px;border-radius:3px;margin-top:3px}
 
 /* Battery SOC tank fill inside node */
 .bat-tank{width:28px;height:32px;border-radius:3px;border:1.5px solid rgba(255,255,255,.25);overflow:hidden;position:relative;margin:2px auto 0;background:#0a0e1a}
@@ -57,7 +85,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
 /* Summary legend row */
 .leg{display:flex;gap:12px;margin-top:.75rem;flex-wrap:wrap}
-.li{display:flex;align-items:center;gap:4px;font-size:10px;color:#6b82a0}
+.li{display:flex;align-items:center;gap:4px;font-size:11px;color:#6b82a0}
 .ld{width:16px;height:2px;border-radius:1px}
 .sys-badge{font-size:10px;padding:2px 8px;border-radius:4px;border:.5px solid}
 
@@ -105,6 +133,17 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
   <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
 </div>
+
+<!-- Navigation -->
+<div class="nav">
+  <button class="navbtn active" id="nav-overview" onclick="showPage('overview')"><span>🧭</span>Overview</button>
+  <button class="navbtn" id="nav-watermaker" onclick="showPage('watermaker')"><span>💧</span>Watermaker</button>
+  <button class="navbtn" id="nav-anchor" onclick="showPage('anchor')"><span>⚓</span>Anchor Watch</button>
+  <button class="navbtn" id="nav-ais" onclick="showPage('ais')"><span>📡</span>AIS</button>
+</div>
+
+<!-- ══════════════════════════════ Overview page ══════════════════════════════ -->
+<div class="page active" id="page-overview">
 
 <!-- Environment -->
 <div class="section">Environment · BME680</div>
@@ -285,6 +324,337 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <div class="updated">Last updated: <span id="last-update">--</span></div>
 </div>
 
+</div> <!-- /page-overview -->
+
+<!-- ══════════════════════════════ Watermaker page ══════════════════════════════ -->
+<div class="page" id="page-watermaker">
+  <div class="notice"><span>⚠️</span> Watermaker controller not yet connected — this page is a placeholder UI. Values will populate once a data source (e.g. a Victron GX relay, NMEA2000 bridge, or dedicated sensor node) is wired into the API.</div>
+
+  <div class="section">
+    <span>Watermaker · RO System</span>
+    <span class="sys-badge" id="wm-state" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not connected</span>
+  </div>
+
+  <div class="flow-wrap">
+    <div id="wm-demo-btns" class="dur-btns" style="margin-bottom:.75rem">
+      <span style="font-size:11px;color:#6b82a0;align-self:center;margin-right:4px">Preview:</span>
+      <button class="dur-btn active" onclick="wmDemoToggle(false,this)">Off</button>
+      <button class="dur-btn" onclick="wmDemoToggle(true,this)">Running (demo)</button>
+    </div>
+
+    <div class="flow-canvas" id="wcanvas" style="height:600px">
+      <svg class="fsvg" id="wsvg"></svg>
+
+      <!-- Seacock (2-way valve, ISA bowtie symbol) -->
+      <div class="nd" id="wm-seacock" style="left:1%;top:38%">
+        <div class="picon" style="width:52px">
+          <svg width="52" height="52" viewBox="0 0 52 52">
+            <path d="M14 15 L14 37 L26 26 Z" fill="#4a9fd422" stroke="#4a9fd4" stroke-width="2"/>
+            <path d="M38 15 L38 37 L26 26 Z" fill="#4a9fd422" stroke="#4a9fd4" stroke-width="2"/>
+            <g class="valve-handle" style="transform-origin:26px 26px;transform:rotate(0deg)">
+              <line x1="26" y1="26" x2="26" y2="8" stroke="#4a9fd4" stroke-width="2.5"/>
+              <rect x="18" y="3" width="16" height="6" rx="2" fill="#4a9fd4"/>
+            </g>
+          </svg>
+        </div>
+        <span class="nl" style="color:#4a9fd4">Seacock</span>
+        <span class="nbadge" style="background:transparent;color:#4a9fd4;border:.5px solid #3a7bd5">V-1</span>
+      </div>
+
+      <!-- Strainer -->
+      <div class="nd" id="wm-strainer" style="left:10%;top:38%">
+        <div class="picon" style="width:40px">
+          <svg width="38" height="58" viewBox="0 0 38 58">
+            <rect x="2" y="3" width="34" height="9" rx="3" fill="none" stroke="#4a9fd4" stroke-width="2"/>
+            <rect x="6" y="13" width="26" height="40" rx="5" fill="#4a9fd414" stroke="#4a9fd4" stroke-width="2"/>
+            <line x1="10" y1="22" x2="28" y2="22" stroke="#4a9fd4" stroke-width="1" opacity=".45"/>
+            <line x1="10" y1="29" x2="28" y2="29" stroke="#4a9fd4" stroke-width="1" opacity=".45"/>
+            <line x1="10" y1="36" x2="28" y2="36" stroke="#4a9fd4" stroke-width="1" opacity=".45"/>
+            <line x1="10" y1="43" x2="28" y2="43" stroke="#4a9fd4" stroke-width="1" opacity=".45"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#4a9fd4">Strainer</span>
+      </div>
+
+      <!-- Feed pump (centrifugal pump symbol: casing + impeller + motor) -->
+      <div class="nd" id="wm-feedpump" style="left:19%;top:38%">
+        <div class="picon" style="width:56px">
+          <svg width="56" height="58" viewBox="0 0 56 58">
+            <rect x="21" y="2" width="14" height="11" rx="2" fill="none" stroke="#3db87a" stroke-width="2"/>
+            <line x1="28" y1="13" x2="28" y2="18" stroke="#3db87a" stroke-width="2"/>
+            <circle cx="28" cy="36" r="19" fill="#3db87a14" stroke="#3db87a" stroke-width="2.5"/>
+            <g class="pump-rotor">
+              <path d="M20 27 L20 45 L38 36 Z" fill="#3db87a" opacity=".85"/>
+            </g>
+            <line x1="2" y1="36" x2="9" y2="36" stroke="#3db87a" stroke-width="2" opacity=".5"/>
+            <line x1="47" y1="36" x2="54" y2="36" stroke="#3db87a" stroke-width="2" opacity=".5"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#3db87a">Feed Pump</span>
+        <span class="nbadge" style="background:transparent;color:#3db87a;border:.5px solid #2a7a4a">P-1</span>
+        <div class="preadout">RPM <span id="wm-v-feed-rpm">--</span> · A <span id="wm-v-feed-amps">--</span></div>
+      </div>
+
+      <!-- PT-1: feed pressure gauge -->
+      <div class="nd" id="wm-pt1" style="left:28%;top:38%">
+        <div class="picon" style="width:60px">
+          <svg width="60" height="50" viewBox="0 0 60 50">
+            <path d="M6 40 A24 24 0 0 1 54 40" fill="none" stroke="#5a8ab0" stroke-width="2.5" opacity=".6"/>
+            <line x1="7" y1="40" x2="11" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="30" y1="15" x2="30" y2="19" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="53" y1="40" x2="49" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line id="wm-needle-pt1" class="gauge-needle" x1="30" y1="40" x2="10" y2="40" stroke="#e8e8e8" stroke-width="2" style="transform-origin:30px 40px;transform:rotate(0deg)"/>
+            <circle cx="30" cy="40" r="3" fill="#5a8ab0"/>
+          </svg>
+        </div>
+        <span class="nbadge" style="background:transparent;color:#5a8ab0;border:none;padding:0">PT-1</span>
+        <div class="preadout" id="wm-v-feed-pressure">-- psi</div>
+      </div>
+
+      <!-- Pre-filters (dual cartridge) -->
+      <div class="nd" id="wm-prefilter" style="left:37%;top:38%">
+        <div class="picon" style="width:60px">
+          <svg width="58" height="56" viewBox="0 0 58 56">
+            <rect x="4" y="2" width="50" height="8" rx="2" fill="none" stroke="#c9a35a" stroke-width="2"/>
+            <rect x="7" y="10" width="18" height="42" rx="6" fill="#c9a35a14" stroke="#c9a35a" stroke-width="2"/>
+            <line x1="11" y1="18" x2="21" y2="18" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="11" y1="25" x2="21" y2="25" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="11" y1="32" x2="21" y2="32" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="11" y1="39" x2="21" y2="39" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="11" y1="46" x2="21" y2="46" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <rect x="33" y="10" width="18" height="42" rx="6" fill="#c9a35a14" stroke="#c9a35a" stroke-width="2"/>
+            <line x1="37" y1="18" x2="47" y2="18" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="37" y1="25" x2="47" y2="25" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="37" y1="32" x2="47" y2="32" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="37" y1="39" x2="47" y2="39" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+            <line x1="37" y1="46" x2="47" y2="46" stroke="#c9a35a" stroke-width="1" opacity=".5"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#c9a35a">Pre-Filters</span>
+        <span class="nbadge" style="background:transparent;color:#c9a35a;border:.5px solid #7a5a2a">5μ + 20μ</span>
+      </div>
+
+      <!-- HP pump -->
+      <div class="nd" id="wm-hppump" style="left:46%;top:38%">
+        <div class="picon" style="width:56px">
+          <svg width="56" height="58" viewBox="0 0 56 58">
+            <rect x="21" y="2" width="14" height="11" rx="2" fill="none" stroke="#3db87a" stroke-width="2"/>
+            <line x1="28" y1="13" x2="28" y2="18" stroke="#3db87a" stroke-width="2"/>
+            <circle cx="28" cy="36" r="19" fill="#3db87a14" stroke="#3db87a" stroke-width="2.5"/>
+            <g class="pump-rotor">
+              <path d="M20 27 L20 45 L38 36 Z" fill="#3db87a" opacity=".85"/>
+            </g>
+            <line x1="2" y1="36" x2="9" y2="36" stroke="#3db87a" stroke-width="2" opacity=".5"/>
+            <line x1="47" y1="36" x2="54" y2="36" stroke="#3db87a" stroke-width="2" opacity=".5"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#3db87a">HP Pump</span>
+        <span class="nbadge" style="background:transparent;color:#3db87a;border:.5px solid #2a7a4a">P-2</span>
+        <div class="preadout">RPM <span id="wm-v-hp-rpm">--</span> · A <span id="wm-v-hp-amps">--</span></div>
+      </div>
+
+      <!-- PT-2: membrane pressure gauge -->
+      <div class="nd" id="wm-pt2" style="left:55%;top:38%">
+        <div class="picon" style="width:60px">
+          <svg width="60" height="50" viewBox="0 0 60 50">
+            <path d="M6 40 A24 24 0 0 1 54 40" fill="none" stroke="#5a8ab0" stroke-width="2.5" opacity=".6"/>
+            <line x1="7" y1="40" x2="11" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="30" y1="15" x2="30" y2="19" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="53" y1="40" x2="49" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line id="wm-needle-pt2" class="gauge-needle" x1="30" y1="40" x2="10" y2="40" stroke="#e8e8e8" stroke-width="2" style="transform-origin:30px 40px;transform:rotate(0deg)"/>
+            <circle cx="30" cy="40" r="3" fill="#5a8ab0"/>
+          </svg>
+        </div>
+        <span class="nbadge" style="background:transparent;color:#5a8ab0;border:none;padding:0">PT-2</span>
+        <div class="preadout" id="wm-v-mem-pressure">-- psi</div>
+      </div>
+
+      <!-- Carbon/charcoal canister (freshwater flush supply) -->
+      <div class="nd" id="wm-carbon" style="left:46%;top:2.5%;width:56px">
+        <div class="picon" style="width:34px">
+          <svg width="32" height="52" viewBox="0 0 32 52">
+            <rect x="2" y="3" width="28" height="8" rx="3" fill="none" stroke="#c9a35a" stroke-width="2"/>
+            <rect x="6" y="11" width="20" height="36" rx="5" fill="#c9a35a14" stroke="#c9a35a" stroke-width="2"/>
+            <line x1="9" y1="19" x2="23" y2="19" stroke="#c9a35a" stroke-width="1" opacity=".45"/>
+            <line x1="9" y1="26" x2="23" y2="26" stroke="#c9a35a" stroke-width="1" opacity=".45"/>
+            <line x1="9" y1="33" x2="23" y2="33" stroke="#c9a35a" stroke-width="1" opacity=".45"/>
+            <line x1="9" y1="40" x2="23" y2="40" stroke="#c9a35a" stroke-width="1" opacity=".45"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#c9a35a">Carbon</span>
+        <span class="nbadge" style="background:transparent;color:#c9a35a;border:.5px solid #7a5a2a">C-1</span>
+      </div>
+
+      <!-- Flush solenoid V-3: carbon canister -> HP pump inlet -->
+      <div class="nd" id="wm-flushvalve1" style="left:67%;top:2.5%">
+        <div class="picon" style="width:44px">
+          <svg width="44" height="58" viewBox="0 0 44 58">
+            <rect x="14" y="4" width="16" height="15" rx="2" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M17 12 L19.5 8 L22 15 L24.5 8 L27 12" fill="none" stroke="#2dd4bf" stroke-width="1.5"/>
+            <line x1="22" y1="19" x2="22" y2="25" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M8 25 L8 43 L22 34 Z" fill="#33445522" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M36 25 L36 43 L22 34 Z" fill="#33445522" stroke="#2dd4bf" stroke-width="2"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#2dd4bf">Flush In</span>
+        <span class="nbadge" style="background:transparent;color:#2dd4bf;border:.5px solid #1a6a5a">V-3 · NC</span>
+      </div>
+
+      <!-- Membrane (elongated RO pressure vessel) -->
+      <div class="nd" id="wm-membrane" style="left:64%;top:38%">
+        <div class="picon" style="width:96px">
+          <svg width="96" height="46" viewBox="0 0 96 46">
+            <rect x="10" y="8" width="76" height="28" rx="14" fill="#e8a03014" stroke="#e8a030" stroke-width="2.5"/>
+            <line x1="26" y1="8" x2="26" y2="36" stroke="#e8a030" stroke-width="1" opacity=".35"/>
+            <line x1="70" y1="8" x2="70" y2="36" stroke="#e8a030" stroke-width="1" opacity=".35"/>
+            <line x1="0" y1="22" x2="10" y2="22" stroke="#e8a030" stroke-width="2" opacity=".6"/>
+            <line x1="86" y1="14" x2="96" y2="8" stroke="#e8a030" stroke-width="2" opacity=".6"/>
+            <line x1="48" y1="36" x2="48" y2="44" stroke="#e8a030" stroke-width="2" opacity=".6"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#e8a030">RO Membrane</span>
+        <span class="nbadge" style="background:transparent;color:#e8a030;border:.5px solid #7a6020">M-1</span>
+      </div>
+
+      <!-- Backpressure valve (needle valve, concentrate line) -->
+      <div class="nd" id="wm-backpressure" style="left:78%;top:59%">
+        <div class="picon" style="width:40px">
+          <svg width="40" height="50" viewBox="0 0 40 50">
+            <path d="M20 16 L32 27 L20 38 L8 27 Z" fill="#e8a03022" stroke="#e8a030" stroke-width="2"/>
+            <line x1="20" y1="16" x2="20" y2="6" stroke="#e8a030" stroke-width="2"/>
+            <circle cx="20" cy="4" r="4" fill="none" stroke="#e8a030" stroke-width="2"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#e8a030">Backpressure</span>
+        <span class="nbadge" style="background:transparent;color:#e8a030;border:.5px solid #7a6020">V-4</span>
+      </div>
+
+      <!-- Flush solenoid V-5: parallel bypass around backpressure valve -->
+      <div class="nd" id="wm-flushvalve2" style="left:78%;top:80%">
+        <div class="picon" style="width:44px">
+          <svg width="44" height="58" viewBox="0 0 44 58">
+            <rect x="14" y="4" width="16" height="15" rx="2" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M17 12 L19.5 8 L22 15 L24.5 8 L27 12" fill="none" stroke="#2dd4bf" stroke-width="1.5"/>
+            <line x1="22" y1="19" x2="22" y2="25" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M8 25 L8 43 L22 34 Z" fill="#33445522" stroke="#2dd4bf" stroke-width="2"/>
+            <path d="M36 25 L36 43 L22 34 Z" fill="#33445522" stroke="#2dd4bf" stroke-width="2"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#2dd4bf">Flush Bypass</span>
+        <span class="nbadge" style="background:transparent;color:#2dd4bf;border:.5px solid #1a6a5a">V-5 · NC</span>
+      </div>
+
+      <!-- FT-1: product flow gauge -->
+      <div class="nd" id="wm-ft1" style="left:73%;top:38%">
+        <div class="picon" style="width:60px">
+          <svg width="60" height="50" viewBox="0 0 60 50">
+            <path d="M6 40 A24 24 0 0 1 54 40" fill="none" stroke="#5a8ab0" stroke-width="2.5" opacity=".6"/>
+            <line x1="7" y1="40" x2="11" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="30" y1="15" x2="30" y2="19" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="53" y1="40" x2="49" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line id="wm-needle-ft1" class="gauge-needle" x1="30" y1="40" x2="10" y2="40" stroke="#e8e8e8" stroke-width="2" style="transform-origin:30px 40px;transform:rotate(0deg)"/>
+            <circle cx="30" cy="40" r="3" fill="#5a8ab0"/>
+          </svg>
+        </div>
+        <span class="nbadge" style="background:transparent;color:#5a8ab0;border:none;padding:0">FT-1</span>
+        <div class="preadout" id="wm-v-flow">-- gph</div>
+      </div>
+
+      <!-- AT-1: salinity/TDS gauge -->
+      <div class="nd" id="wm-at1" style="left:82%;top:38%">
+        <div class="picon" style="width:60px">
+          <svg width="60" height="50" viewBox="0 0 60 50">
+            <path d="M6 40 A24 24 0 0 1 54 40" fill="none" stroke="#5a8ab0" stroke-width="2.5" opacity=".6"/>
+            <line x1="7" y1="40" x2="11" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="30" y1="15" x2="30" y2="19" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line x1="53" y1="40" x2="49" y2="40" stroke="#5a8ab0" stroke-width="1.5" opacity=".5"/>
+            <line id="wm-needle-at1" class="gauge-needle" x1="30" y1="40" x2="10" y2="40" stroke="#e8e8e8" stroke-width="2" style="transform-origin:30px 40px;transform:rotate(0deg)"/>
+            <circle cx="30" cy="40" r="3" fill="#5a8ab0"/>
+          </svg>
+        </div>
+        <span class="nbadge" style="background:transparent;color:#5a8ab0;border:none;padding:0">AT-1</span>
+        <div class="preadout" id="wm-v-salinity">-- ppm</div>
+      </div>
+
+      <!-- Diverter (3-way valve) -->
+      <div class="nd" id="wm-diverter" style="left:90%;top:38%;width:62px">
+        <div class="picon" style="width:52px">
+          <svg width="52" height="52" viewBox="0 0 52 52">
+            <line x1="26" y1="26" x2="26" y2="4" stroke="#c084fc" stroke-width="2" opacity=".4"/>
+            <path d="M14 15 L14 37 L26 26 Z" fill="#c084fc22" stroke="#c084fc" stroke-width="2"/>
+            <path d="M38 15 L38 37 L26 26 Z" fill="#c084fc22" stroke="#c084fc" stroke-width="2"/>
+            <g class="valve-handle" style="transform-origin:26px 26px;transform:rotate(0deg)">
+              <line x1="26" y1="26" x2="26" y2="8" stroke="#c084fc" stroke-width="2.5"/>
+              <rect x="18" y="3" width="16" height="6" rx="2" fill="#c084fc"/>
+            </g>
+          </svg>
+        </div>
+        <span class="nl" style="color:#c084fc">Diverter</span>
+        <span class="nbadge" style="background:transparent;color:#c084fc;border:.5px solid #6a2a6a">V-2</span>
+      </div>
+
+      <!-- Fresh tank -->
+      <div class="nd" id="wm-tank" style="left:90%;top:2.5%;width:62px">
+        <div class="picon" style="width:52px">
+          <svg width="44" height="56" viewBox="0 0 44 56">
+            <rect x="13" y="2" width="18" height="6" rx="2" fill="none" stroke="#2dd4bf" stroke-width="2"/>
+            <rect x="3" y="8" width="38" height="46" rx="6" fill="#2dd4bf14" stroke="#2dd4bf" stroke-width="2"/>
+            <line x1="3" y1="38" x2="41" y2="38" stroke="#2dd4bf" stroke-width="1" opacity=".3"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#2dd4bf">Fresh Tank</span>
+      </div>
+
+      <!-- Overboard discharge -->
+      <div class="nd" id="wm-waste" style="left:90%;top:75%;width:62px">
+        <div class="picon" style="width:52px">
+          <svg width="44" height="48" viewBox="0 0 44 48">
+            <line x1="2" y1="12" x2="24" y2="12" stroke="#f97316" stroke-width="2.5"/>
+            <path d="M24 6 L24 18 L36 12 Z" fill="#f97316" opacity=".8"/>
+            <path d="M2 28 Q8 22 14 28 T26 28 T38 28" fill="none" stroke="#f97316" stroke-width="2" opacity=".6"/>
+            <path d="M2 36 Q8 30 14 36 T26 36 T38 36" fill="none" stroke="#f97316" stroke-width="2" opacity=".4"/>
+          </svg>
+        </div>
+        <span class="nl" style="color:#f97316">Overboard</span>
+        <span class="nbadge" style="background:transparent;color:#f97316;border:.5px solid #6a3a2a">Brine + reject</span>
+      </div>
+    </div>
+
+    <div class="leg">
+      <div class="li"><div class="ld" style="background:#4a9fd4"></div>Feed / high-pressure line</div>
+      <div class="li"><div class="ld" style="background:#3db87a"></div>Product water</div>
+      <div class="li"><div class="ld" style="background:#e8a030"></div>Brine / concentrate reject</div>
+      <div class="li"><div class="ld" style="background:#334455;border:1px dashed #445566"></div>Inactive / flush loop</div>
+      <div class="li" style="margin-left:auto;color:#4a9fd4;font-size:10px">Gauges = pressure/flow/salinity sensors · bowties = valves</div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:1.25rem">System</div>
+  <div class="status-row"><span>Run hours (membrane total)</span><span style="color:#6b82a0" id="wm-hours">--</span></div>
+  <div class="status-row"><span>Last freshwater flush</span><span style="color:#6b82a0" id="wm-last-flush">--</span></div>
+  <div class="status-row"><span>Carbon polishing filter</span><span style="color:#6b82a0">--</span></div>
+</div>
+
+<!-- ══════════════════════════════ Anchor Watch page (placeholder) ══════════════════════════════ -->
+<div class="page" id="page-anchor">
+  <div class="placeholder-wrap">
+    <div class="placeholder-icon">⚓</div>
+    <div class="placeholder-title">Anchor Watch</div>
+    <div class="placeholder-desc">GPS-based anchor drag alarm — set a swing radius over the drop point and get alerted if the boat drifts outside it. Not yet built.</div>
+    <div class="placeholder-badge">Coming soon</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ AIS page (placeholder) ══════════════════════════════ -->
+<div class="page" id="page-ais">
+  <div class="placeholder-wrap">
+    <div class="placeholder-icon">📡</div>
+    <div class="placeholder-title">AIS Traffic</div>
+    <div class="placeholder-desc">Nearby vessel traffic from an AIS receiver (e.g. a dAISy HAT or NMEA0183 feed) — target list, CPA/TCPA, and a plotted view. Not yet built.</div>
+    <div class="placeholder-badge">Coming soon</div>
+  </div>
+</div>
+
 <!-- Modal -->
 <div class="modal-overlay" id="modal" onclick="closeModalOutside(event)">
   <div class="modal">
@@ -341,6 +711,23 @@ let currentDuration = '1h';
 let currentNode = null;
 let currentSeries = null; // {code, label, unit, color}
 let victronData = {};
+let currentPage = 'overview';
+let lastFlowState = { shoreOn: false, charging: false, discharging: false };
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+function showPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.navbtn').forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-' + page).classList.add('active');
+  location.hash = page;
+  if (page === 'overview') {
+    buildFlow(lastFlowState.shoreOn, lastFlowState.charging, lastFlowState.discharging);
+  } else if (page === 'watermaker') {
+    buildWaterFlow(wmDemoRunning);
+  }
+}
 
 const svg = document.getElementById('fsvg');
 const canvas = document.getElementById('fcanvas');
@@ -507,28 +894,28 @@ function updateStatusSummary() {
 }
 
 // ─── Flow diagram ─────────────────────────────────────────────────────────────
-function ctr(id) {
+function ctr(id, canvasEl) {
   const el = document.getElementById(id);
-  const nb = el.querySelector('.nb');
-  const cr = canvas.getBoundingClientRect();
+  const nb = el.querySelector('.nb') || el.querySelector('.picon') || el;
+  const cr = (canvasEl || canvas).getBoundingClientRect();
   const er = nb.getBoundingClientRect();
   return { x: er.left - cr.left + er.width / 2, y: er.top - cr.top + er.height / 2 };
 }
 
-function fline(x1, y1, x2, y2, col, dash) {
+function fline(x1, y1, x2, y2, col, dash, svgEl) {
   const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
   l.setAttribute('x1', x1); l.setAttribute('y1', y1);
   l.setAttribute('x2', x2); l.setAttribute('y2', y2);
   l.setAttribute('stroke', col); l.setAttribute('stroke-width', '1.5');
   l.setAttribute('opacity', '0.35');
   if (dash) l.setAttribute('stroke-dasharray', '4 4');
-  svg.appendChild(l);
+  (svgEl || svg).appendChild(l);
 }
 
-function fpart(x1, y1, x2, y2, col) {
+function fpart(x1, y1, x2, y2, col, svgEl) {
   const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   c.setAttribute('r', '3.5'); c.setAttribute('fill', col);
-  svg.appendChild(c);
+  (svgEl || svg).appendChild(c);
   parts.push({ el: c, x1, y1, x2, y2, t: Math.random(), spd: .003 + Math.random() * .002 });
 }
 
@@ -562,14 +949,23 @@ function buildFlow(shoreOn, batCharge, batDischarge) {
   fline(mp.x, mp.y, load.x, load.y, '#c084fc', false);
   fpart(mp.x, mp.y, load.x, load.y, '#c084fc');
   fline(sol.x, sol.y, b48.x, b48.y, '#639922', true);
-  fline(b48.x, b48.y, or1.x, or1.y, '#5a8ab0', false);
-  fpart(b48.x, b48.y, or1.x, or1.y, '#5a8ab0');
-  fline(or1.x, or1.y, h12.x, h12.y, '#2dd4bf', false);
-  fpart(or1.x, or1.y, h12.x, h12.y, '#2dd4bf');
-  fline(b48.x, b48.y, or2.x, or2.y, '#5a8ab0', false);
-  fpart(b48.x, b48.y, or2.x, or2.y, '#5a8ab0');
-  fline(or2.x, or2.y, s12.x, s12.y, '#f97316', false);
-  fpart(or2.x, or2.y, s12.x, s12.y, '#f97316');
+
+  const dcdcActive = shoreOn || batCharge || batDischarge;
+  if (dcdcActive) {
+    fline(b48.x, b48.y, or1.x, or1.y, '#5a8ab0', false);
+    fpart(b48.x, b48.y, or1.x, or1.y, '#5a8ab0');
+    fline(or1.x, or1.y, h12.x, h12.y, '#2dd4bf', false);
+    fpart(or1.x, or1.y, h12.x, h12.y, '#2dd4bf');
+    fline(b48.x, b48.y, or2.x, or2.y, '#5a8ab0', false);
+    fpart(b48.x, b48.y, or2.x, or2.y, '#5a8ab0');
+    fline(or2.x, or2.y, s12.x, s12.y, '#f97316', false);
+    fpart(or2.x, or2.y, s12.x, s12.y, '#f97316');
+  } else {
+    fline(b48.x, b48.y, or1.x, or1.y, '#334455', true);
+    fline(or1.x, or1.y, h12.x, h12.y, '#334455', true);
+    fline(b48.x, b48.y, or2.x, or2.y, '#334455', true);
+    fline(or2.x, or2.y, s12.x, s12.y, '#334455', true);
+  }
   fline(s12.x, s12.y, bt.x, bt.y, '#c084fc', true);
 
   animFlow();
@@ -582,6 +978,101 @@ function animFlow() {
     p.el.setAttribute('cy', p.y1 + (p.y2 - p.y1) * p.t);
   }
   raf = requestAnimationFrame(animFlow);
+}
+
+// ─── Watermaker P&ID diagram ───────────────────────────────────────────────────
+const wsvg = document.getElementById('wsvg');
+const wcanvas = document.getElementById('wcanvas');
+let wmDemoRunning = false;
+
+function buildWaterFlow(running) {
+  wsvg.innerHTML = ''; parts.length = 0;
+  cancelAnimationFrame(raf);
+
+  const n = id => ctr(id, wcanvas);
+  const seacock = n('wm-seacock'), strainer = n('wm-strainer'), feedpump = n('wm-feedpump');
+  const pt1 = n('wm-pt1'), prefilter = n('wm-prefilter'), hppump = n('wm-hppump');
+  const pt2 = n('wm-pt2'), membrane = n('wm-membrane');
+  const ft1 = n('wm-ft1'), at1 = n('wm-at1'), diverter = n('wm-diverter');
+  const tank = n('wm-tank'), waste = n('wm-waste');
+  const carbon = n('wm-carbon'), flush1 = n('wm-flushvalve1');
+  const backpressure = n('wm-backpressure'), flush2 = n('wm-flushvalve2');
+
+  const feed = '#4a9fd4', product = '#3db87a', brine = '#e8a030', off = '#334455';
+  const chain = [seacock, strainer, feedpump, pt1, prefilter, hppump, pt2, membrane];
+
+  // Feed / high-pressure train
+  for (let i = 0; i < chain.length - 1; i++) {
+    const a = chain[i], b = chain[i + 1];
+    fline(a.x, a.y, b.x, b.y, running ? feed : off, !running, wsvg);
+    if (running) { fpart(a.x, a.y, b.x, b.y, feed, wsvg); }
+  }
+
+  // Product line: membrane -> flow meter -> salinity probe -> diverter -> tank
+  const prodChain = [membrane, ft1, at1, diverter, tank];
+  for (let i = 0; i < prodChain.length - 1; i++) {
+    const a = prodChain[i], b = prodChain[i + 1];
+    fline(a.x, a.y, b.x, b.y, running ? product : off, !running, wsvg);
+    if (running) fpart(a.x, a.y, b.x, b.y, product, wsvg);
+  }
+
+  // Diverter -> waste (alternate route, used when flushing or salinity out of range)
+  fline(diverter.x, diverter.y, waste.x, waste.y, off, true, wsvg);
+
+  // Concentrate/brine reject: membrane -> backpressure valve -> overboard
+  fline(membrane.x, membrane.y, backpressure.x, backpressure.y, running ? brine : off, !running, wsvg);
+  fline(backpressure.x, backpressure.y, waste.x, waste.y, running ? brine : off, !running, wsvg);
+  if (running) {
+    fpart(membrane.x, membrane.y, backpressure.x, backpressure.y, brine, wsvg);
+    fpart(backpressure.x, backpressure.y, waste.x, waste.y, brine, wsvg);
+  }
+
+  // Flush bypass: membrane -> V-5 -> overboard, in parallel with the backpressure valve
+  fline(membrane.x, membrane.y, flush2.x, flush2.y, off, true, wsvg);
+  fline(flush2.x, flush2.y, waste.x, waste.y, off, true, wsvg);
+
+  // Freshwater flush supply: tank -> V-3 -> carbon canister -> HP pump inlet
+  fline(tank.x, tank.y, flush1.x, flush1.y, off, true, wsvg);
+  fline(flush1.x, flush1.y, carbon.x, carbon.y, off, true, wsvg);
+  fline(carbon.x, carbon.y, hppump.x, hppump.y, off, true, wsvg);
+
+  animFlow();
+}
+
+function wmSetGauge(id, pct) {
+  const needle = document.getElementById('wm-needle-' + id);
+  if (needle) needle.style.transform = `rotate(${Math.max(0, Math.min(100, pct)) * 1.8}deg)`;
+}
+
+function wmDemoToggle(running, btn) {
+  wmDemoRunning = running;
+  document.querySelectorAll('#wm-demo-btns .dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const badge = document.getElementById('wm-state');
+  document.getElementById('wcanvas').classList.toggle('running', running);
+
+  if (running) {
+    badge.textContent = 'Demo: Running'; badge.style.color = '#3db87a';
+    badge.style.borderColor = '#2a7a4a'; badge.style.background = '#0d2b1a';
+    wmSetGauge('pt1', 42); wmSetGauge('pt2', 68); wmSetGauge('ft1', 35); wmSetGauge('at1', 12);
+    setText('wm-v-feed-rpm', '1725'); setText('wm-v-feed-amps', '4.1');
+    setText('wm-v-hp-rpm', '3400'); setText('wm-v-hp-amps', '14.6');
+    setText('wm-v-feed-pressure', '38 psi');
+    setText('wm-v-mem-pressure', '780 psi');
+    setText('wm-v-flow', '9.2 gph');
+    setText('wm-v-salinity', '210 ppm');
+  } else {
+    badge.textContent = 'Not connected'; badge.style.color = '#6b82a0';
+    badge.style.borderColor = '#334455'; badge.style.background = '#0a0e1a';
+    wmSetGauge('pt1', 0); wmSetGauge('pt2', 0); wmSetGauge('ft1', 0); wmSetGauge('at1', 0);
+    setText('wm-v-feed-rpm', '--'); setText('wm-v-feed-amps', '--');
+    setText('wm-v-hp-rpm', '--'); setText('wm-v-hp-amps', '--');
+    setText('wm-v-feed-pressure', '-- psi');
+    setText('wm-v-mem-pressure', '-- psi');
+    setText('wm-v-flow', '-- gph');
+    setText('wm-v-salinity', '-- ppm');
+  }
+  if (currentPage === 'watermaker') buildWaterFlow(running);
 }
 
 // ─── Data fetching ────────────────────────────────────────────────────────────
@@ -635,6 +1126,7 @@ async function fetchVictron() {
     const shoreOn = (d.grid || 0) > 10;
     const charging = (d.current || 0) > 0.5;
     const discharging = (d.current || 0) < -0.5;
+    lastFlowState = { shoreOn, charging, discharging };
 
     // Node value overlays
     if (d.grid !== undefined)     setText('v-grid', `${Math.round(d.grid)}W`);
@@ -664,7 +1156,7 @@ async function fetchVictron() {
     document.getElementById('victron-status').textContent = 'Connected';
     document.getElementById('victron-status').className = 'good';
     updateStatusSummary();
-    buildFlow(shoreOn, charging, discharging);
+    if (currentPage === 'overview') buildFlow(shoreOn, charging, discharging);
 
     // Refresh live grid if modal is open on a Victron node
     if (currentNode && NODE_DEFS[currentNode]) {
@@ -675,7 +1167,8 @@ async function fetchVictron() {
     document.getElementById('victron-status').textContent = 'Error';
     document.getElementById('victron-status').className = 'error';
     updateStatusSummary();
-    buildFlow(false, false, false);
+    lastFlowState = { shoreOn: false, charging: false, discharging: false };
+    if (currentPage === 'overview') buildFlow(false, false, false);
   }
 }
 
@@ -906,11 +1399,14 @@ function closeModalOutside(e) {
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+const initialPage = ['overview', 'watermaker', 'anchor', 'ais'].includes(location.hash.slice(1))
+  ? location.hash.slice(1) : 'overview';
+showPage(initialPage);
 fetchData();
 fetchVictron();
 setInterval(fetchData, 60000);
 setInterval(fetchVictron, 30000);
-setTimeout(() => buildFlow(true, false, false), 300);
+setTimeout(() => { if (currentPage === 'overview') buildFlow(true, false, false); }, 300);
 </script>
 </body>
 </html>
