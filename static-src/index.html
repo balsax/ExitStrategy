@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exit Strategy · Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:1rem}
+.header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;margin-bottom:1rem}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-left img{height:52px;background:white;border-radius:6px;padding:4px 8px}
+.htitle h1{font-size:15px;font-weight:500;color:#e0e6f0}
+.htitle p{font-size:12px;color:#6b82a0}
+.live{font-size:12px;color:#4a9fd4;background:#0d1f38;padding:4px 10px;border-radius:6px;border:.5px solid #1e3a5a;display:flex;align-items:center;gap:5px}
+.dot{width:6px;height:6px;border-radius:50%;background:#3db87a;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.section{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.06em;margin:1rem 0 .5rem;display:flex;justify-content:space-between;align-items:center}
+.section.clickable{cursor:pointer}
+.section.clickable:hover{color:#a0b0c0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
+.card{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:1rem;cursor:pointer;transition:border-color .2s,background .2s}
+.card:hover{border-color:#4a9fd4;background:#111d35}
+.card.no-click{cursor:default}
+.card.no-click:hover{border-color:#1e2d4a;background:#0f1628}
+.card-label{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.card-value{font-size:30px;font-weight:500;line-height:1}
+.card-unit{font-size:14px;color:#6b82a0;margin-left:2px}
+.card-sub{font-size:12px;color:#6b82a0;margin-top:6px}
+.bar-bg{height:5px;background:#1e2d4a;border-radius:3px;margin-top:8px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px}
+.good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
+.status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
+.status-row:last-child{border-bottom:none}
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:8px}
+.updated{font-size:11px;color:#6b82a0;text-align:right;margin-top:.5rem}
+
+/* Flow diagram */
+.flow-wrap{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:1.25rem;margin-bottom:10px}
+.flow-canvas{position:relative;width:100%;height:420px}
+svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.nd{position:absolute;display:flex;flex-direction:column;align-items:center;cursor:pointer}
+.nd:hover .nb{filter:brightness(1.25)}
+.nb{border-radius:10px;border:1px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;gap:2px;transition:filter .2s,box-shadow .2s;position:relative}
+.nd:hover .nb{box-shadow:0 0 12px rgba(74,159,212,.3)}
+.ni{font-size:18px}
+.nl{font-size:9px;font-weight:500;text-align:center;margin-top:1px}
+.nv{font-size:10px;text-align:center}
+.nbadge{font-size:8px;padding:1px 5px;border-radius:3px;margin-top:3px}
+
+/* Battery SOC tank fill inside node */
+.bat-tank{width:28px;height:32px;border-radius:3px;border:1.5px solid rgba(255,255,255,.25);overflow:hidden;position:relative;margin:2px auto 0;background:#0a0e1a}
+.bat-cap{width:10px;height:4px;background:rgba(255,255,255,.2);border-radius:2px 2px 0 0;margin:0 auto -1px}
+.bat-fill{position:absolute;bottom:0;left:0;right:0;transition:height .8s ease,background .5s ease;border-radius:0 0 2px 2px}
+.bat-soc-label{font-size:9px;font-weight:600;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+
+/* Summary legend row */
+.leg{display:flex;gap:12px;margin-top:.75rem;flex-wrap:wrap}
+.li{display:flex;align-items:center;gap:4px;font-size:10px;color:#6b82a0}
+.ld{width:16px;height:2px;border-radius:1px}
+.sys-badge{font-size:10px;padding:2px 8px;border-radius:4px;border:.5px solid}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#0f1628;border:.5px solid #2a3a5a;border-radius:14px;padding:1.5rem;width:94%;max-width:720px;max-height:90vh;overflow-y:auto}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+.modal-title{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.modal-icon{font-size:20px}
+.modal-close{background:none;border:none;color:#6b82a0;font-size:24px;cursor:pointer;line-height:1;padding:0 4px}
+.modal-close:hover{color:#e0e6f0}
+.modal-live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:1rem}
+.mlive{background:#0a0e1a;border-radius:8px;padding:.6rem .75rem}
+.mlive-label{font-size:10px;color:#6b82a0;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.mlive-val{font-size:18px;font-weight:500}
+.mlive-unit{font-size:11px;color:#6b82a0;margin-left:2px}
+.dur-btns{display:flex;gap:6px;margin-bottom:.75rem}
+.dur-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer}
+.dur-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.chart-section-label{font-size:10px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem}
+.chart-wrap{position:relative;height:220px;margin-bottom:.75rem}
+.chart-loading{display:flex;align-items:center;justify-content:center;height:220px;color:#6b82a0;font-size:13px}
+.modal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat-box{background:#0a0e1a;border-radius:8px;padding:.6rem;text-align:center}
+.stat-box .slabel{font-size:10px;color:#6b82a0;margin-bottom:3px}
+.stat-box .sval{font-size:16px;font-weight:500}
+
+/* SOC fill bar in modal */
+.soc-bar-wrap{margin-bottom:.75rem}
+.soc-bar-bg{height:18px;background:#1e2d4a;border-radius:6px;overflow:hidden;position:relative}
+.soc-bar-fill{height:100%;border-radius:6px;transition:width .8s ease,background .5s ease;display:flex;align-items:center;justify-content:flex-end;padding-right:8px}
+.soc-bar-label{font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <img src="/assets/logo.png" alt="Exit Strategy">
+    <div class="htitle">
+      <h1>Exit Strategy</h1>
+      <p>Bavaria 36 · Harborage Marina, St. Pete</p>
+    </div>
+  </div>
+  <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
+</div>
+
+<!-- Environment -->
+<div class="section">Environment · BME680</div>
+<div class="grid">
+  <div class="card" onclick="openInfluxModal('temp_f','Temperature','°F','#4a9fd4')">
+    <div class="card-label">Temperature</div>
+    <div class="card-value info" id="temp">--<span class="card-unit">°F</span></div>
+    <div class="card-sub" id="temp-sub">Loading...</div>
+    <div class="bar-bg"><div class="bar-fill" id="temp-bar" style="width:0%;background:#4a9fd4"></div></div>
+  </div>
+  <div class="card" onclick="openInfluxModal('humidity','Humidity','%','#3db87a')">
+    <div class="card-label">Humidity</div>
+    <div class="card-value good" id="humidity">--<span class="card-unit">%</span></div>
+    <div class="card-sub">Relative humidity</div>
+    <div class="bar-bg"><div class="bar-fill" id="humidity-bar" style="width:0%;background:#3db87a"></div></div>
+  </div>
+  <div class="card" onclick="openInfluxModal('pressure','Pressure','hPa','#a78bfa')">
+    <div class="card-label">Pressure</div>
+    <div class="card-value purple" id="pressure">--<span class="card-unit">hPa</span></div>
+    <div class="card-sub" id="pressure-sub">Loading...</div>
+  </div>
+  <div class="card" onclick="openInfluxModal('iaq','Air Quality (IAQ)','','#e8a030')">
+    <div class="card-label">Air quality (IAQ)</div>
+    <div class="card-value" id="iaq">--</div>
+    <div class="card-sub" id="iaq-label">Loading...</div>
+    <div class="bar-bg"><div class="bar-fill" id="iaq-bar" style="width:0%"></div></div>
+  </div>
+</div>
+
+<!-- Power system -->
+<div class="section">
+  <span>Power system · Victron</span>
+  <span class="sys-badge" id="sys-state" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Idle</span>
+</div>
+
+<div class="flow-wrap">
+  <div class="flow-canvas" id="fcanvas">
+    <svg class="fsvg" id="fsvg"></svg>
+
+    <!-- Shore -->
+    <div class="nd" id="nd-shore" style="left:1%;top:45%" onclick="openNodeModal('shore')">
+      <div class="nb" style="background:#0d1f38;border-color:#3a7bd5;width:76px;height:64px">
+        <span class="ni">⚡</span>
+        <span class="nl" style="color:#4a9fd4">Shore</span>
+        <span class="nv" style="color:#6b82a0" id="v-grid">--W</span>
+      </div>
+    </div>
+
+    <!-- Multiplus -->
+    <div class="nd" id="nd-mp" style="left:22%;top:45%" onclick="openNodeModal('multiplus')">
+      <div class="nb" style="background:#0d2010;border-color:#2a7a4a;width:82px;height:70px">
+        <span class="ni">🔌</span>
+        <span class="nl" style="color:#3db87a">Multiplus</span>
+        <span class="nv" style="color:#6b82a0" id="v-mp-state">48V</span>
+      </div>
+    </div>
+
+    <!-- 48V Battery with SOC tank -->
+    <div class="nd" id="nd-48v" style="left:44%;top:40%" onclick="openNodeModal('bat48')">
+      <div class="nb" style="background:#1a1500;border-color:#7a6020;width:86px;height:90px">
+        <span class="ni">🔋</span>
+        <span class="nl" style="color:#e8a030">48V Bank</span>
+        <div class="bat-cap"></div>
+        <div class="bat-tank">
+          <div class="bat-fill" id="bat-fill-48" style="height:0%;background:#3db87a"></div>
+          <div class="bat-soc-label" id="bat-soc-text" style="color:#fff">--%</div>
+        </div>
+      </div>
+      <span class="nbadge" style="background:#1a1500;color:#e8a030;border:.5px solid #7a6020">200Ah LiFePO4</span>
+    </div>
+
+    <!-- Solar (planned) -->
+    <div class="nd" id="nd-sol" style="left:44%;top:2%">
+      <div class="nb" style="background:#0d1f10;border-color:#2a5a2a;opacity:.5;width:76px;height:60px">
+        <span class="ni">☀️</span>
+        <span class="nl" style="color:#639922">Solar</span>
+        <span class="nv" style="color:#6b82a0">planned</span>
+      </div>
+    </div>
+
+    <!-- Orion 1 (48→12V house) -->
+    <div class="nd" id="nd-or1" style="left:66%;top:20%" onclick="openNodeModal('orion1')">
+      <div class="nb" style="background:#0d1a2a;border-color:#2a4a6a;width:68px;height:56px">
+        <span class="ni" style="font-size:14px">⇄</span>
+        <span class="nl" style="color:#5a8ab0">Orion</span>
+        <span class="nv" style="color:#6b82a0;font-size:9px">48→12V</span>
+      </div>
+    </div>
+
+    <!-- Orion 2 (48→12V diesel) -->
+    <div class="nd" id="nd-or2" style="left:66%;top:68%" onclick="openNodeModal('orion2')">
+      <div class="nb" style="background:#0d1a2a;border-color:#2a4a6a;width:68px;height:56px">
+        <span class="ni" style="font-size:14px">⇄</span>
+        <span class="nl" style="color:#5a8ab0">Orion</span>
+        <span class="nv" style="color:#6b82a0;font-size:9px">48→12V</span>
+      </div>
+    </div>
+
+    <!-- 12V House -->
+    <div class="nd" id="nd-12h" style="left:85%;top:5%" onclick="openNodeModal('bat12h')">
+      <div class="nb" style="background:#0d1a1a;border-color:#2a6a6a;width:74px;height:64px">
+        <span class="ni">🔋</span>
+        <span class="nl" style="color:#2dd4bf">12V House</span>
+        <span class="nv" style="color:#6b82a0" id="v-12v">--V</span>
+      </div>
+      <span class="nbadge" style="background:#0d1a1a;color:#2dd4bf;border:.5px solid #2a6a6a">150Ah · SmartShunt</span>
+    </div>
+
+    <!-- 12V Diesel -->
+    <div class="nd" id="nd-12s" style="left:85%;top:57%" onclick="openNodeModal('bat12s')">
+      <div class="nb" style="background:#1a100d;border-color:#6a3a2a;width:74px;height:64px">
+        <span class="ni">🔋</span>
+        <span class="nl" style="color:#f97316">12V Diesel</span>
+        <span class="nv" style="color:#6b82a0" id="v-diesel">--V</span>
+      </div>
+      <span class="nbadge" style="background:#1a100d;color:#f97316;border:.5px solid #6a3a2a">Soon · SmartShunt</span>
+    </div>
+
+    <!-- Bow Thruster -->
+    <div class="nd" id="nd-bt" style="left:85%;top:83%" onclick="openNodeModal('bowthrust')">
+      <div class="nb" style="background:#1a0d1a;border-color:#6a2a6a;width:74px;height:58px">
+        <span class="ni" style="font-size:14px">⚓</span>
+        <span class="nl" style="color:#c084fc">Bow Thrust</span>
+        <span class="nv" style="color:#6b82a0" id="v-thruster">--V</span>
+      </div>
+      <span class="nbadge" style="background:#1a0d1a;color:#c084fc;border:.5px solid #6a2a6a">Soon · SmartShunt</span>
+    </div>
+
+    <!-- Loads -->
+    <div class="nd" id="nd-load" style="left:22%;top:83%" onclick="openNodeModal('loads')">
+      <div class="nb" style="background:#1a0d1a;border-color:#7a3a7a;width:76px;height:64px">
+        <span class="ni">💡</span>
+        <span class="nl" style="color:#c084fc">Loads</span>
+        <span class="nv" style="color:#6b82a0" id="v-load">--W</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="leg">
+    <div class="li"><div class="ld" style="background:#4a9fd4"></div>Shore power</div>
+    <div class="li"><div class="ld" style="background:#3db87a"></div>Charging</div>
+    <div class="li"><div class="ld" style="background:#e8a030"></div>Discharging</div>
+    <div class="li"><div class="ld" style="background:#5a8ab0"></div>DC-DC</div>
+    <div class="li"><div class="ld" style="background:#c084fc"></div>Loads</div>
+    <div class="li"><div class="ld" style="background:#334455;border:1px dashed #445566"></div>Inactive</div>
+    <div class="li" style="margin-left:auto;color:#4a9fd4;font-size:10px">Tap any node for details</div>
+  </div>
+</div>
+
+<!-- System status -->
+<div class="section clickable" onclick="toggleStatus()">
+  <span>System status <span id="status-summary" style="color:#3db87a;font-size:10px;margin-left:8px;text-transform:none;letter-spacing:0">● All systems online</span></span>
+  <span id="status-toggle" style="font-size:14px;color:#6b82a0">▶</span>
+</div>
+<div id="status-card" style="display:none">
+  <div class="card no-click">
+    <div class="status-row">
+      <span><span class="sdot" style="background:#3db87a"></span>Cloudflare tunnel</span>
+      <span class="good">Connected</span>
+    </div>
+    <div class="status-row">
+      <span><span class="sdot" style="background:#3db87a"></span>MQTT broker</span>
+      <span class="good">Running</span>
+    </div>
+    <div class="status-row">
+      <span><span class="sdot" style="background:#3db87a"></span>MariaDB</span>
+      <span class="good">Running</span>
+    </div>
+    <div class="status-row">
+      <span><span class="sdot" id="influx-dot" style="background:#3db87a"></span>InfluxDB</span>
+      <span class="good" id="influx-status">Connected</span>
+    </div>
+    <div class="status-row">
+      <span><span class="sdot" id="victron-dot" style="background:#3db87a"></span>Victron VRM</span>
+      <span id="victron-status" class="good">Connected</span>
+    </div>
+  </div>
+  <div class="updated">Last updated: <span id="last-update">--</span></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon" id="modal-icon">⚡</span>
+        <span id="modal-title">--</span>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+
+    <!-- Live values grid (dynamic per node) -->
+    <div class="modal-live-grid" id="modal-live-grid"></div>
+
+    <!-- SOC bar (shown only for battery nodes) -->
+    <div class="soc-bar-wrap" id="modal-soc-bar" style="display:none">
+      <div class="chart-section-label">State of Charge</div>
+      <div class="soc-bar-bg">
+        <div class="soc-bar-fill" id="modal-soc-fill">
+          <span class="soc-bar-label" id="modal-soc-fill-label"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- History chart -->
+    <div class="chart-section-label" style="margin-top:.5rem">History</div>
+    <div class="dur-btns">
+      <button class="dur-btn active" onclick="setDuration('1h',this)">1H</button>
+      <button class="dur-btn" onclick="setDuration('6h',this)">6H</button>
+      <button class="dur-btn" onclick="setDuration('24h',this)">24H</button>
+      <button class="dur-btn" onclick="setDuration('7d',this)">7D</button>
+      <button class="dur-btn" onclick="setDuration('30d',this)">30D</button>
+    </div>
+
+    <!-- Chart selector (for nodes with multiple series) -->
+    <div id="chart-series-btns" style="display:flex;gap:6px;margin-bottom:.75rem;flex-wrap:wrap"></div>
+
+    <div class="chart-wrap">
+      <div class="chart-loading" id="chart-loading">Loading...</div>
+      <canvas id="trend-chart" style="display:none"></canvas>
+    </div>
+    <div class="modal-stats">
+      <div class="stat-box"><div class="slabel">Min</div><div class="sval" id="stat-min">--</div></div>
+      <div class="stat-box"><div class="slabel">Avg</div><div class="sval" id="stat-avg">--</div></div>
+      <div class="stat-box"><div class="slabel">Max</div><div class="sval" id="stat-max">--</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let trendChart = null;
+let currentDuration = '1h';
+let currentNode = null;
+let currentSeries = null; // {code, label, unit, color}
+let victronData = {};
+
+const svg = document.getElementById('fsvg');
+const canvas = document.getElementById('fcanvas');
+const parts = [];
+let raf;
+
+// ─── Node definitions ────────────────────────────────────────────────────────
+// Each node defines: icon, title, liveFields (pulled from victronData keys),
+// and chartSeries (VRM attribute codes for history)
+const NODE_DEFS = {
+  shore: {
+    icon: '⚡', title: 'Shore Power',
+    liveFields: [
+      { key: 'grid',         label: 'Grid Power',    unit: 'W',  color: '#4a9fd4' },
+      { key: 'mp_voltage_in',label: 'AC Voltage In', unit: 'VAC',color: '#6b82a0' },
+      { key: 'mp_current_in',label: 'AC Current In', unit: 'A',  color: '#6b82a0' },
+    ],
+    chartSeries: [
+      { code: 'g1', label: 'Grid Power', unit: 'W', color: '#4a9fd4' },
+    ]
+  },
+  multiplus: {
+    icon: '🔌', title: 'Multiplus II 48V',
+    liveFields: [
+      { key: 'mp_state',      label: 'Mode',          unit: '',   color: '#3db87a', isText: true },
+      { key: 'grid',          label: 'AC Input',       unit: 'W',  color: '#4a9fd4' },
+      { key: 'ac_load',       label: 'AC Output',      unit: 'W',  color: '#c084fc' },
+      { key: 'mp_voltage_in', label: 'Voltage In',     unit: 'VAC',color: '#6b82a0' },
+      { key: 'mp_voltage_out',label: 'Voltage Out',    unit: 'VAC',color: '#6b82a0' },
+    ],
+    chartSeries: [
+      { code: 'a1', label: 'AC Load',    unit: 'W', color: '#c084fc' },
+      { code: 'g1', label: 'Grid Input', unit: 'W', color: '#4a9fd4' },
+    ]
+  },
+  bat48: {
+    icon: '🔋', title: '48V House Bank',
+    isBattery: true, socKey: 'soc',
+    liveFields: [
+      { key: 'soc',         label: 'State of Charge', unit: '%',  color: '#e8a030' },
+      { key: 'voltage',     label: 'Voltage',         unit: 'V',  color: '#4a9fd4' },
+      { key: 'current',     label: 'Current',         unit: 'A',  color: '#3db87a' },
+      { key: 'power',       label: 'Power',           unit: 'W',  color: '#a78bfa' },
+      { key: 'temp',        label: 'Temperature',     unit: '°C', color: '#f97316' },
+      { key: 'soh',         label: 'State of Health', unit: '%',  color: '#2dd4bf' },
+      { key: 'cell_min',    label: 'Cell Min',        unit: 'V',  color: '#6b82a0' },
+      { key: 'cell_max',    label: 'Cell Max',        unit: 'V',  color: '#6b82a0' },
+      { key: 'time_to_go',  label: 'Time to Go',      unit: 'min',color: '#6b82a0' },
+      { key: 'consumed_ah', label: 'Consumed Ah',     unit: 'Ah', color: '#6b82a0' },
+    ],
+    chartSeries: [
+      { code: 'bs',  label: 'SOC',     unit: '%', color: '#e8a030' },
+      { code: 'bv',  label: 'Voltage', unit: 'V', color: '#4a9fd4' },
+      { code: 'bc',  label: 'Current', unit: 'A', color: '#3db87a' },
+      { code: 'bT',  label: 'Temp',    unit: '°C',color: '#f97316' },
+    ]
+  },
+  bat12h: {
+    icon: '🔋', title: '12V House Bank',
+    isBattery: true, socKey: 'soc_12v',
+    liveFields: [
+      { key: 'soc_12v',   label: 'State of Charge', unit: '%',  color: '#2dd4bf' },
+      { key: 'v_12v',     label: 'Voltage',         unit: 'V',  color: '#4a9fd4' },
+      { key: 'i_12v',     label: 'Current',         unit: 'A',  color: '#3db87a' },
+      { key: 'temp_12v',  label: 'Temperature',     unit: '°C', color: '#f97316' },
+      { key: 'ttg_12v',   label: 'Time to Go',      unit: 'min',color: '#6b82a0' },
+      { key: 'cah_12v',   label: 'Consumed Ah',     unit: 'Ah', color: '#6b82a0' },
+    ],
+    chartSeries: [
+      { code: 'Bs',  label: 'SOC',     unit: '%', color: '#2dd4bf' },
+      { code: 'Bv',  label: 'Voltage', unit: 'V', color: '#4a9fd4' },
+      { code: 'Bc',  label: 'Current', unit: 'A', color: '#3db87a' },
+    ]
+  },
+  bat12s: {
+    icon: '🔋', title: '12V Diesel Start',
+    liveFields: [
+      { key: 'v_diesel', label: 'Voltage', unit: 'V', color: '#f97316' },
+    ],
+    chartSeries: []
+  },
+  bowthrust: {
+    icon: '⚓', title: 'Bow Thruster Bank',
+    liveFields: [
+      { key: 'v_thruster', label: 'Voltage', unit: 'V', color: '#c084fc' },
+    ],
+    chartSeries: []
+  },
+  orion1: {
+    icon: '⇄', title: 'Orion 48→12V (House)',
+    liveFields: [
+      { key: 'orion1_state', label: 'State', unit: '', color: '#5a8ab0', isText: true },
+    ],
+    chartSeries: []
+  },
+  orion2: {
+    icon: '⇄', title: 'Orion 48→12V (Diesel)',
+    liveFields: [
+      { key: 'orion2_state', label: 'State', unit: '', color: '#5a8ab0', isText: true },
+    ],
+    chartSeries: []
+  },
+  loads: {
+    icon: '💡', title: 'AC Loads',
+    liveFields: [
+      { key: 'ac_load', label: 'Load Power', unit: 'W', color: '#c084fc' },
+    ],
+    chartSeries: [
+      { code: 'a1', label: 'AC Load', unit: 'W', color: '#c084fc' },
+    ]
+  },
+};
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = val;
+}
+
+function iaqLabel(val) {
+  if (val < 50)  return ['Excellent', '#3db87a'];
+  if (val < 100) return ['Good',      '#3db87a'];
+  if (val < 150) return ['Moderate',  '#e8a030'];
+  if (val < 200) return ['Poor',      '#e05050'];
+  return ['Very poor', '#e05050'];
+}
+
+function socColor(pct) {
+  if (pct > 60) return '#3db87a';
+  if (pct > 30) return '#e8a030';
+  return '#e05050';
+}
+
+function fmtVal(v, unit, isText) {
+  if (isText) return `<span style="color:#e0e6f0">${v ?? '--'}</span>`;
+  if (v === undefined || v === null) return `<span style="color:#445566">--</span><span style="color:#445566;font-size:11px">${unit}</span>`;
+  let display = typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v;
+  return `${display}<span class="mlive-unit">${unit}</span>`;
+}
+
+function clock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+setInterval(clock, 1000); clock();
+
+function toggleStatus() {
+  const card = document.getElementById('status-card');
+  const icon = document.getElementById('status-toggle');
+  const open = card.style.display === 'block';
+  card.style.display = open ? 'none' : 'block';
+  icon.textContent = open ? '▶' : '▼';
+}
+
+function updateStatusSummary() {
+  const influxOk = document.getElementById('influx-dot').style.background.includes('61, 184');
+  const victronOk = document.getElementById('victron-dot').style.background.includes('61, 184');
+  const el = document.getElementById('status-summary');
+  if (influxOk && victronOk) {
+    el.textContent = '● All systems online'; el.style.color = '#3db87a';
+  } else {
+    el.textContent = '● Check systems'; el.style.color = '#e8a030';
+  }
+}
+
+// ─── Flow diagram ─────────────────────────────────────────────────────────────
+function ctr(id) {
+  const el = document.getElementById(id);
+  const nb = el.querySelector('.nb');
+  const cr = canvas.getBoundingClientRect();
+  const er = nb.getBoundingClientRect();
+  return { x: er.left - cr.left + er.width / 2, y: er.top - cr.top + er.height / 2 };
+}
+
+function fline(x1, y1, x2, y2, col, dash) {
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+  l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+  l.setAttribute('stroke', col); l.setAttribute('stroke-width', '1.5');
+  l.setAttribute('opacity', '0.35');
+  if (dash) l.setAttribute('stroke-dasharray', '4 4');
+  svg.appendChild(l);
+}
+
+function fpart(x1, y1, x2, y2, col) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('r', '3.5'); c.setAttribute('fill', col);
+  svg.appendChild(c);
+  parts.push({ el: c, x1, y1, x2, y2, t: Math.random(), spd: .003 + Math.random() * .002 });
+}
+
+function buildFlow(shoreOn, batCharge, batDischarge) {
+  svg.innerHTML = ''; parts.length = 0;
+  cancelAnimationFrame(raf);
+  const shore = ctr('nd-shore'), mp = ctr('nd-mp'), b48 = ctr('nd-48v');
+  const sol = ctr('nd-sol'), or1 = ctr('nd-or1'), or2 = ctr('nd-or2');
+  const h12 = ctr('nd-12h'), s12 = ctr('nd-12s'), bt = ctr('nd-bt'), load = ctr('nd-load');
+
+  if (shoreOn) {
+    fline(shore.x, shore.y, mp.x, mp.y, '#4a9fd4', false);
+    fpart(shore.x, shore.y, mp.x, mp.y, '#4a9fd4');
+    fpart(shore.x, shore.y, mp.x, mp.y, '#4a9fd4');
+  } else {
+    fline(shore.x, shore.y, mp.x, mp.y, '#334455', true);
+  }
+
+  if (batCharge) {
+    fline(mp.x, mp.y, b48.x, b48.y, '#3db87a', false);
+    fpart(mp.x, mp.y, b48.x, b48.y, '#3db87a');
+    fpart(mp.x, mp.y, b48.x, b48.y, '#3db87a');
+  } else if (batDischarge) {
+    fline(b48.x, b48.y, mp.x, mp.y, '#e8a030', false);
+    fpart(b48.x, b48.y, mp.x, mp.y, '#e8a030');
+    fpart(b48.x, b48.y, mp.x, mp.y, '#e8a030');
+  } else {
+    fline(mp.x, mp.y, b48.x, b48.y, '#334455', true);
+  }
+
+  fline(mp.x, mp.y, load.x, load.y, '#c084fc', false);
+  fpart(mp.x, mp.y, load.x, load.y, '#c084fc');
+  fline(sol.x, sol.y, b48.x, b48.y, '#639922', true);
+  fline(b48.x, b48.y, or1.x, or1.y, '#5a8ab0', false);
+  fpart(b48.x, b48.y, or1.x, or1.y, '#5a8ab0');
+  fline(or1.x, or1.y, h12.x, h12.y, '#2dd4bf', false);
+  fpart(or1.x, or1.y, h12.x, h12.y, '#2dd4bf');
+  fline(b48.x, b48.y, or2.x, or2.y, '#5a8ab0', false);
+  fpart(b48.x, b48.y, or2.x, or2.y, '#5a8ab0');
+  fline(or2.x, or2.y, s12.x, s12.y, '#f97316', false);
+  fpart(or2.x, or2.y, s12.x, s12.y, '#f97316');
+  fline(s12.x, s12.y, bt.x, bt.y, '#c084fc', true);
+
+  animFlow();
+}
+
+function animFlow() {
+  for (const p of parts) {
+    p.t += p.spd; if (p.t > 1) p.t -= 1;
+    p.el.setAttribute('cx', p.x1 + (p.x2 - p.x1) * p.t);
+    p.el.setAttribute('cy', p.y1 + (p.y2 - p.y1) * p.t);
+  }
+  raf = requestAnimationFrame(animFlow);
+}
+
+// ─── Data fetching ────────────────────────────────────────────────────────────
+async function fetchData() {
+  try {
+    const res = await fetch('/api/sensor');
+    const d = await res.json();
+    if (d.temp_f !== undefined) {
+      setText('temp', `${d.temp_f.toFixed(1)}<span class="card-unit">°F</span>`);
+      const pct = Math.min(100, Math.max(0, ((d.temp_f - 60) / 50) * 100));
+      document.getElementById('temp-bar').style.width = pct + '%';
+      setText('temp-sub', `${((d.temp_f - 32) * 5 / 9).toFixed(1)}°C`);
+    }
+    if (d.humidity !== undefined) {
+      setText('humidity', `${d.humidity.toFixed(1)}<span class="card-unit">%</span>`);
+      document.getElementById('humidity-bar').style.width = d.humidity + '%';
+    }
+    if (d.pressure !== undefined) {
+      setText('pressure', `${d.pressure.toFixed(1)}<span class="card-unit">hPa</span>`);
+      const trend = d.pressure > 1013 ? '↑ Rising · fair weather' : d.pressure < 1009 ? '↓ Falling · watch weather' : '→ Steady';
+      const tc = d.pressure > 1013 ? 'good' : d.pressure < 1009 ? 'warn' : 'info';
+      setText('pressure-sub', `<span class="${tc}">${trend}</span>`);
+    }
+    if (d.iaq !== undefined) {
+      const [label, color] = iaqLabel(d.iaq);
+      setText('iaq', `<span style="color:${color}">${d.iaq.toFixed(0)}</span>`);
+      setText('iaq-label', `<span style="color:${color}">${label}</span>`);
+      const pct = Math.min(100, (d.iaq / 300) * 100);
+      const bar = document.getElementById('iaq-bar');
+      bar.style.width = pct + '%'; bar.style.background = color;
+    }
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    document.getElementById('influx-dot').style.background = 'rgb(61,184,122)';
+    document.getElementById('influx-status').textContent = 'Connected';
+    document.getElementById('influx-status').className = 'good';
+    updateStatusSummary();
+  } catch (e) {
+    document.getElementById('influx-dot').style.background = 'rgb(224,80,80)';
+    document.getElementById('influx-status').textContent = 'Error';
+    document.getElementById('influx-status').className = 'error';
+    updateStatusSummary();
+  }
+}
+
+async function fetchVictron() {
+  try {
+    const res = await fetch('/api/victron');
+    const d = await res.json();
+    victronData = d;
+
+    const shoreOn = (d.grid || 0) > 10;
+    const charging = (d.current || 0) > 0.5;
+    const discharging = (d.current || 0) < -0.5;
+
+    // Node value overlays
+    if (d.grid !== undefined)     setText('v-grid', `${Math.round(d.grid)}W`);
+    if (d.ac_load !== undefined)  setText('v-load', `${Math.round(d.ac_load)}W`);
+    if (d.v_12v !== undefined)    setText('v-12v', `${d.v_12v.toFixed(2)}V`);
+    if (d.v_diesel !== undefined) setText('v-diesel', `${d.v_diesel.toFixed(2)}V`);
+    if (d.v_thruster !== undefined) setText('v-thruster', `${d.v_thruster.toFixed(2)}V`);
+    if (d.mp_state !== undefined) setText('v-mp-state', d.mp_state);
+
+    // 48V battery tank fill
+    if (d.soc !== undefined) {
+      const soc = d.soc;
+      const col = socColor(soc);
+      document.getElementById('bat-fill-48').style.height = soc + '%';
+      document.getElementById('bat-fill-48').style.background = col;
+      document.getElementById('bat-soc-text').textContent = soc.toFixed(0) + '%';
+      document.getElementById('bat-soc-text').style.color = soc > 20 ? '#fff' : col;
+    }
+
+    // System state badge
+    const stateEl = document.getElementById('sys-state');
+    if (charging)    { stateEl.textContent='Charging';    stateEl.style.color='#3db87a'; stateEl.style.borderColor='#2a7a4a'; stateEl.style.background='#0d2b1a'; }
+    else if (discharging) { stateEl.textContent='Discharging'; stateEl.style.color='#e8a030'; stateEl.style.borderColor='#7a6020'; stateEl.style.background='#1a1500'; }
+    else             { stateEl.textContent='Idle';        stateEl.style.color='#6b82a0'; stateEl.style.borderColor='#334455'; stateEl.style.background='#0a0e1a'; }
+
+    document.getElementById('victron-dot').style.background = 'rgb(61,184,122)';
+    document.getElementById('victron-status').textContent = 'Connected';
+    document.getElementById('victron-status').className = 'good';
+    updateStatusSummary();
+    buildFlow(shoreOn, charging, discharging);
+
+    // Refresh live grid if modal is open on a Victron node
+    if (currentNode && NODE_DEFS[currentNode]) {
+      refreshModalLive();
+    }
+  } catch (e) {
+    document.getElementById('victron-dot').style.background = 'rgb(224,80,80)';
+    document.getElementById('victron-status').textContent = 'Error';
+    document.getElementById('victron-status').className = 'error';
+    updateStatusSummary();
+    buildFlow(false, false, false);
+  }
+}
+
+// ─── Modal: node popups ───────────────────────────────────────────────────────
+function openNodeModal(nodeKey) {
+  const def = NODE_DEFS[nodeKey];
+  if (!def) return;
+  currentNode = nodeKey;
+  currentDuration = '1h';
+
+  document.getElementById('modal-icon').textContent = def.icon;
+  document.getElementById('modal-title').textContent = def.title;
+  document.getElementById('modal').classList.add('open');
+
+  // Duration buttons reset
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.dur-btn')[0].classList.add('active');
+
+  // Build live value grid
+  refreshModalLive();
+
+  // SOC bar
+  const socBarWrap = document.getElementById('modal-soc-bar');
+  if (def.isBattery && def.socKey) {
+    const soc = victronData[def.socKey];
+    if (soc !== undefined) {
+      const col = socColor(soc);
+      socBarWrap.style.display = 'block';
+      const fill = document.getElementById('modal-soc-fill');
+      fill.style.width = soc + '%';
+      fill.style.background = col;
+      document.getElementById('modal-soc-fill-label').textContent = soc.toFixed(1) + '%';
+    } else {
+      socBarWrap.style.display = 'none';
+    }
+  } else {
+    socBarWrap.style.display = 'none';
+  }
+
+  // Chart series buttons
+  const seriesContainer = document.getElementById('chart-series-btns');
+  seriesContainer.innerHTML = '';
+  if (def.chartSeries && def.chartSeries.length > 0) {
+    currentSeries = def.chartSeries[0];
+    def.chartSeries.forEach((s, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'dur-btn' + (i === 0 ? ' active' : '');
+      btn.style.borderColor = i === 0 ? s.color : '';
+      btn.style.color = i === 0 ? s.color : '';
+      btn.textContent = s.label;
+      btn.onclick = () => {
+        currentSeries = s;
+        document.querySelectorAll('#chart-series-btns .dur-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.borderColor = ''; b.style.color = '';
+        });
+        btn.classList.add('active');
+        btn.style.borderColor = s.color;
+        btn.style.color = s.color;
+        loadVRMHistory();
+      };
+      seriesContainer.appendChild(btn);
+    });
+    loadVRMHistory();
+  } else {
+    currentSeries = null;
+    seriesContainer.style.display = 'none';
+    document.getElementById('chart-loading').textContent = 'No history available for this device';
+    document.getElementById('chart-loading').style.display = 'flex';
+    document.getElementById('trend-chart').style.display = 'none';
+  }
+}
+
+function refreshModalLive() {
+  if (!currentNode) return;
+  const def = NODE_DEFS[currentNode];
+  if (!def) return;
+
+  // Determine data source
+  const isVictron = currentNode !== 'env'; // all flow nodes are Victron
+  const data = victronData;
+
+  const grid = document.getElementById('modal-live-grid');
+  grid.innerHTML = '';
+  (def.liveFields || []).forEach(f => {
+    const val = data[f.key];
+    const hasVal = val !== undefined && val !== null;
+    const div = document.createElement('div');
+    div.className = 'mlive';
+    div.innerHTML = `
+      <div class="mlive-label">${f.label}</div>
+      <div class="mlive-val" style="color:${hasVal ? f.color : '#445566'}">${fmtVal(val, f.unit, f.isText)}</div>
+    `;
+    grid.appendChild(div);
+  });
+
+  // Refresh SOC bar if open
+  if (def.isBattery && def.socKey) {
+    const soc = data[def.socKey];
+    if (soc !== undefined) {
+      const col = socColor(soc);
+      document.getElementById('modal-soc-bar').style.display = 'block';
+      const fill = document.getElementById('modal-soc-fill');
+      fill.style.width = soc + '%';
+      fill.style.background = col;
+      document.getElementById('modal-soc-fill-label').textContent = soc.toFixed(1) + '%';
+    }
+  }
+}
+
+// ─── Modal: Influx chart (environment sensors) ────────────────────────────────
+function openInfluxModal(field, title, unit, color) {
+  currentNode = null;
+  currentSeries = { code: field, label: title, unit, color, source: 'influx', field };
+  currentDuration = '1h';
+
+  document.getElementById('modal-icon').textContent = '🌡️';
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-live-grid').innerHTML = '';
+  document.getElementById('modal-soc-bar').style.display = 'none';
+  document.getElementById('chart-series-btns').innerHTML = '';
+  document.getElementById('modal').classList.add('open');
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.dur-btn')[0].classList.add('active');
+  loadInfluxHistory(field, unit, color);
+}
+
+// ─── Modal: shared chart loading ──────────────────────────────────────────────
+function setDuration(dur, btn) {
+  currentDuration = dur;
+  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (currentNode) {
+    loadVRMHistory();
+  } else if (currentSeries && currentSeries.source === 'influx') {
+    loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
+  }
+}
+
+async function loadVRMHistory() {
+  if (!currentSeries) return;
+  showChartLoading('Loading...');
+  try {
+    const res = await fetch(`/api/victron/history?code=${currentSeries.code}&range=${currentDuration}`);
+    const d = await res.json();
+    renderChart(d.times, d.values, currentSeries.color, currentSeries.unit);
+  } catch (e) {
+    showChartLoading('Error loading history');
+  }
+}
+
+async function loadInfluxHistory(field, unit, color) {
+  showChartLoading('Loading...');
+  try {
+    const res = await fetch(`/api/trend?field=${field}&range=${currentDuration}`);
+    const d = await res.json();
+    renderChart(d.times, d.values, color, unit);
+  } catch (e) {
+    showChartLoading('Error loading data');
+  }
+}
+
+function showChartLoading(msg) {
+  document.getElementById('chart-loading').textContent = msg;
+  document.getElementById('chart-loading').style.display = 'flex';
+  document.getElementById('trend-chart').style.display = 'none';
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+}
+
+function renderChart(times, values, color, unit) {
+  if (!times || times.length === 0) {
+    showChartLoading('No data for this period');
+    return;
+  }
+  const labels = times.map(t => {
+    const dt = new Date(t);
+    if (currentDuration === '7d' || currentDuration === '30d')
+      return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+  const min = Math.min(...values), max = Math.max(...values);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  document.getElementById('stat-min').textContent = min.toFixed(1) + unit;
+  document.getElementById('stat-avg').textContent = avg.toFixed(1) + unit;
+  document.getElementById('stat-max').textContent = max.toFixed(1) + unit;
+  document.getElementById('chart-loading').style.display = 'none';
+  const c = document.getElementById('trend-chart');
+  c.style.display = 'block';
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  trendChart = new Chart(c, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: color,
+        backgroundColor: color + '22',
+        borderWidth: 2,
+        pointRadius: values.length > 100 ? 0 : 3,
+        pointHoverRadius: 5,
+        fill: true,
+        tension: .3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)}${unit}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#6b82a0', maxTicksLimit: 8, font: { size: 11 } }, grid: { color: '#1e2d4a' } },
+        y: { ticks: { color: '#6b82a0', font: { size: 11 } }, grid: { color: '#1e2d4a' } }
+      }
+    }
+  });
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  currentNode = null;
+  currentSeries = null;
+}
+
+function closeModalOutside(e) {
+  if (e.target === document.getElementById('modal')) closeModal();
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+fetchData();
+fetchVictron();
+setInterval(fetchData, 60000);
+setInterval(fetchVictron, 30000);
+setTimeout(() => buildFlow(true, false, false), 300);
+</script>
+</body>
+</html>
