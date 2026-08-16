@@ -891,8 +891,13 @@ def health():
     return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    # DEBUG_MODE=True uses Flask's auto-reloader, which forks a child process —
+    # WERKZEUG_RUN_MAIN is only set in that child, so gating on it avoids starting
+    # every background thread twice. With DEBUG_MODE=False (production) there's no
+    # reloader at all, so the threads must start unconditionally instead.
+    DEBUG_MODE = True
+    if not DEBUG_MODE or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         start_mqtt_listener()
         threading.Thread(target=anchor_monitor_loop, daemon=True).start()
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
-    app.run(host='0.0.0.0', port=5003, debug=True)
+    app.run(host='0.0.0.0', port=5003, debug=DEBUG_MODE)
