@@ -41,6 +41,12 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .relay-toggle-btn.state-on{color:#3db87a;border-color:#2a7a4a;background:#0d2b1a}
 .relay-toggle-btn.state-off{color:#8fa3bd;border-color:#334455;background:#0a0e1a}
 .relay-toggle-btn.state-unknown{color:#6b82a0;border-color:#334455;background:#0a0e1a;opacity:.6}
+.fan-mode-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.fan-mode-row .relay-toggle-btn{flex:1;min-width:100px;padding:9px 8px;font-size:12px}
+.fan-setpoint-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.fan-setpoint-row label{font-size:12px;color:#6b82a0}
+.num-input{background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:6px;padding:7px 10px;font-size:13px;color:#e0e6f0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;width:70px}
+.num-input:focus{outline:none;border-color:#4a9fd4}
 .forecast-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
 .forecast-card{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:.9rem 1rem;min-width:140px;flex:0 0 auto}
 .forecast-card-name{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
@@ -590,7 +596,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <div class="card-value good" id="engine-fan-humidity">--<span class="card-unit">%</span></div>
       <div class="card-sub">Engine bay humidity</div>
     </div>
-    <div class="card no-click">
+    <div class="card" onclick="openFanModal()">
       <div class="card-label">Cooling Fan</div>
       <div class="card-value" id="engine-fan-state">--</div>
       <div class="card-sub" id="engine-fan-mode">Mode: --</div>
@@ -928,6 +934,46 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 </div>
 
+<!-- Engine Fan Control Modal -->
+<div class="modal-overlay" id="fan-modal" onclick="closeFanModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🌀</span>
+        <span>Engine Compartment Fan</span>
+      </div>
+      <button class="modal-close" onclick="closeFanModal()">×</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div class="wm-info-label" style="margin-bottom:0">Fan Mode</div>
+      <span class="sys-badge" id="fan-status-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Unknown</span>
+    </div>
+    <div class="fan-mode-row">
+      <button class="relay-toggle-btn state-unknown" id="fan-mode-auto-btn" onclick="setFanMode('AUTO')">AUTO</button>
+      <button class="relay-toggle-btn state-unknown" id="fan-mode-manualon-btn" onclick="setFanMode('MANUAL_ON')">MANUAL ON</button>
+      <button class="relay-toggle-btn state-unknown" id="fan-mode-manualoff-btn" onclick="setFanMode('MANUAL_OFF')">MANUAL OFF</button>
+    </div>
+    <div id="fan-manual-remaining" class="wm-info-label" style="min-height:14px;margin:-8px 0 12px"></div>
+
+    <div class="wm-info-label" style="margin-bottom:8px">Auto Setpoints (°F)</div>
+    <div class="fan-setpoint-row">
+      <label for="fan-setpoint-on">Fan ON</label>
+      <input type="number" id="fan-setpoint-on" class="num-input" value="115">
+      <label for="fan-setpoint-off">Fan OFF</label>
+      <input type="number" id="fan-setpoint-off" class="num-input" value="110">
+      <button class="wm-btn wm-btn-manual" onclick="updateFanSetpoints()">Update Setpoints</button>
+    </div>
+    <div id="fan-setpoint-note" class="wm-info-label" style="min-height:14px"></div>
+
+    <div class="wm-info-label" style="margin:10px 0 8px">Manual Override Timeout (min, 0 = no timeout)</div>
+    <div class="fan-setpoint-row">
+      <input type="number" id="fan-timeout" class="num-input" value="30" min="0">
+      <button class="wm-btn wm-btn-manual" onclick="updateFanTimeout()">Update Timeout</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let trendChart = null;
@@ -964,6 +1010,7 @@ function showPage(page) {
     fetchAisLive();
   } else if (page === 'engine') {
     fetchEngineLive();
+    fetchEngineFanConfig();
   } else if (page === 'weather') {
     fetchWeatherConditions();
     fetchWeatherForecast();
@@ -2889,15 +2936,70 @@ async function fetchEngineLive() {
     const t = d.topics || {};
     const get = k => t[k] ? t[k].value : null;
 
-    const fanTemp = get('boat/engine/fan/temp');
+    const fanTempRec = t['boat/engine/fan/temp'];
+    const fanStatusRec = t['boat/engine/fan/status'];
+    const fanTemp = fanTempRec ? fanTempRec.value : null;
     const fanHumidity = get('boat/engine/fan/humidity');
     const fanState = get('boat/engine/fan/relay/state');
     const fanMode = get('boat/engine/fan/relay/mode');
+    const fanRemaining = get('boat/engine/fan/manual/remaining');
 
     setText('engine-fan-temp', fanTemp !== null ? `${parseFloat(fanTemp).toFixed(1)}<span class="card-unit">°F</span>` : '--<span class="card-unit">°F</span>');
     setText('engine-fan-humidity', fanHumidity !== null ? `${parseFloat(fanHumidity).toFixed(1)}<span class="card-unit">%</span>` : '--<span class="card-unit">%</span>');
     setText('engine-fan-state', fanState !== null ? fanState : '--');
-    setText('engine-fan-mode', 'Mode: ' + (fanMode !== null ? fanMode : '--'));
+    // Ignore a poll that still shows the device's *old* mode for a short grace
+    // window right after we've sent a new command — the device needs a beat
+    // to process it and publish the confirmation. Without this, the optimistic
+    // selection flickers back to the previous mode for one poll tick before
+    // snapping to the correct one, which reads as "glitchy" even though the
+    // command itself always took.
+    const inGracePeriod = fanModePending && Date.now() < fanModePendingUntil && fanMode !== fanModePending;
+    if (!inGracePeriod) {
+      fanModePending = null;
+      setText('engine-fan-mode', 'Mode: ' + (fanMode !== null ? fanMode : '--'));
+      updateFanModeButtons(fanMode);
+    }
+
+    // The device's dedicated status/LWT topic has been observed to go stale for
+    // a long time (its last real update reported OFFLINE from over a day ago,
+    // while temp/humidity/mode were all actively updating) — likely published
+    // without retain on reconnect, or just infrequently. Trusting it blindly
+    // would show a confidently wrong "Offline" for a fan that's clearly online.
+    // Prefer it only when it's itself recently updated; otherwise infer
+    // online/offline from how fresh the temp reading is.
+    const statusBadge = document.getElementById('fan-status-badge');
+    if (statusBadge) {
+      const now = Date.now();
+      const statusAgeS = fanStatusRec ? (now - new Date(fanStatusRec.time).getTime()) / 1000 : Infinity;
+      const tempAgeS = fanTempRec ? (now - new Date(fanTempRec.time).getTime()) / 1000 : Infinity;
+      let label, color, border, bg;
+      if (statusAgeS < 120) {
+        // status topic itself is fresh — trust it directly
+        label = fanStatusRec.value === 'ONLINE' ? 'Online' : 'Offline';
+      } else if (tempAgeS < 60) {
+        label = 'Online'; // inferred — the device is clearly reporting live sensor data
+      } else if (tempAgeS < Infinity) {
+        label = 'Offline'; // inferred — nothing recent from this device
+      } else {
+        label = 'Unknown'; // never seen anything from it at all
+      }
+      if (label === 'Online') { color = '#3db87a'; border = '#2a7a4a'; bg = '#0d2b1a'; }
+      else if (label === 'Offline') { color = '#e05050'; border = '#7a2a2a'; bg = '#1a0d0d'; }
+      else { color = '#6b82a0'; border = '#334455'; bg = '#0a0e1a'; }
+      statusBadge.textContent = label;
+      statusBadge.style.color = color; statusBadge.style.borderColor = border; statusBadge.style.background = bg;
+    }
+
+    const remainingEl = document.getElementById('fan-manual-remaining');
+    if (remainingEl) {
+      const secs = fanRemaining !== null ? parseInt(fanRemaining, 10) : 0;
+      if (secs > 0) {
+        const m = Math.floor(secs / 60), s = secs % 60;
+        remainingEl.textContent = `Manual override reverts to AUTO in ${m}m ${s}s`;
+      } else {
+        remainingEl.textContent = '';
+      }
+    }
 
     const rpm = get('boat/nav/engine/rpm');
     const oilP = get('boat/nav/engine/oil_pressure');
@@ -2914,6 +3016,109 @@ async function fetchEngineLive() {
     setText('engine-fuel-rate', fuel !== null ? `${parseFloat(fuel).toFixed(1)}<span class="card-unit">gph</span>` : '--<span class="card-unit">gph</span>');
   } catch (e) {
     // transient fetch failure — keep last-known readout on screen
+  }
+}
+
+function updateFanModeButtons(mode) {
+  const idByMode = { AUTO: 'fan-mode-auto-btn', MANUAL_ON: 'fan-mode-manualon-btn', MANUAL_OFF: 'fan-mode-manualoff-btn' };
+  Object.entries(idByMode).forEach(([m, id]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.remove('state-on', 'state-off', 'state-unknown');
+    if (mode === null) btn.classList.add('state-unknown');
+    else btn.classList.add(m === mode ? 'state-on' : 'state-off');
+  });
+}
+
+let fanModePending = null;    // mode we last commanded, awaiting device confirmation
+let fanModePendingUntil = 0;  // grace-period deadline — after this, trust the live poll unconditionally
+
+async function setFanMode(command) {
+  try {
+    const res = await fetch('/api/engine_fan/command', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to set fan mode'); return; }
+    fanModePending = command;
+    fanModePendingUntil = Date.now() + 8000; // give the device ~8s to confirm before we stop trusting the optimistic state
+    updateFanModeButtons(command);
+    setText('engine-fan-mode', 'Mode: ' + command);
+  } catch (e) {
+    alert('Failed to set fan mode');
+  }
+}
+
+// Setpoints/timeout are only fetched once, when the Engine tab is opened —
+// unlike the live 4s poll, refreshing these on a timer would clobber
+// whatever the user is mid-typing into the inputs.
+async function fetchEngineFanConfig() {
+  try {
+    const res = await fetch('/api/mqtt/topics');
+    const d = await res.json();
+    const t = d.topics || {};
+    // Status topics have their own /state suffix, distinct from the bare
+    // topics this page writes to (boat/engine/fan/setpoint/on, etc.) — same
+    // read/write split lesson as the smart relay's /set vs /get.
+    const onF = t['boat/engine/fan/setpoint/on/state'] ? t['boat/engine/fan/setpoint/on/state'].value : null;
+    const offF = t['boat/engine/fan/setpoint/off/state'] ? t['boat/engine/fan/setpoint/off/state'].value : null;
+    const timeout = t['boat/engine/fan/manual/timeout/state'] ? t['boat/engine/fan/manual/timeout/state'].value : null;
+    if (onF !== null) document.getElementById('fan-setpoint-on').value = parseFloat(onF);
+    if (offF !== null) document.getElementById('fan-setpoint-off').value = parseFloat(offF);
+    if (timeout !== null) document.getElementById('fan-timeout').value = parseInt(timeout, 10);
+  } catch (e) {
+    // transient fetch failure — inputs keep whatever they last showed
+  }
+}
+
+// The mode buttons/countdown inside the modal are kept fresh by the existing
+// fetchEngineLive() 4s poll (it runs regardless of whether the modal is open,
+// same elements either way) — only the setpoint/timeout inputs need an
+// explicit one-time refresh, matching fetchEngineFanConfig()'s no-clobber intent.
+function openFanModal() {
+  document.getElementById('fan-modal').classList.add('open');
+  fetchEngineFanConfig();
+}
+
+function closeFanModal() {
+  document.getElementById('fan-modal').classList.remove('open');
+}
+
+function closeFanModalOutside(e) {
+  if (e.target === document.getElementById('fan-modal')) closeFanModal();
+}
+
+async function updateFanSetpoints() {
+  const onF = parseFloat(document.getElementById('fan-setpoint-on').value);
+  const offF = parseFloat(document.getElementById('fan-setpoint-off').value);
+  const note = document.getElementById('fan-setpoint-note');
+  if (isNaN(onF) || isNaN(offF)) { if (note) note.textContent = 'Enter valid numbers'; return; }
+  if (offF >= onF) { if (note) note.textContent = 'OFF setpoint must be less than ON setpoint'; return; }
+  try {
+    const res = await fetch('/api/engine_fan/setpoints', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on_f: onF, off_f: offF }),
+    });
+    const d = await res.json();
+    if (note) note.textContent = res.ok ? 'Setpoints updated' : (d.error || 'Failed to update setpoints');
+  } catch (e) {
+    if (note) note.textContent = 'Failed to update setpoints';
+  }
+}
+
+async function updateFanTimeout() {
+  const minutes = parseInt(document.getElementById('fan-timeout').value, 10);
+  if (isNaN(minutes) || minutes < 0) { alert('Enter a valid number of minutes (0 or more)'); return; }
+  try {
+    const res = await fetch('/api/engine_fan/timeout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minutes }),
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to update timeout'); }
+  } catch (e) {
+    alert('Failed to update timeout');
   }
 }
 

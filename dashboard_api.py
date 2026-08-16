@@ -396,6 +396,51 @@ def relay_query():
     mqtt_client.publish('boat/power/relay1/0/get', payload=None)
     return jsonify({'status': 'queried', 'topic': 'boat/power/relay1/0/get'})
 
+# ─── Engine compartment fan control (boat/engine/fan) ──────────────────────────
+# Setpoint/timeout topics are both the status and the config channel — this
+# device reads back its own accepted value on the same topic it's set on
+# (confirmed live: relay/command already echoes 'AUTO' after being set).
+@app.route('/api/engine_fan/command', methods=['POST'])
+def engine_fan_command():
+    data = request.get_json(silent=True) or {}
+    command = data.get('command')
+    if command not in ('AUTO', 'MANUAL_ON', 'MANUAL_OFF'):
+        return jsonify({'error': "command must be 'AUTO', 'MANUAL_ON', or 'MANUAL_OFF'"}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/engine/fan/relay/command', command)
+    return jsonify({'status': 'sent', 'topic': 'boat/engine/fan/relay/command', 'command': command})
+
+@app.route('/api/engine_fan/setpoints', methods=['POST'])
+def engine_fan_setpoints():
+    data = request.get_json(silent=True) or {}
+    try:
+        on_f = float(data.get('on_f'))
+        off_f = float(data.get('off_f'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'on_f and off_f must be numbers'}), 400
+    if off_f >= on_f:
+        return jsonify({'error': 'off_f must be less than on_f'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/engine/fan/setpoint/on', str(on_f))
+    mqtt_client.publish('boat/engine/fan/setpoint/off', str(off_f))
+    return jsonify({'status': 'sent', 'on_f': on_f, 'off_f': off_f})
+
+@app.route('/api/engine_fan/timeout', methods=['POST'])
+def engine_fan_timeout():
+    data = request.get_json(silent=True) or {}
+    try:
+        minutes = int(data.get('minutes'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'minutes must be an integer'}), 400
+    if minutes < 0:
+        return jsonify({'error': 'minutes must be 0 or positive'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/engine/fan/manual/timeout', str(minutes))
+    return jsonify({'status': 'sent', 'minutes': minutes})
+
 # ─── Watermaker trend history (reads from the existing MariaDB MQTT logger) ────
 # boat_monitoring.mqtt_readings is populated by a pre-existing logger service —
 # this dashboard only reads from it, it does not write.
