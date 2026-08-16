@@ -30,7 +30,7 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 | Engine | Compartment temp/humidity, cooling fan control (mode/setpoints/timeout) in a modal, engine telemetry placeholders | `boat/engine/fan/*` (real), `boat/nav/engine/*` (not yet wired) |
 | Anchor Watch | Click-to-place drop point, live distance/bearing, drag/depth/GPS-staleness alarms (ntfy push + GPIO buzzer, works with no tab open), 15-min server-recorded trail | `boat/nav/gps/*`, `boat/nav/depth` |
 | AIS | Nautical chart (OSM/Dark/Esri Ocean layers + OpenSeaMap seamarks), target plotting with heading vectors, server-recorded tracks | `boat/ais/<mmsi>/*` |
-| Weather | Local conditions (BME680) + NWS forecast sub-tab; live Windy.com wind map sub-tab (re-centers on GPS on open) | BME680, api.weather.gov, embed.windy.com |
+| Weather | Local conditions (BME680) + NWS forecast + active marine alert banner (Small Craft Advisory, Gale Warning, etc.) sub-tab; live Windy.com wind map sub-tab (re-centers on GPS on open) | BME680, api.weather.gov, embed.windy.com |
 | MQTT Diagnostics | Collapsible tree of every live MQTT topic, search, connection status | `boat/#`, `N/#` |
 
 ## Dev/test tools (not deployed as services)

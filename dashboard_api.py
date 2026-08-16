@@ -907,25 +907,46 @@ def ais_trails():
 
 # ─── Weather forecast (National Weather Service, api.weather.gov) ──────────────
 # Free, no API key, but wants a real User-Agent and shouldn't be hammered — cached
-# server-side so every browser poll doesn't trigger a fresh upstream call.
-WEATHER_LAT, WEATHER_LON = 27.7000, -82.6900  # home port area; swap for live GPS once cruising further afield
+# server-side so every browser poll doesn't trigger a fresh upstream call. Follows
+# live GPS (falling back to the home-port default with no fix yet) — cache is
+# invalidated early if the boat has moved far enough that the forecast grid box
+# is probably stale, not just on a fixed timer. Note NWS only covers US waters/
+# territories, so this naturally stops being useful once actually offshore —
+# that's a real limitation of the data source, not something to work around here.
+WEATHER_LAT, WEATHER_LON = 27.7000, -82.6900  # fallback until a GPS fix exists
 WEATHER_CACHE_TTL_S = 1800  # 30 min — forecast periods don't change faster than this
-_weather_cache = {'data': None, 'fetched_at': 0}
+WEATHER_CACHE_MOVE_THRESHOLD_NM = 10  # refresh early if the boat's moved further than this since the cached fetch
+_weather_cache = {'data': None, 'fetched_at': 0, 'lat': None, 'lon': None}
+
+def _nm_between(lat1, lon1, lat2, lon2):
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * math.cos(math.radians(lat1))
+    dx = (lon2 - lon1) * m_per_deg_lon
+    dy = (lat2 - lat1) * m_per_deg_lat
+    return math.hypot(dx, dy) / 1852.0
 
 @app.route('/api/weather/forecast')
 def weather_forecast():
+    pos = get_gps_position()
+    lat, lon = pos if pos is not None else (WEATHER_LAT, WEATHER_LON)
+
     now = time.time()
-    if _weather_cache['data'] and (now - _weather_cache['fetched_at'] < WEATHER_CACHE_TTL_S):
+    cache_fresh = bool(_weather_cache['data']) and (now - _weather_cache['fetched_at'] < WEATHER_CACHE_TTL_S)
+    if cache_fresh and _weather_cache['lat'] is not None:
+        if _nm_between(_weather_cache['lat'], _weather_cache['lon'], lat, lon) > WEATHER_CACHE_MOVE_THRESHOLD_NM:
+            cache_fresh = False
+    if cache_fresh:
         return jsonify(_weather_cache['data'])
     try:
         headers = {'User-Agent': 'exit-strategy-dashboard (github.com/mikemc)'}
-        points = requests.get(f'https://api.weather.gov/points/{WEATHER_LAT},{WEATHER_LON}', headers=headers, timeout=8).json()
+        points = requests.get(f'https://api.weather.gov/points/{lat},{lon}', headers=headers, timeout=8).json()
         forecast_url = points['properties']['forecast']
         forecast = requests.get(forecast_url, headers=headers, timeout=8).json()
         periods = forecast['properties']['periods'][:6]
         data = {
             'periods': [{
                 'name': p['name'],
+                'startTime': p['startTime'],
                 'temperature': p['temperature'],
                 'temperatureUnit': p['temperatureUnit'],
                 'shortForecast': p['shortForecast'],
@@ -937,10 +958,101 @@ def weather_forecast():
         }
         _weather_cache['data'] = data
         _weather_cache['fetched_at'] = now
+        _weather_cache['lat'] = lat
+        _weather_cache['lon'] = lon
         return jsonify(data)
     except Exception as e:
         if _weather_cache['data']:
             return jsonify(_weather_cache['data'])  # serve stale rather than nothing on a transient failure
+        return jsonify({'error': str(e)}), 502
+
+# ─── Hourly forecast (for the per-day drilldown when a forecast card is clicked) ─
+# Same points-lookup dance as the daily forecast, just a different NWS product
+# (forecastHourly instead of forecast) — ~150hrs out, one calendar-local
+# startTime per entry, which the frontend buckets by day.
+HOURLY_CACHE_TTL_S = 1800
+_hourly_cache = {'data': None, 'fetched_at': 0, 'lat': None, 'lon': None}
+
+@app.route('/api/weather/hourly')
+def weather_hourly():
+    pos = get_gps_position()
+    lat, lon = pos if pos is not None else (WEATHER_LAT, WEATHER_LON)
+
+    now = time.time()
+    cache_fresh = bool(_hourly_cache['data']) and (now - _hourly_cache['fetched_at'] < HOURLY_CACHE_TTL_S)
+    if cache_fresh and _hourly_cache['lat'] is not None:
+        if _nm_between(_hourly_cache['lat'], _hourly_cache['lon'], lat, lon) > WEATHER_CACHE_MOVE_THRESHOLD_NM:
+            cache_fresh = False
+    if cache_fresh:
+        return jsonify(_hourly_cache['data'])
+    try:
+        headers = {'User-Agent': 'exit-strategy-dashboard (github.com/mikemc)'}
+        points = requests.get(f'https://api.weather.gov/points/{lat},{lon}', headers=headers, timeout=8).json()
+        hourly_url = points['properties']['forecastHourly']
+        hourly = requests.get(hourly_url, headers=headers, timeout=8).json()
+        periods = hourly['properties']['periods']
+        data = {
+            'periods': [{
+                'startTime': p['startTime'],
+                'temperature': p['temperature'],
+                'temperatureUnit': p['temperatureUnit'],
+                'shortForecast': p['shortForecast'],
+                'windSpeed': p['windSpeed'],
+                'windDirection': p['windDirection'],
+                'precipChance': (p.get('probabilityOfPrecipitation') or {}).get('value'),
+                'isDaytime': p['isDaytime'],
+            } for p in periods],
+            'updated': datetime.now(timezone.utc).isoformat(),
+        }
+        _hourly_cache['data'] = data
+        _hourly_cache['fetched_at'] = now
+        _hourly_cache['lat'] = lat
+        _hourly_cache['lon'] = lon
+        return jsonify(data)
+    except Exception as e:
+        if _hourly_cache['data']:
+            return jsonify(_hourly_cache['data'])
+        return jsonify({'error': str(e)}), 502
+
+# ─── Marine alerts (Small Craft Advisory, Gale Warning, etc.) ──────────────────
+# Same api.weather.gov source as the forecast, but a much shorter cache — these
+# need to show up fast, not sit behind a 30-min TTL like forecast text does.
+ALERTS_CACHE_TTL_S = 300  # 5 min
+_alerts_cache = {'data': None, 'fetched_at': 0, 'lat': None, 'lon': None}
+
+@app.route('/api/weather/alerts')
+def weather_alerts():
+    pos = get_gps_position()
+    lat, lon = pos if pos is not None else (WEATHER_LAT, WEATHER_LON)
+
+    now = time.time()
+    cache_fresh = bool(_alerts_cache['data'] is not None) and (now - _alerts_cache['fetched_at'] < ALERTS_CACHE_TTL_S)
+    if cache_fresh and _alerts_cache['lat'] is not None:
+        if _nm_between(_alerts_cache['lat'], _alerts_cache['lon'], lat, lon) > WEATHER_CACHE_MOVE_THRESHOLD_NM:
+            cache_fresh = False
+    if cache_fresh:
+        return jsonify(_alerts_cache['data'])
+    try:
+        headers = {'User-Agent': 'exit-strategy-dashboard (github.com/mikemc)'}
+        resp = requests.get('https://api.weather.gov/alerts/active', params={'point': f'{lat},{lon}'},
+                             headers=headers, timeout=8).json()
+        alerts = [{
+            'event': f['properties']['event'],
+            'severity': f['properties']['severity'],
+            'headline': f['properties']['headline'],
+            'description': f['properties']['description'],
+            'effective': f['properties']['effective'],
+            'expires': f['properties']['expires'],
+        } for f in resp.get('features', [])]
+        data = {'alerts': alerts, 'updated': datetime.now(timezone.utc).isoformat()}
+        _alerts_cache['data'] = data
+        _alerts_cache['fetched_at'] = now
+        _alerts_cache['lat'] = lat
+        _alerts_cache['lon'] = lon
+        return jsonify(data)
+    except Exception as e:
+        if _alerts_cache['data'] is not None:
+            return jsonify(_alerts_cache['data'])
         return jsonify({'error': str(e)}), 502
 
 @app.route('/api/health')

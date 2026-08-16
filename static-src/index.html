@@ -48,13 +48,22 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .num-input{background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:6px;padding:7px 10px;font-size:13px;color:#e0e6f0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;width:70px}
 .num-input:focus{outline:none;border-color:#4a9fd4}
 .forecast-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
-.forecast-card{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:.9rem 1rem;min-width:140px;flex:0 0 auto}
+.forecast-card{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:.9rem 1rem;min-width:140px;flex:0 0 auto;cursor:pointer;transition:border-color .15s}
+.forecast-card:hover{border-color:#4a9fd4}
 .forecast-card-name{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .forecast-card-temp{font-size:22px;font-weight:600;color:#e0e6f0}
 .forecast-card-desc{font-size:12px;color:#8fa3bd;margin-top:4px;line-height:1.35;min-height:32px}
 .forecast-card-wind{font-size:11px;color:#6b82a0;margin-top:8px;padding-top:8px;border-top:.5px solid #1a2438}
 .forecast-empty{color:#6b82a0;font-size:13px;padding:1rem}
-.windy-embed-wrap{width:100%;height:500px;min-height:320px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
+.hourly-row{display:grid;grid-template-columns:64px 44px 1fr 70px 60px;align-items:center;gap:10px;padding:7px 4px;border-bottom:.5px solid #1a2438;font-size:12px}
+.hourly-row:last-child{border-bottom:none}
+.hourly-row-time{color:#8fa3bd}
+.hourly-row-temp{color:#e0e6f0;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hourly-row-desc{color:#c9d4e0}
+.hourly-row-precip{color:#4a9fd4;text-align:right}
+.hourly-row-wind{color:#6b82a0;text-align:right}
+.hourly-modal-list{max-height:60vh;overflow-y:auto}
+.windy-embed-wrap{width:100%;height:420px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
 .status-row:last-child{border-bottom:none}
@@ -194,11 +203,19 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .anchor-alarm-banner.gps-alarm{background:#1a2a3a;border-color:#3a6a9a;color:#7ec4ff}
 .anchor-alarm-banner.gps-alarm.active{animation:gps-pulse 1s infinite}
 @keyframes gps-pulse{0%,100%{background:#1a2a3a}50%{background:#25405a}}
+
+/* Marine alerts (NWS Small Craft Advisory / Gale Warning / etc.) */
+.marine-alert-banner{display:none;flex-direction:column;gap:6px;background:#3a0d0d;border:1px solid #a02020;border-radius:8px;padding:.75rem 1rem;margin-bottom:10px;color:#ff9b9b}
+.marine-alert-banner.active{display:flex}
+.marine-alert-banner.minor{background:#3a2400;border-color:#a06a10;color:#ffb84d}
+.marine-alert-banner-head{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.marine-alert-banner-item{font-size:12px;color:#c9d4e0;line-height:1.4}
+.marine-alert-banner-item b{color:inherit}
 @media (max-width:820px){.anchor-radar-wrap{width:100%}}
 @media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}}
 
 /* AIS chart */
-.ais-map-wrap{position:relative;width:100%;height:560px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
+.ais-map-wrap{position:relative;width:100%;height:600px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
 .ais-map-wrap .leaflet-container{background:#0a0e1a;font-family:inherit}
 .ais-map-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#6b82a0;font-size:14px}
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
@@ -766,6 +783,11 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
+    <div class="marine-alert-banner" id="marine-alert-banner">
+      <div class="marine-alert-banner-head"><span>⚠️</span><span id="marine-alert-banner-title"></span></div>
+      <div id="marine-alert-banner-list"></div>
+    </div>
+
     <div class="section">Forecast · National Weather Service</div>
     <div class="forecast-row" id="wx-forecast-row">
       <div class="forecast-empty">Loading forecast…</div>
@@ -974,6 +996,21 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 </div>
 
+<div class="modal-overlay" id="hourly-modal" onclick="closeHourlyModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🕐</span>
+        <span id="hourly-modal-title">Hourly Forecast</span>
+      </div>
+      <button class="modal-close" onclick="closeHourlyModal()">×</button>
+    </div>
+    <div class="hourly-modal-list" id="hourly-modal-list">
+      <div class="forecast-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let trendChart = null;
@@ -1014,6 +1051,7 @@ function showPage(page) {
   } else if (page === 'weather') {
     fetchWeatherConditions();
     fetchWeatherForecast();
+    fetchMarineAlerts();
     recenterWindyEmbed();
   }
 }
@@ -1631,7 +1669,7 @@ async function wmSetPumpSpeed(btn) {
 
 // ─── MQTT diagnostics ───────────────────────────────────────────────────────────
 let mqttTopics = {};
-let mqttExpanded = {};
+let mqttExpanded = { boat: true }; // everything else defaults collapsed; user toggles are still respected either way
 let mqttSearchTerm = '';
 
 function escapeHtml(s) {
@@ -3155,23 +3193,8 @@ function showWeatherSubTab(tab) {
   document.getElementById('wxsub-' + tab).classList.add('active');
   document.querySelectorAll('.subnavbtn').forEach(b => b.classList.remove('active'));
   document.getElementById('wxsub-nav-' + tab).classList.add('active');
-  if (tab === 'map') {
-    recenterWindyEmbed();
-    resizeWindyEmbed();
-  }
+  if (tab === 'map') recenterWindyEmbed();
 }
-
-// Fits the Windy map to whatever vertical space is actually left on screen,
-// rather than guessing with a CSS calc() — measures where the box starts and
-// sizes it down to the bottom of the viewport (minus a little breathing room).
-function resizeWindyEmbed() {
-  const wrap = document.querySelector('.windy-embed-wrap');
-  if (!wrap || !wrap.offsetParent) return; // not visible right now — nothing to size
-  const top = wrap.getBoundingClientRect().top;
-  const available = window.innerHeight - top - 16; // 16px ~ body's own bottom padding
-  wrap.style.height = Math.max(320, available) + 'px';
-}
-window.addEventListener('resize', () => { if (currentPage === 'weather') resizeWindyEmbed(); });
 
 async function fetchWeatherConditions() {
   try {
@@ -3217,7 +3240,7 @@ async function fetchWeatherForecast() {
       return;
     }
     row.innerHTML = d.periods.map(p => `
-      <div class="forecast-card">
+      <div class="forecast-card" onclick="openHourlyModal('${p.startTime}', '${p.name}')">
         <div class="forecast-card-name">${p.name}</div>
         <div class="forecast-card-temp">${p.temperature}°${p.temperatureUnit}</div>
         <div class="forecast-card-desc">${p.shortForecast}</div>
@@ -3226,6 +3249,84 @@ async function fetchWeatherForecast() {
     `).join('');
   } catch (e) {
     row.innerHTML = `<div class="forecast-empty">Forecast unavailable</div>`;
+  }
+}
+
+// ─── Hourly forecast drilldown (click a forecast card → that calendar day's hours) ──
+let hourlyDataCache = null; // {periods, fetchedAt} — one fetch covers every card, filtered client-side per day
+
+async function openHourlyModal(startTime, dayName) {
+  const modal = document.getElementById('hourly-modal');
+  const list = document.getElementById('hourly-modal-list');
+  document.getElementById('hourly-modal-title').textContent = `${dayName} — Hourly`;
+  list.innerHTML = `<div class="forecast-empty">Loading…</div>`;
+  modal.classList.add('open');
+
+  const dateKey = startTime.slice(0, 10); // YYYY-MM-DD, already in local offset from NWS
+
+  try {
+    if (!hourlyDataCache || (Date.now() - hourlyDataCache.fetchedAt > 15 * 60 * 1000)) {
+      const res = await fetch('/api/weather/hourly');
+      const d = await res.json();
+      if (!res.ok || !d.periods) throw new Error(d.error || 'unavailable');
+      hourlyDataCache = { periods: d.periods, fetchedAt: Date.now() };
+    }
+    const hours = hourlyDataCache.periods.filter(p => p.startTime.slice(0, 10) === dateKey);
+    if (hours.length === 0) {
+      list.innerHTML = `<div class="forecast-empty">No hourly data for this day</div>`;
+      return;
+    }
+    list.innerHTML = hours.map(p => {
+      const t = new Date(p.startTime);
+      const timeLabel = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const precip = (p.precipChance !== null && p.precipChance !== undefined) ? `💧${p.precipChance}%` : '';
+      return `
+        <div class="hourly-row">
+          <span class="hourly-row-time">${timeLabel}</span>
+          <span class="hourly-row-temp">${p.temperature}°</span>
+          <span class="hourly-row-desc">${p.shortForecast}</span>
+          <span class="hourly-row-precip">${precip}</span>
+          <span class="hourly-row-wind">${p.windSpeed}</span>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="forecast-empty">Hourly forecast unavailable</div>`;
+  }
+}
+
+function closeHourlyModal() {
+  document.getElementById('hourly-modal').classList.remove('open');
+}
+
+function closeHourlyModalOutside(e) {
+  if (e.target === document.getElementById('hourly-modal')) closeHourlyModal();
+}
+
+// Severities that get the louder red styling vs. the quieter amber one —
+// mirrors how the anchor alarm banners split "drag" (red) from "depth" (amber).
+const MARINE_ALERT_LOUD_SEVERITIES = new Set(['Extreme', 'Severe']);
+
+async function fetchMarineAlerts() {
+  const banner = document.getElementById('marine-alert-banner');
+  if (!banner) return;
+  try {
+    const res = await fetch('/api/weather/alerts');
+    const d = await res.json();
+    if (!res.ok || !d.alerts || d.alerts.length === 0) {
+      banner.classList.remove('active', 'minor');
+      return;
+    }
+    const loud = d.alerts.some(a => MARINE_ALERT_LOUD_SEVERITIES.has(a.severity));
+    banner.classList.add('active');
+    banner.classList.toggle('minor', !loud);
+    const title = d.alerts.length === 1 ? d.alerts[0].event : `${d.alerts.length} Active Marine Alerts`;
+    document.getElementById('marine-alert-banner-title').textContent = title;
+    document.getElementById('marine-alert-banner-list').innerHTML = d.alerts.map(a => `
+      <div class="marine-alert-banner-item"><b>${a.event}</b> — ${a.headline}</div>
+    `).join('');
+  } catch (e) {
+    banner.classList.remove('active', 'minor');
   }
 }
 
@@ -3246,6 +3347,7 @@ setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000)
 setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
+setInterval(() => { if (currentPage === 'weather') fetchMarineAlerts(); }, 5 * 60 * 1000);
 setTimeout(() => { if (currentPage === 'electrical') buildFlow(true, false, false); }, 300);
 window.addEventListener('resize', () => {
   if (currentPage === 'electrical') {
