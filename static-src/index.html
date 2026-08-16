@@ -62,7 +62,6 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .hourly-row-desc{color:#c9d4e0}
 .hourly-row-precip{color:#4a9fd4;text-align:right}
 .hourly-row-wind{color:#6b82a0;text-align:right}
-.hourly-modal-list{max-height:60vh;overflow-y:auto}
 .windy-embed-wrap{width:100%;height:420px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
@@ -204,13 +203,23 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .anchor-alarm-banner.gps-alarm.active{animation:gps-pulse 1s infinite}
 @keyframes gps-pulse{0%,100%{background:#1a2a3a}50%{background:#25405a}}
 
-/* Marine alerts (NWS Small Craft Advisory / Gale Warning / etc.) */
-.marine-alert-banner{display:none;flex-direction:column;gap:6px;background:#3a0d0d;border:1px solid #a02020;border-radius:8px;padding:.75rem 1rem;margin-bottom:10px;color:#ff9b9b}
-.marine-alert-banner.active{display:flex}
-.marine-alert-banner.minor{background:#3a2400;border-color:#a06a10;color:#ffb84d}
-.marine-alert-banner-head{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
-.marine-alert-banner-item{font-size:12px;color:#c9d4e0;line-height:1.4}
-.marine-alert-banner-item b{color:inherit}
+/* Marine alerts (NWS Small Craft Advisory / Gale Warning / etc.) — global banner, all tabs */
+/* Compact header chip — sits between the boat title and the clock, all tabs */
+.marine-alert-chip{display:none;align-items:center;gap:7px;background:#3a0d0d;border:1px solid #a02020;color:#ff9b9b;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.marine-alert-chip.active{display:flex;animation:marine-alert-pulse 1s infinite}
+@keyframes marine-alert-pulse{0%,100%{background:#3a0d0d}50%{background:#5a1414}}
+.marine-alert-chip.minor{background:#3a2400;border-color:#a06a10;color:#ffb84d}
+.marine-alert-chip.minor.active{animation:marine-alert-pulse-minor 1s infinite}
+@keyframes marine-alert-pulse-minor{0%,100%{background:#3a2400}50%{background:#5a3810}}
+@media (max-width:760px){.marine-alert-chip{max-width:160px}}
+
+/* Full detail card — Weather tab only, same alerts, no truncation */
+.marine-alert-detail{display:none;flex-direction:column;gap:6px;background:#3a0d0d;border:1px solid #a02020;border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;color:#ff9b9b}
+.marine-alert-detail.active{display:flex}
+.marine-alert-detail.minor{background:#3a2400;border-color:#a06a10;color:#ffb84d}
+.marine-alert-detail-head{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.marine-alert-detail-item{font-size:12px;color:#c9d4e0;line-height:1.4}
+.marine-alert-detail-item b{color:inherit}
 @media (max-width:820px){.anchor-radar-wrap{width:100%}}
 @media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}}
 
@@ -302,6 +311,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <h1>Exit Strategy</h1>
       <p>Bavaria 36 · Harborage Marina, St. Pete</p>
     </div>
+  </div>
+  <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather')" title="">
+    <span>⚠️</span><span id="marine-alert-banner-title"></span>
   </div>
   <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
 </div>
@@ -783,9 +795,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
-    <div class="marine-alert-banner" id="marine-alert-banner">
-      <div class="marine-alert-banner-head"><span>⚠️</span><span id="marine-alert-banner-title"></span></div>
-      <div id="marine-alert-banner-list"></div>
+    <div class="marine-alert-detail" id="marine-alert-detail">
+      <div class="marine-alert-detail-head"><span>⚠️</span><span id="marine-alert-detail-title"></span></div>
+      <div id="marine-alert-detail-list"></div>
     </div>
 
     <div class="section">Forecast · National Weather Service</div>
@@ -3255,10 +3267,28 @@ async function fetchWeatherForecast() {
 // ─── Hourly forecast drilldown (click a forecast card → that calendar day's hours) ──
 let hourlyDataCache = null; // {periods, fetchedAt} — one fetch covers every card, filtered client-side per day
 
+// NWS timestamps carry the boat's local UTC offset, e.g. "2026-08-16T23:00:00-04:00".
+// Read hour/offset straight off the string instead of going through Date/toLocaleTimeString,
+// which would silently re-render everything in the viewer's own browser timezone instead —
+// the day boundaries are bucketed on the boat's local date, so the displayed clock time has
+// to stay in that same frame or the two drift apart by whatever the offset difference is.
+function formatBoatLocalHour(iso) {
+  const hh = parseInt(iso.slice(11, 13), 10);
+  const mm = iso.slice(14, 16);
+  const period = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${mm} ${period}`;
+}
+function utcOffsetLabel(iso) {
+  const m = iso.match(/([+-]\d{2}):\d{2}$/);
+  return m ? `UTC${parseInt(m[1], 10)}` : '';
+}
+
 async function openHourlyModal(startTime, dayName) {
   const modal = document.getElementById('hourly-modal');
   const list = document.getElementById('hourly-modal-list');
-  document.getElementById('hourly-modal-title').textContent = `${dayName} — Hourly`;
+  const tz = utcOffsetLabel(startTime);
+  document.getElementById('hourly-modal-title').textContent = `${dayName} — Hourly (boat time${tz ? ', ' + tz : ''})`;
   list.innerHTML = `<div class="forecast-empty">Loading…</div>`;
   modal.classList.add('open');
 
@@ -3277,8 +3307,7 @@ async function openHourlyModal(startTime, dayName) {
       return;
     }
     list.innerHTML = hours.map(p => {
-      const t = new Date(p.startTime);
-      const timeLabel = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const timeLabel = formatBoatLocalHour(p.startTime);
       const precip = (p.precipChance !== null && p.precipChance !== undefined) ? `💧${p.precipChance}%` : '';
       return `
         <div class="hourly-row">
@@ -3308,25 +3337,36 @@ function closeHourlyModalOutside(e) {
 const MARINE_ALERT_LOUD_SEVERITIES = new Set(['Extreme', 'Severe']);
 
 async function fetchMarineAlerts() {
-  const banner = document.getElementById('marine-alert-banner');
-  if (!banner) return;
+  const chip = document.getElementById('marine-alert-banner');
+  const detail = document.getElementById('marine-alert-detail'); // only present on the Weather tab
+  if (!chip) return;
   try {
     const res = await fetch('/api/weather/alerts');
     const d = await res.json();
     if (!res.ok || !d.alerts || d.alerts.length === 0) {
-      banner.classList.remove('active', 'minor');
+      chip.classList.remove('active', 'minor');
+      if (detail) detail.classList.remove('active', 'minor');
       return;
     }
     const loud = d.alerts.some(a => MARINE_ALERT_LOUD_SEVERITIES.has(a.severity));
-    banner.classList.add('active');
-    banner.classList.toggle('minor', !loud);
     const title = d.alerts.length === 1 ? d.alerts[0].event : `${d.alerts.length} Active Marine Alerts`;
+
+    chip.classList.add('active');
+    chip.classList.toggle('minor', !loud);
     document.getElementById('marine-alert-banner-title').textContent = title;
-    document.getElementById('marine-alert-banner-list').innerHTML = d.alerts.map(a => `
-      <div class="marine-alert-banner-item"><b>${a.event}</b> — ${a.headline}</div>
-    `).join('');
+    chip.title = d.alerts.map(a => `${a.event} — ${a.headline}`).join('\n\n');
+
+    if (detail) {
+      detail.classList.add('active');
+      detail.classList.toggle('minor', !loud);
+      document.getElementById('marine-alert-detail-title').textContent = title;
+      document.getElementById('marine-alert-detail-list').innerHTML = d.alerts.map(a => `
+        <div class="marine-alert-detail-item"><b>${a.event}</b> — ${a.headline}</div>
+      `).join('');
+    }
   } catch (e) {
-    banner.classList.remove('active', 'minor');
+    chip.classList.remove('active', 'minor');
+    if (detail) detail.classList.remove('active', 'minor');
   }
 }
 
@@ -3347,7 +3387,8 @@ setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000)
 setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
-setInterval(() => { if (currentPage === 'weather') fetchMarineAlerts(); }, 5 * 60 * 1000);
+fetchMarineAlerts(); // global banner — runs on every tab, not gated to currentPage === 'weather'
+setInterval(fetchMarineAlerts, 5 * 60 * 1000);
 setTimeout(() => { if (currentPage === 'electrical') buildFlow(true, false, false); }, 300);
 window.addEventListener('resize', () => {
   if (currentPage === 'electrical') {
