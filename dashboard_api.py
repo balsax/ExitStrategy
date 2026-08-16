@@ -368,9 +368,9 @@ def watermaker_pump_speed():
 
 # ─── Smart relay (boat/power/relay1) ───────────────────────────────────────────
 # Command payloads ('1' for on, 'o' for off) match this relay's firmware exactly
-# as given — not a guess. The status topic name IS a guess (boat/power/relay1/0,
-# mirroring the /set command topic minus its suffix); flag to the user if it
-# turns out to publish state somewhere else.
+# as given. Status is read by the frontend from boat/power/relay1/0/get (value
+# '0'/'1') — confirmed live on the broker, a different topic and vocabulary
+# than the /set command side.
 @app.route('/api/relay/set', methods=['POST'])
 def relay_set():
     data = request.get_json(silent=True) or {}
@@ -383,6 +383,18 @@ def relay_set():
     topic = 'boat/power/relay1/0/set'
     mqtt_client.publish(topic, payload)
     return jsonify({'status': 'sent', 'topic': topic, 'state': state, 'payload': payload})
+
+@app.route('/api/relay/query', methods=['POST'])
+def relay_query():
+    # boat/power/relay1/0/get isn't retained, so a dashboard that just loaded
+    # has no way to know current state until something happens to trigger a
+    # fresh publish. Confirmed live: publishing an empty payload to that same
+    # /get topic (not /set — never touches the command side) makes the device
+    # report its real status right back on it.
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/power/relay1/0/get', payload=None)
+    return jsonify({'status': 'queried', 'topic': 'boat/power/relay1/0/get'})
 
 # ─── Watermaker trend history (reads from the existing MariaDB MQTT logger) ────
 # boat_monitoring.mqtt_readings is populated by a pre-existing logger service —

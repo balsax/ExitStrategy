@@ -48,6 +48,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .forecast-card-desc{font-size:12px;color:#8fa3bd;margin-top:4px;line-height:1.35;min-height:32px}
 .forecast-card-wind{font-size:11px;color:#6b82a0;margin-top:8px;padding-top:8px;border-top:.5px solid #1a2438}
 .forecast-empty{color:#6b82a0;font-size:13px;padding:1rem}
+.windy-embed-wrap{width:100%;height:500px;min-height:320px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
 .status-row:last-child{border-bottom:none}
@@ -61,6 +62,12 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .navbtn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
 .page{display:none}
 .page.active{display:block}
+.subnav{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;border-bottom:.5px solid #1e2d4a;padding-bottom:.75rem}
+.subnavbtn{background:transparent;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:7px;padding:6px 12px;font-size:12px;cursor:pointer;transition:border-color .2s,color .2s,background .2s}
+.subnavbtn:hover{border-color:#2a3a5a;color:#a0b0c0}
+.subnavbtn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.weather-subpage{display:none}
+.weather-subpage.active{display:block}
 
 /* Placeholder pages */
 .placeholder-wrap{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:3rem 1.5rem;text-align:center}
@@ -713,43 +720,61 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
 <!-- ══════════════════════════════ Weather page ══════════════════════════════ -->
 <div class="page" id="page-weather">
-  <div class="section">Current Conditions · BME680</div>
-  <div class="grid">
-    <div class="card no-click">
-      <div class="card-label">Temperature</div>
-      <div class="card-value info" id="wx-temp">--<span class="card-unit">°F</span></div>
-      <div class="card-sub" id="wx-temp-sub">Loading...</div>
+  <div class="subnav">
+    <button class="subnavbtn active" id="wxsub-nav-conditions" onclick="showWeatherSubTab('conditions')">Local Conditions</button>
+    <button class="subnavbtn" id="wxsub-nav-map" onclick="showWeatherSubTab('map')">Wind Map</button>
+  </div>
+
+  <div class="weather-subpage active" id="wxsub-conditions">
+    <div class="section">Current Conditions · BME680</div>
+    <div class="grid">
+      <div class="card no-click">
+        <div class="card-label">Temperature</div>
+        <div class="card-value info" id="wx-temp">--<span class="card-unit">°F</span></div>
+        <div class="card-sub" id="wx-temp-sub">Loading...</div>
+      </div>
+      <div class="card no-click">
+        <div class="card-label">Humidity</div>
+        <div class="card-value good" id="wx-humidity">--<span class="card-unit">%</span></div>
+        <div class="card-sub">Relative humidity</div>
+      </div>
+      <div class="card no-click">
+        <div class="card-label">Pressure</div>
+        <div class="card-value purple" id="wx-pressure">--<span class="card-unit">hPa</span></div>
+        <div class="card-sub" id="wx-pressure-sub">Loading...</div>
+      </div>
     </div>
-    <div class="card no-click">
-      <div class="card-label">Humidity</div>
-      <div class="card-value good" id="wx-humidity">--<span class="card-unit">%</span></div>
-      <div class="card-sub">Relative humidity</div>
+
+    <div class="section">Wind</div>
+    <div class="notice">
+      <span>⚠ Not yet wired — needs an NMEA2000 wind transducer on the CAN bus (PGN 130306, mapped in n2k_mqtt_bridge.py).</span>
     </div>
-    <div class="card no-click">
-      <div class="card-label">Pressure</div>
-      <div class="card-value purple" id="wx-pressure">--<span class="card-unit">hPa</span></div>
-      <div class="card-sub" id="wx-pressure-sub">Loading...</div>
+    <div class="grid">
+      <div class="card no-click">
+        <div class="card-label">Wind Speed</div>
+        <div class="card-value" id="wx-wind-speed">--<span class="card-unit">kn</span></div>
+      </div>
+      <div class="card no-click">
+        <div class="card-label">Wind Angle</div>
+        <div class="card-value" id="wx-wind-angle">--<span class="card-unit">°</span></div>
+      </div>
+    </div>
+
+    <div class="section">Forecast · National Weather Service</div>
+    <div class="forecast-row" id="wx-forecast-row">
+      <div class="forecast-empty">Loading forecast…</div>
     </div>
   </div>
 
-  <div class="section">Wind</div>
-  <div class="notice">
-    <span>⚠ Not yet wired — needs an NMEA2000 wind transducer on the CAN bus (PGN 130306, mapped in n2k_mqtt_bridge.py).</span>
-  </div>
-  <div class="grid">
-    <div class="card no-click">
-      <div class="card-label">Wind Speed</div>
-      <div class="card-value" id="wx-wind-speed">--<span class="card-unit">kn</span></div>
+  <div class="weather-subpage" id="wxsub-map">
+    <div class="section">Wind Map · Windy.com</div>
+    <div class="flow-wrap">
+      <div class="windy-embed-wrap">
+        <iframe id="windy-embed" frameborder="0"
+          src="https://embed.windy.com/embed2.html?lat=27.7000&lon=-82.6900&detailLat=27.7000&detailLon=-82.6900&zoom=9&level=surface&overlay=wind&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1"
+          style="width:100%;height:100%"></iframe>
+      </div>
     </div>
-    <div class="card no-click">
-      <div class="card-label">Wind Angle</div>
-      <div class="card-value" id="wx-wind-angle">--<span class="card-unit">°</span></div>
-    </div>
-  </div>
-
-  <div class="section">Forecast · National Weather Service</div>
-  <div class="forecast-row" id="wx-forecast-row">
-    <div class="forecast-empty">Loading forecast…</div>
   </div>
 </div>
 
@@ -934,12 +959,15 @@ function showPage(page) {
     fetchAnchorState().then(fetchAnchorLive);
   } else if (page === 'ais') {
     initAisMap();
+    aisHasCentered = false; // re-center on the boat every time the tab is opened, not just the first ever fix
+    aisFollowMode = true;
     fetchAisLive();
   } else if (page === 'engine') {
     fetchEngineLive();
   } else if (page === 'weather') {
     fetchWeatherConditions();
     fetchWeatherForecast();
+    recenterWindyEmbed();
   }
 }
 
@@ -2778,10 +2806,10 @@ async function fetchAisLive() {
 }
 
 // ─── Power control (smart relay) ───────────────────────────────────────────────
-// Status topic name is a best-effort guess (boat/power/relay1/0, mirroring the
-// /set command topic minus its suffix) — flag to the user if the device
-// actually reports state somewhere else, and the button will just stay in the
-// "unknown" gray state until that's fixed.
+// Status topic confirmed from the live broker: boat/power/relay1/0/get, value
+// '0'/'1'. Note this differs from the /set command's own payload vocabulary
+// ('1' for on but 'o' for off) — a real quirk of this device's firmware, not
+// a typo on either side.
 let relay1State = null; // true = on, false = off, null = unknown
 
 function updateRelay1UI() {
@@ -2808,7 +2836,7 @@ async function fetchRelay1State() {
   try {
     const res = await fetch('/api/mqtt/topics');
     const d = await res.json();
-    const rec = d.topics && d.topics['boat/power/relay1/0'];
+    const rec = d.topics && d.topics['boat/power/relay1/0/get'];
     if (rec) {
       const v = String(rec.value).trim().toLowerCase();
       relay1State = (v === '1' || v === 'on');
@@ -2817,6 +2845,20 @@ async function fetchRelay1State() {
     // transient fetch failure — keep last-known state on screen
   }
   updateRelay1UI();
+}
+
+// boat/power/relay1/0/get isn't retained, so on a fresh page load there's
+// nothing to read until the device is prompted — /api/relay/query publishes
+// an empty probe to that same /get topic (never touches /set) and the
+// device replies with its real state a moment later.
+async function queryRelay1State() {
+  try {
+    await fetch('/api/relay/query', { method: 'POST' });
+  } catch (e) {
+    // transient failure — the regular 5s poll will still pick up state
+    // whenever the device next reports it for any other reason
+  }
+  setTimeout(fetchRelay1State, 800);
 }
 
 async function toggleRelay1() {
@@ -2876,6 +2918,56 @@ async function fetchEngineLive() {
 }
 
 // ─── Weather ────────────────────────────────────────────────────────────────
+const WEATHER_LAT = 27.7000, WEATHER_LON = -82.6900; // mirrors WEATHER_LAT/LON in dashboard_api.py
+
+// Re-centers the Windy embed on the boat's current GPS fix — same "reopen the
+// tab, snap back to me" behavior as the AIS map. Falls back to WEATHER_LAT/LON
+// if there's no live fix yet, and just leaves the iframe alone on a fetch
+// failure rather than reloading it to the fallback (avoids an unnecessary
+// reload flicker when GPS is only transiently unavailable).
+async function recenterWindyEmbed() {
+  const iframe = document.getElementById('windy-embed');
+  if (!iframe) return;
+  let lat = WEATHER_LAT, lon = WEATHER_LON;
+  try {
+    const res = await fetch('/api/mqtt/topics');
+    const d = await res.json();
+    const t = d.topics || {};
+    const latVal = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
+    const lonVal = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
+    if (latVal !== null && lonVal !== null) {
+      lat = parseFloat(latVal);
+      lon = parseFloat(lonVal);
+    }
+  } catch (e) {
+    return; // transient failure — leave the embed centered wherever it already is
+  }
+  iframe.src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&zoom=9&level=surface&overlay=wind&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1`;
+}
+
+function showWeatherSubTab(tab) {
+  document.querySelectorAll('.weather-subpage').forEach(p => p.classList.remove('active'));
+  document.getElementById('wxsub-' + tab).classList.add('active');
+  document.querySelectorAll('.subnavbtn').forEach(b => b.classList.remove('active'));
+  document.getElementById('wxsub-nav-' + tab).classList.add('active');
+  if (tab === 'map') {
+    recenterWindyEmbed();
+    resizeWindyEmbed();
+  }
+}
+
+// Fits the Windy map to whatever vertical space is actually left on screen,
+// rather than guessing with a CSS calc() — measures where the box starts and
+// sizes it down to the bottom of the viewport (minus a little breathing room).
+function resizeWindyEmbed() {
+  const wrap = document.querySelector('.windy-embed-wrap');
+  if (!wrap || !wrap.offsetParent) return; // not visible right now — nothing to size
+  const top = wrap.getBoundingClientRect().top;
+  const available = window.innerHeight - top - 16; // 16px ~ body's own bottom padding
+  wrap.style.height = Math.max(320, available) + 'px';
+}
+window.addEventListener('resize', () => { if (currentPage === 'weather') resizeWindyEmbed(); });
+
 async function fetchWeatherConditions() {
   try {
     const res = await fetch('/api/sensor');
@@ -2938,7 +3030,7 @@ const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor',
 showPage(initialPage);
 fetchData();
 fetchVictron();
-fetchRelay1State();
+queryRelay1State();
 setInterval(fetchData, 60000);
 setInterval(fetchVictron, 30000);
 setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
