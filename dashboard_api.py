@@ -1089,8 +1089,8 @@ def weather_alerts():
 # No server-side rendering for it: NOAA already rendered it. What's still
 # vector (soundings, aids to navigation, hazards, bridges) is pre-converted
 # to GeoJSON offline by the same tool, same as the base ENC pipeline.
-CHART_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chart_data', 'processed')
-NCDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chart_data', 'ncds')
+CHART_DATA_DIR = '/home/mikemc/dashboard-dev/chart_data/processed'
+NCDS_DIR = '/home/mikemc/dashboard-dev/chart_data/ncds'
 
 def _ncds_files():
     if not os.path.isdir(NCDS_DIR):
