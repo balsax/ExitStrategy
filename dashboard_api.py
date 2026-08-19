@@ -1,9 +1,12 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 import requests
 import os
+import glob
 import time
 import json
 import math
+import sqlite3
+from collections import Counter
 import threading
 import paho.mqtt.client as mqtt
 import mysql.connector
@@ -322,8 +325,12 @@ def mqtt_topics():
         'topics': topics,
     })
 
-WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual'}
+WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual', 'reset'}  # 'reset' clears an active fault -- the device won't accept other manual commands until it's sent
 WATERMAKER_DEVICES = {'pump', 'boost_pump', 'divert', 'flush'}
+# Only these three faults are bypassable per the firmware's operation spec --
+# the other four protect physical hardware (HP pressure/current, feed
+# starvation) and can only be overridden by going into full manual mode.
+WATERMAKER_BYPASSABLE_FAULTS = {'product_sensor', 'postfilter', 'tank_level'}
 
 @app.route('/api/watermaker/control', methods=['POST'])
 def watermaker_control():
@@ -365,6 +372,21 @@ def watermaker_pump_speed():
         return jsonify({'error': 'MQTT broker not connected'}), 503
     mqtt_client.publish('boat/watermaker/cmd/pump_speed', str(speed))
     return jsonify({'status': 'sent', 'topic': 'boat/watermaker/cmd/pump_speed', 'speed': speed})
+
+@app.route('/api/watermaker/fault_bypass', methods=['POST'])
+def watermaker_fault_bypass():
+    data = request.get_json(silent=True) or {}
+    fault = data.get('fault')
+    state = data.get('state')
+    if fault not in WATERMAKER_BYPASSABLE_FAULTS:
+        return jsonify({'error': f'fault must be one of {sorted(WATERMAKER_BYPASSABLE_FAULTS)}'}), 400
+    if str(state) not in ('0', '1'):
+        return jsonify({'error': 'state must be 0 or 1'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    payload = f'{fault}:{state}'
+    mqtt_client.publish('boat/watermaker/cmd/fault_bypass', payload)
+    return jsonify({'status': 'sent', 'topic': 'boat/watermaker/cmd/fault_bypass', 'payload': payload})
 
 # ─── Smart relay (boat/power/relay1) ───────────────────────────────────────────
 # Command payloads ('1' for on, 'o' for off) match this relay's firmware exactly
@@ -1055,6 +1077,139 @@ def weather_alerts():
             return jsonify(_alerts_cache['data'])
         return jsonify({'error': str(e)}), 502
 
+# ─── Chart tab (NOAA NCDS pre-rendered base + ENC vector overlay) ──────────────
+# Base chart is NOAA's own Chart Display Service (NCDS) -- a single MBTiles
+# (SQLite) file downloaded via chart_tools.py, queried directly per-tile here.
+# No server-side rendering for it: NOAA already rendered it. What's still
+# vector (soundings, aids to navigation, hazards, bridges) is pre-converted
+# to GeoJSON offline by the same tool, same as the base ENC pipeline.
+CHART_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chart_data', 'processed')
+NCDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chart_data', 'ncds')
+
+def _ncds_files():
+    if not os.path.isdir(NCDS_DIR):
+        return []
+    return sorted(glob.glob(os.path.join(NCDS_DIR, '*.mbtiles')))
+
+@app.route('/api/charts/ncds/meta')
+def ncds_meta():
+    files = _ncds_files()
+    if not files:
+        return jsonify({'available': False})
+    # NOAA's regions tile the coast without gaps, so a request may land in
+    # any one of them -- union everything into one logical base layer rather
+    # than making the frontend juggle a tile layer per region.
+    bounds = None
+    min_zoom = None
+    max_zoom_any = None     # highest native zoom in ANY region -- informational only
+    maxzoom_values = []      # native max per region -- see max_zoom_native comment below
+    fmt = 'png'
+    for path in files:
+        conn = sqlite3.connect(path)
+        try:
+            meta = dict(conn.execute('SELECT name, value FROM metadata').fetchall())
+        except sqlite3.DatabaseError:
+            # A region file mid-download (chart_tools.py now downloads to a
+            # .part name and renames atomically, so this shouldn't happen for
+            # new downloads) or otherwise corrupt -- skip it rather than
+            # taking the whole endpoint down.
+            continue
+        finally:
+            conn.close()
+        fmt = meta.get('format', fmt)
+        if 'minzoom' in meta:
+            mz = int(meta['minzoom'])
+            min_zoom = mz if min_zoom is None else min(min_zoom, mz)
+        if 'maxzoom' in meta:
+            xz = int(meta['maxzoom'])
+            max_zoom_any = xz if max_zoom_any is None else max(max_zoom_any, xz)
+            maxzoom_values.append(xz)
+        if 'bounds' in meta:
+            west, south, east, north = (float(v) for v in meta['bounds'].split(','))
+            if bounds is None:
+                bounds = {'west': west, 'south': south, 'east': east, 'north': north}
+            else:
+                bounds['west'] = min(bounds['west'], west)
+                bounds['south'] = min(bounds['south'], south)
+                bounds['east'] = max(bounds['east'], east)
+                bounds['north'] = max(bounds['north'], north)
+    # The safe ceiling for the layer's maxNativeZoom option -- using the
+    # strict minimum across every region broke as soon as coverage grew past
+    # the East Coast/Gulf/Caribbean set: one remote, coarser region (a small
+    # Pacific NW-adjacent area, native max 13 vs. everyone else's 16-18)
+    # dragged the global ceiling down to 13, so home port and everywhere else
+    # started rendering an upscaled, blurry z13 tile instead of their own
+    # real z16 imagery. The most common native max across regions is a much
+    # better ceiling: a lone outlier no longer holds the rest of the country
+    # hostage, and it still only 404s past its own real resolution for that
+    # one outlier region specifically, exactly like a normal over-zoom would.
+    max_zoom_native = Counter(maxzoom_values).most_common(1)[0][0] if maxzoom_values else 16
+    return jsonify({
+        'available': True,
+        'format': fmt,
+        'minZoom': min_zoom if min_zoom is not None else 0,
+        'maxZoom': max_zoom_any if max_zoom_any is not None else 16,
+        'maxNativeZoom': max_zoom_native,
+        'bounds': bounds,
+        'regionCount': len(files),
+    })
+
+@app.route('/api/charts/ncds/tiles/<int:z>/<int:x>/<int:y>.png')
+def ncds_tile(z, x, y):
+    files = _ncds_files()
+    if not files:
+        return '', 404
+    tms_row = (2 ** z - 1) - y  # MBTiles stores rows TMS-style; Leaflet requests XYZ
+    # Regions' rectangular bounding boxes overlap at low zoom even though
+    # their real detailed coverage doesn't -- NOAA's own MBTiles fill that
+    # whole rectangle with tiles, including a blank placeholder (~190 bytes)
+    # for the parts outside real coverage. So more than one region file can
+    # have a row at the same z/x/y, and taking the first hit (alphabetical
+    # file order) can return a neighboring region's blank placeholder instead
+    # of the real content sitting in the correct one. Checking every match
+    # and keeping the largest reliably picks the real tile: actual chart
+    # imagery compresses to KB, blank placeholders don't.
+    best = None
+    for path in files:
+        conn = sqlite3.connect(path)
+        try:
+            row = conn.execute(
+                'SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?',
+                (z, x, tms_row)
+            ).fetchone()
+        except sqlite3.DatabaseError:
+            continue  # mid-download or otherwise corrupt file -- skip, don't 500 the tile request
+        finally:
+            conn.close()
+        if row is not None and (best is None or len(row[0]) > len(best)):
+            best = row[0]
+    if best is None:
+        return '', 404
+    return Response(best, mimetype='image/png')
+
+@app.route('/api/charts/cells')
+def chart_cells():
+    cells = []
+    if os.path.isdir(CHART_DATA_DIR):
+        for name in sorted(os.listdir(CHART_DATA_DIR)):
+            meta_path = os.path.join(CHART_DATA_DIR, name, 'meta.json')
+            if os.path.isfile(meta_path):
+                with open(meta_path) as f:
+                    cells.append(json.load(f))
+    return jsonify({'cells': cells})
+
+@app.route('/api/charts/<cell>/<layer>')
+def chart_layer(cell, layer):
+    # cell/layer come straight off the URL -- restrict to exactly what
+    # chart_tools.py can produce (send_from_directory itself blocks path
+    # traversal; this just avoids serving anything that isn't a chart file).
+    if not cell.isalnum() or not (layer == 'meta.json' or layer.endswith('.geojson')):
+        return jsonify({'error': 'not found'}), 404
+    cell_dir = os.path.join(CHART_DATA_DIR, cell)
+    if not os.path.isdir(cell_dir):
+        return jsonify({'error': 'unknown cell'}), 404
+    return send_from_directory(cell_dir, layer)
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})
@@ -1069,4 +1224,10 @@ if __name__ == '__main__':
         start_mqtt_listener()
         threading.Thread(target=anchor_monitor_loop, daemon=True).start()
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
-    app.run(host='0.0.0.0', port=5003, debug=DEBUG_MODE)
+    # threaded=True matters a lot for the Chart tab specifically: a browser
+    # loads a viewport's worth of tile <img> requests in parallel, and
+    # without this the dev server handles them one at a time -- fine for a
+    # tightly zoomed-in view needing a handful of tiles, but a zoomed-out
+    # view needing dozens queues up behind itself and can look like tiles
+    # just aren't rendering, even though every individual request is fast.
+    app.run(host='0.0.0.0', port=5003, debug=DEBUG_MODE, threaded=True)

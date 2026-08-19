@@ -2,3 +2,4 @@ node_modules/
 anchor_state.json
 __pycache__/
 *.pyc
+chart_data/

@@ -29,7 +29,7 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 | Watermaker | RO system gauges, start/stop/flush, manual device control, trend history | `boat/watermaker/*`, MariaDB |
 | Engine | Compartment temp/humidity, cooling fan control (mode/setpoints/timeout) in a modal, engine telemetry placeholders | `boat/engine/fan/*` (real), `boat/nav/engine/*` (not yet wired) |
 | Anchor Watch | Click-to-place drop point, live distance/bearing, drag/depth/GPS-staleness alarms (ntfy push + GPIO buzzer, works with no tab open), 15-min server-recorded trail | `boat/nav/gps/*`, `boat/nav/depth` |
-| AIS | Nautical chart (OSM/Dark/Esri Ocean layers + OpenSeaMap seamarks), target plotting with heading vectors, server-recorded tracks | `boat/ais/<mmsi>/*` |
+| Chart | NOAA nautical chart — pre-rendered NCDS base tiles (real paper-chart symbology, served straight out of NOAA's own MBTiles, switchable to Streets/Dark) + a clickable ENC vector overlay (soundings, buoys/beacons/lights, bridges, wrecks/obstructions), zoom-gated layer toggles, AIS traffic (target plotting, heading vectors, server-recorded tracks — replaces the old standalone AIS tab), and a "My Vessel & Autopilot" info panel (heading/COG/SOG; autopilot not wired) | `chart_data/ncds/` (MBTiles), `chart_data/processed/` (GeoJSON), `boat/ais/<mmsi>/*` |
 | Weather | Local conditions (BME680) + NWS forecast + active marine alert banner (Small Craft Advisory, Gale Warning, etc.) sub-tab; live Windy.com wind map sub-tab (re-centers on GPS on open) | BME680, api.weather.gov, embed.windy.com |
 | MQTT Diagnostics | Collapsible tree of every live MQTT topic, search, connection status | `boat/#`, `N/#` |
 
@@ -48,13 +48,26 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 
 Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS receiver) will eventually use via `n2k_mqtt_bridge.py`, so no frontend code needs to change once that's wired up.
 
+- **`garmin_1243_simulator.py`** — simulates a Garmin GPSMAP 1243 chartplotter's NMEA2000 output one layer lower than the two simulators above: canboat `analyzer -json` lines (position/COG/SOG/heading/GNSS-fix PGNs) on stdout, piped into the real, unmodified `n2k_mqtt_bridge.py` instead of publishing MQTT directly. Stands in for `candump can0 | analyzer -json`, so it exercises (and helped verify) the bridge's actual PGN-to-MQTT mapping, not just the dashboard. Heading and COG deliberately drift apart a little, matching real leeway/current behavior — visible as two distinct lines on the Chart tab's "My Vessel" overlay.
+  ```
+  python3 garmin_1243_simulator.py | python3 n2k_mqtt_bridge.py
+  python3 garmin_1243_simulator.py --swing-radius 25 | python3 n2k_mqtt_bridge.py
+  ```
+
+- **`chart_tools.py`** — downloads chart data for the Chart tab. The base layer is NOAA's own pre-rendered Chart Display Service (NCDS) tiles, one MBTiles file per coastal region — no local rendering needed, dashboard_api.py scans every downloaded region and queries the SQLite file that actually has the requested tile. The clickable overlay (soundings, aids to navigation, bridges, hazards) is ENC vector data converted to GeoJSON via `ogr2ogr`, same as any ENC pipeline requires. Requires `gdal-bin` (`ogr2ogr`).
+  ```
+  python3 chart_tools.py download-ncds ncds_10                        # one region (large — several hundred MB each)
+  python3 chart_tools.py sync US5TPAEF US5TPAFG US4FL1PQ US3FL1EE     # vector overlay cells (home port area)
+  ```
+  Currently downloaded: US East Coast (Maine–South Florida), the full Gulf of Mexico, and the Caribbean/Puerto Rico/USVI region (`ncds_01a` through `ncds_14`, `ncds_09`) — 17 regions, ~8.1GB in `chart_data/ncds/` (gitignored, not in version control). See the docstring at the top of the file for how to look up the NCDS region or ENC cell(s) covering a different location.
+
 ## Hardware status
 
 | System | Status |
 |---|---|
 | Watermaker, smart relay, engine fan controller | **Real**, live on MQTT |
 | BME680 (cabin sensor), Victron VRM | **Real** |
-| GPS, depth, heading, AIS | **Simulated** — CAN bus has zero physical traffic; `n2k_mqtt_bridge.py` is written and topic-compatible but not yet deployed, pending the CAN HAT being wired into the N2K backbone |
+| GPS, depth, heading, AIS | **Simulated** — CAN bus has zero physical traffic; `n2k_mqtt_bridge.py`'s nav PGN mapping (position/COG/SOG/heading) is verified against simulated canboat JSON via `garmin_1243_simulator.py`, but not yet deployed against the real bus, pending the CAN HAT being wired into the N2K backbone |
 | Engine telemetry (RPM, oil, coolant, alternator, fuel) | Not wired — PGN mapping exists in `n2k_mqtt_bridge.py`, unverified against real hardware |
 | Wind transducer | Not wired — Weather tab's live "Wind" card is a placeholder; the Windy map is an independent forecast source, not this instrument |
 
