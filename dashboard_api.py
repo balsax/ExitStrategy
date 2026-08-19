@@ -327,10 +327,9 @@ def mqtt_topics():
 
 WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual', 'reset'}  # 'reset' clears an active fault -- the device won't accept other manual commands until it's sent
 WATERMAKER_DEVICES = {'pump', 'boost_pump', 'divert', 'flush'}
-# Only these three faults are bypassable per the firmware's operation spec --
-# the other four protect physical hardware (HP pressure/current, feed
-# starvation) and can only be overridden by going into full manual mode.
-WATERMAKER_BYPASSABLE_FAULTS = {'product_sensor', 'postfilter', 'tank_level'}
+# The rest of the hardware-protection faults (HP current) can still only be
+# overridden by going into full manual mode.
+WATERMAKER_BYPASSABLE_FAULTS = {'product_sensor', 'postfilter', 'tank_level', 'hp_pressure_low', 'feed_starvation'}
 
 @app.route('/api/watermaker/control', methods=['POST'])
 def watermaker_control():
@@ -387,6 +386,13 @@ def watermaker_fault_bypass():
     payload = f'{fault}:{state}'
     mqtt_client.publish('boat/watermaker/cmd/fault_bypass', payload)
     return jsonify({'status': 'sent', 'topic': 'boat/watermaker/cmd/fault_bypass', 'payload': payload})
+
+@app.route('/api/watermaker/production_reset', methods=['POST'])
+def watermaker_production_reset():
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/watermaker/cmd/production_reset', '1')
+    return jsonify({'status': 'sent', 'topic': 'boat/watermaker/cmd/production_reset', 'payload': '1'})
 
 # ─── Smart relay (boat/power/relay1) ───────────────────────────────────────────
 # Command payloads ('1' for on, 'o' for off) match this relay's firmware exactly

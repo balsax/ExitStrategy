@@ -168,12 +168,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 #mc-live-pumpspeed{text-align:right}
 #mc-live-current{text-align:left}
 .mc-devices.disabled{opacity:.4;pointer-events:none}
+#mc-bypass-panel{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .mc-device-row{display:flex;align-items:center;justify-content:space-between;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:8px;padding:.75rem 1rem;flex-wrap:wrap;gap:8px}
 .mc-device-info{display:flex;flex-direction:column;gap:3px}
 .mc-device-name{font-size:13px;font-weight:600;color:#e0e6f0}
 .mc-device-state{font-size:11px;color:#6b82a0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .mc-device-btns{display:flex;gap:8px}
 .mc-device-btns .wm-btn{padding:6px 16px;font-size:12px}
+.mc-production-stats{display:flex;flex:1;justify-content:center;align-items:center;gap:56px;flex-wrap:wrap}
+.mc-production-stats .mc-device-info{align-items:center;text-align:center}
 .mc-feedback{margin-top:1rem;font-size:12px;color:#6b82a0;text-align:center;min-height:16px}
 .mc-speed-control{display:flex;align-items:center;gap:10px}
 .mc-slider{width:130px;accent-color:#a78bfa;cursor:pointer}
@@ -586,6 +589,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
   <div class="flow-wrap">
     <div class="wm-state-hero" id="wm-state-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Idle</div>
+    <div class="wm-pump-readout" id="wm-cycle-time-row" style="margin-bottom:.75rem;display:none">
+      <div><span class="wm-pump-label">Cycle Time</span><span class="wm-pump-value" id="wm-cycle-time">--</span></div>
+    </div>
     <div class="wm-gauges">
       <div class="wm-gauge-col">
         <div class="wm-gauge-block wm-clickable" onclick="openWatermakerModal('feed','Feed Pressure','psi','#4a9fd4')">
@@ -641,7 +647,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <button class="wm-btn wm-btn-stop" id="wm-ctrl-stop" onclick="wmSendCommand('stop',this)">■ Stop</button>
       <button class="wm-btn wm-btn-flush" id="wm-ctrl-flush" onclick="wmSendCommand('flush',this)">⟳ Flush</button>
       <button class="wm-btn wm-btn-stop" id="wm-ctrl-reset" onclick="wmSendCommand('reset',this)">⟲ Reset Fault</button>
-      <button class="wm-btn wm-btn-manual" id="wm-ctrl-manual" onclick="openManualModal()">🎛 Manual</button>
+      <button class="wm-btn wm-btn-manual" id="wm-ctrl-manual" onclick="openManualModal()">🎛 Maintenance</button>
       <button class="wm-btn wm-btn-manual" id="wm-ctrl-auto" onclick="wmSendCommand('auto',this)" style="display:none">Exit to Auto</button>
     </div>
     <div id="wm-controls-caption" class="wm-info-label" style="text-align:center;margin-top:8px"></div>
@@ -941,26 +947,27 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 </div>
 
-<!-- Manual Device Control Modal -->
+<!-- Maintenance Modal -->
 <div class="modal-overlay" id="manual-modal" onclick="closeManualModalOutside(event)">
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">
         <span class="modal-icon">🎛</span>
-        <span>Manual Device Control</span>
+        <span>Maintenance Control Panel</span>
       </div>
       <button class="modal-close" onclick="closeManualModal()">×</button>
     </div>
 
     <div class="mc-mode-row">
+      <button class="wm-btn wm-btn-manual" id="mc-enter-manual-btn" onclick="wmEnterManualMode(this)">Enter Manual Mode</button>
+      <button class="wm-btn wm-btn-manual" id="mc-exit-auto-btn" onclick="wmExitToAuto(this)" style="display:none">Exit to Auto</button>
+      <span class="wm-info-label">System Mode</span>
+      <span class="sys-badge" id="mc-mode-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">--</span>
       <span class="mc-fault-inline" id="mc-fault-row" style="display:none">
         <span class="wm-info-label">Fault</span>
         <span class="sys-badge" id="mc-fault-badge" style="color:#e05050;border-color:#7a2a2a;background:#1a0d0d;font-size:13px">--</span>
         <button class="wm-btn wm-btn-stop" onclick="wmResetFault(this)">Reset Fault</button>
       </span>
-      <span class="wm-info-label">System Mode</span>
-      <span class="sys-badge" id="mc-mode-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">--</span>
-      <button class="wm-btn wm-btn-manual" id="mc-enter-manual-btn" onclick="wmEnterManualMode(this)">Enter Manual Mode</button>
     </div>
 
     <div class="mc-layout">
@@ -1048,7 +1055,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
-    <div class="wm-info-label" style="margin:14px 0 8px">Fault Bypass — sensor/comms faults only (hardware-protection faults require full Manual mode instead)</div>
+    <div class="wm-info-label" style="margin:14px 0 8px">Fault Bypass — only the faults below can be bypassed remotely (others require full Manual mode instead)</div>
     <div class="mc-devices" id="mc-bypass-panel">
       <div class="mc-device-row">
         <div class="mc-device-info">
@@ -1057,7 +1064,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         </div>
         <div class="mc-device-btns">
           <button class="wm-btn wm-btn-start" onclick="wmSetFaultBypass('product_sensor',1,this)">Bypass</button>
-          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('product_sensor',0,this)">Enforce</button>
+          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('product_sensor',0,this)">Monitor</button>
         </div>
       </div>
       <div class="mc-device-row">
@@ -1067,7 +1074,27 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         </div>
         <div class="mc-device-btns">
           <button class="wm-btn wm-btn-start" onclick="wmSetFaultBypass('postfilter',1,this)">Bypass</button>
-          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('postfilter',0,this)">Enforce</button>
+          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('postfilter',0,this)">Monitor</button>
+        </div>
+      </div>
+      <div class="mc-device-row">
+        <div class="mc-device-info">
+          <span class="mc-device-name">HP Pressure Low</span>
+          <span class="mc-device-state" id="mc-bypass-state-hp_pressure_low">--</span>
+        </div>
+        <div class="mc-device-btns">
+          <button class="wm-btn wm-btn-start" onclick="wmSetFaultBypass('hp_pressure_low',1,this)">Bypass</button>
+          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('hp_pressure_low',0,this)">Monitor</button>
+        </div>
+      </div>
+      <div class="mc-device-row">
+        <div class="mc-device-info">
+          <span class="mc-device-name">Feed Starvation</span>
+          <span class="mc-device-state" id="mc-bypass-state-feed_starvation">--</span>
+        </div>
+        <div class="mc-device-btns">
+          <button class="wm-btn wm-btn-start" onclick="wmSetFaultBypass('feed_starvation',1,this)">Bypass</button>
+          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('feed_starvation',0,this)">Monitor</button>
         </div>
       </div>
       <div class="mc-device-row">
@@ -1077,7 +1104,30 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         </div>
         <div class="mc-device-btns">
           <button class="wm-btn wm-btn-start" onclick="wmSetFaultBypass('tank_level',1,this)">Bypass</button>
-          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('tank_level',0,this)">Enforce</button>
+          <button class="wm-btn wm-btn-stop" onclick="wmSetFaultBypass('tank_level',0,this)">Monitor</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="wm-info-label" style="margin:14px 0 8px">Production Cycle — reset only available while idle</div>
+    <div class="mc-devices" id="mc-production-panel">
+      <div class="mc-device-row">
+        <div class="mc-production-stats">
+          <div class="mc-device-info">
+            <span class="mc-device-name">Total Production</span>
+            <span class="mc-device-state" id="mc-production-total-time">--</span>
+          </div>
+          <div class="mc-device-info">
+            <span class="mc-device-name">Current Cycle</span>
+            <span class="mc-device-state" id="mc-production-current-time">--</span>
+          </div>
+          <div class="mc-device-info">
+            <span class="mc-device-name">Cycle Count</span>
+            <span class="mc-device-state" id="mc-production-cycle-count">--</span>
+          </div>
+        </div>
+        <div class="mc-device-btns">
+          <button class="wm-btn wm-btn-stop" id="mc-production-reset-btn" onclick="wmResetProduction(this)">Reset</button>
         </div>
       </div>
     </div>
@@ -1591,6 +1641,15 @@ function wmRound1(v) {
   return Math.round(v * 10) / 10;
 }
 
+function wmFormatDuration(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return `${h}:${pad(m)}:${pad(sec)}`;
+}
+
 // fault_reasons_all is the authoritative source: comma-separated list of
 // every currently active fault, "" when clear, confirmed by spec (not a
 // guess like the old single-value check this replaced). fault_reason is a
@@ -1620,14 +1679,16 @@ function wmFaultDisplayInfo(mode, faultReasonsAll, faultReason) {
   return { active: false, text: '' };
 }
 
-// Only these three are bypassable per the firmware spec (the other four
-// protect physical hardware and require full Manual mode instead) -- short
-// name is what cmd/fault_bypass and fault_bypass_active use, display name is
-// what fault_reasons_all/fault_reasons_bypassed use, matched against here.
+// These are bypassable per the firmware spec (the rest protect physical
+// hardware and require full Manual mode instead) -- short name is what
+// cmd/fault_bypass and fault_bypass_active use, display name is what
+// fault_reasons_all/fault_reasons_bypassed use, matched against here.
 const WM_BYPASSABLE_FAULTS = {
   product_sensor: 'Product sensor (Digmesa) communication lost',
   postfilter: 'Postfilter pressure out of range',
   tank_level: 'Tank level sensor out of range',
+  hp_pressure_low: 'HP pressure too low during production',
+  feed_starvation: 'Feed starvation during production',
 };
 
 function wmUpdateBypassPanel(bypassActiveRaw, bypassedReasonsRaw) {
@@ -1777,6 +1838,11 @@ async function fetchWatermakerLive() {
       ? 'Divert valve: <span style="color:#3db87a">→ Fresh Tank</span>'
       : 'Divert valve: <span style="color:#e8a030">→ Overboard</span>');
 
+    const curCycleSec = num('production/current_time_sec');
+    setText('wm-cycle-time', curCycleSec !== null ? wmFormatDuration(curCycleSec) : '--');
+    const cycleTimeRow = document.getElementById('wm-cycle-time-row');
+    if (cycleTimeRow) cycleTimeRow.style.display = mode === 'producing' ? 'flex' : 'none';
+
     const badge = wmModeBadge(mode, status);
     wmSetBadge(badge.text, badge.color, badge.border, badge.bg);
 
@@ -1861,6 +1927,7 @@ async function fetchManualPanelLive() {
     badge.style.background = modeBadge.bg;
 
     document.getElementById('mc-enter-manual-btn').style.display = isManual ? 'none' : 'inline-block';
+    document.getElementById('mc-exit-auto-btn').style.display = isManual ? 'inline-block' : 'none';
     document.getElementById('mc-devices').classList.toggle('disabled', !isManual);
 
     // Live readouts — same topics/units/conversions as the main page's
@@ -1892,6 +1959,14 @@ async function fetchManualPanelLive() {
 
     const flush = get('flush/state');
     setText('mc-state-flush', flush === '1' ? 'Open' : flush === '0' ? 'Closed' : '--');
+
+    const curSec = get('production/current_time_sec');
+    const totalSec = get('production/total_time_sec');
+    const cycleCount = get('production/cycle_count');
+    setText('mc-production-current-time', curSec !== null ? wmFormatDuration(parseFloat(curSec)) : '--');
+    setText('mc-production-total-time', totalSec !== null ? wmFormatDuration(parseFloat(totalSec)) : '--');
+    setText('mc-production-cycle-count', cycleCount !== null ? cycleCount : '--');
+    document.getElementById('mc-production-reset-btn').disabled = mode !== 'idle';
   } catch (e) {
     // transient fetch failure — leave last-known values on screen
   }
@@ -1909,6 +1984,27 @@ async function wmEnterManualMode(btn) {
     const d = await res.json();
     if (!res.ok) throw new Error(d.error || 'Command failed');
     setText('mc-feedback', 'Entered manual mode.');
+    fetchManualPanelLive();
+  } catch (e) {
+    setText('mc-feedback', `⚠ ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+async function wmExitToAuto(btn) {
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/watermaker/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'auto' }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Command failed');
+    setText('mc-feedback', 'Exited to auto mode.');
     fetchManualPanelLive();
   } catch (e) {
     setText('mc-feedback', `⚠ ${e.message}`);
@@ -1977,6 +2073,22 @@ async function wmSetFaultBypass(fault, state, btn) {
   } finally {
     btn.disabled = false;
     btn.textContent = original;
+  }
+}
+
+async function wmResetProduction(btn) {
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/watermaker/production_reset', { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Command failed');
+    setText('mc-feedback', 'Production counters reset.');
+  } catch (e) {
+    setText('mc-feedback', `⚠ ${e.message}`);
+  } finally {
+    btn.textContent = original;
+    fetchManualPanelLive(); // re-applies the idle-only disabled state instead of blindly re-enabling
   }
 }
 
