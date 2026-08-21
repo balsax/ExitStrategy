@@ -508,39 +508,50 @@ def query_bucketed_series(cursor, topic, start_dt, bucket_seconds):
     """, (bucket_seconds, bucket_seconds, topic_id, start_dt))
     return {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
 
+def query_watermaker_metric(cur, metric, start_dt, bucket):
+    """Returns {times: [...], values: [...]} for one watermaker metric (or an error)."""
+    if metric == 'filterdp':
+        pre = query_bucketed_series(cur, 'boat/watermaker/pressure/prefilter', start_dt, bucket)
+        post = query_bucketed_series(cur, 'boat/watermaker/pressure/postfilter', start_dt, bucket)
+        keys = sorted(set(pre.keys()) & set(post.keys()))
+        times = [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys]
+        values = [round(pre[k] - post[k], 2) for k in keys]
+    else:
+        series = query_bucketed_series(cur, WATERMAKER_METRIC_TOPICS[metric], start_dt, bucket)
+        keys = sorted(series.keys())
+        times = [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys]
+        values = [round(series[k], 2) for k in keys]
+        if metric == 'flow':
+            values = [round(v * 60 / 3785.411784, 2) for v in values]  # mL/min -> gph
+    return {'times': times, 'values': values}
+
 @app.route('/api/watermaker/history')
 def watermaker_history():
-    metric = request.args.get('metric', 'membrane')
+    # 'metrics' (comma-separated, for multi-pen trending) takes priority; 'metric'
+    # (singular) is kept for older callers and just becomes a one-item list.
+    metrics_param = request.args.get('metrics') or request.args.get('metric', 'membrane')
+    metrics = [m.strip() for m in metrics_param.split(',') if m.strip()]
     range_val = request.args.get('range', '1h')
-    if metric != 'filterdp' and metric not in WATERMAKER_METRIC_TOPICS:
-        return jsonify({'times': [], 'values': [], 'error': 'unknown metric'}), 400
 
     bucket = WATERMAKER_RANGE_BUCKET.get(range_val, 30)
     seconds = WATERMAKER_RANGE_SECONDS.get(range_val, 3600)
     start_dt = datetime.now() - timedelta(seconds=seconds)  # mqtt_readings.ts is local time, not UTC
 
+    series = {}
     try:
         conn = get_boat_db()
         cur = conn.cursor()
-
-        if metric == 'filterdp':
-            pre = query_bucketed_series(cur, 'boat/watermaker/pressure/prefilter', start_dt, bucket)
-            post = query_bucketed_series(cur, 'boat/watermaker/pressure/postfilter', start_dt, bucket)
-            keys = sorted(set(pre.keys()) & set(post.keys()))
-            times = [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys]
-            values = [round(pre[k] - post[k], 2) for k in keys]
-        else:
-            series = query_bucketed_series(cur, WATERMAKER_METRIC_TOPICS[metric], start_dt, bucket)
-            keys = sorted(series.keys())
-            times = [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys]
-            values = [round(series[k], 2) for k in keys]
-            if metric == 'flow':
-                values = [round(v * 60 / 3785.411784, 2) for v in values]  # mL/min -> gph
-
+        for metric in metrics:
+            if metric != 'filterdp' and metric not in WATERMAKER_METRIC_TOPICS:
+                series[metric] = {'times': [], 'values': [], 'error': 'unknown metric'}
+                continue
+            series[metric] = query_watermaker_metric(cur, metric, start_dt, bucket)
         conn.close()
-        return jsonify({'times': times, 'values': values})
     except Exception as e:
-        return jsonify({'times': [], 'values': [], 'error': str(e)})
+        for metric in metrics:
+            series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
+
+    return jsonify({'series': series})
 
 # ─── Anchor watch ────────────────────────────────────────────────────────────
 # Anchor position/radius is persisted to a small JSON file (not a DB — this is

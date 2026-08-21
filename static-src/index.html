@@ -180,6 +180,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .mc-feedback{margin-top:1rem;font-size:12px;color:#6b82a0;text-align:center;min-height:16px}
 .mc-speed-control{display:flex;align-items:center;gap:10px}
 .mc-slider{width:130px;accent-color:#a78bfa;cursor:pointer}
+.mc-slider:disabled{opacity:.4;cursor:default}
 .mc-speed-value{font-size:13px;font-weight:600;color:#a78bfa;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-width:36px;text-align:right}
 .wm-btn:disabled{opacity:.5;cursor:default;filter:none}
 .wm-btn-inactive{opacity:.35;filter:grayscale(.6)}
@@ -329,6 +330,17 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .stat-box{background:#0a0e1a;border-radius:8px;padding:.6rem;text-align:center}
 .stat-box .slabel{font-size:10px;color:#6b82a0;margin-bottom:3px}
 .stat-box .sval{font-size:16px;font-weight:500}
+
+/* Watermaker multi-pen trend */
+.pen-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.pen-btn .pen-dot{width:8px;height:8px;border-radius:50%;background:#334455}
+.pen-btn.active .pen-dot{background:currentColor}
+.wm-pen-legend{display:flex;flex-direction:column;gap:6px}
+.wm-pen-legend-row{display:flex;align-items:center;gap:8px;background:#0a0e1a;border-radius:8px;padding:.5rem .75rem;font-size:12px}
+.wm-pen-legend-row .pen-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.wm-pen-legend-row .pen-legend-label{color:#9fb3cc;min-width:120px}
+.wm-pen-legend-row .pen-legend-now{font-weight:600;min-width:70px}
+.wm-pen-legend-row .pen-legend-stats{color:#6b82a0;margin-left:auto;font-size:11px}
 
 /* SOC fill bar in modal */
 .soc-bar-wrap{margin-bottom:.75rem}
@@ -935,6 +947,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <!-- Chart selector (for nodes with multiple series) -->
     <div id="chart-series-btns" style="display:flex;gap:6px;margin-bottom:.75rem;flex-wrap:wrap"></div>
 
+    <!-- Pen picker (watermaker multi-metric trend only) -->
+    <div id="wm-pen-btns" style="display:none;gap:6px;margin-bottom:.75rem;flex-wrap:wrap"></div>
+
     <div class="chart-wrap">
       <div class="chart-loading" id="chart-loading">Loading...</div>
       <canvas id="trend-chart" style="display:none"></canvas>
@@ -944,6 +959,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <div class="stat-box"><div class="slabel">Avg</div><div class="sval" id="stat-avg">--</div></div>
       <div class="stat-box"><div class="slabel">Max</div><div class="sval" id="stat-max">--</div></div>
     </div>
+
+    <!-- Per-pen legend (watermaker multi-metric trend only) -->
+    <div class="wm-pen-legend" id="wm-pen-legend" style="display:none"></div>
   </div>
 </div>
 
@@ -974,7 +992,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <div class="mc-devices" id="mc-devices">
         <div class="mc-device-row">
           <div class="mc-device-info">
-            <span class="mc-device-name">Boost Pump</span>
+            <span class="mc-device-name">Feed Pump</span>
             <span class="mc-device-state" id="mc-state-boost_pump">--</span>
           </div>
           <div class="mc-device-btns">
@@ -997,9 +1015,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
             <span class="mc-device-name">Pump Speed</span>
           </div>
           <div class="mc-speed-control">
-            <input type="range" min="0" max="100" value="50" id="mc-pump-speed-slider" class="mc-slider" oninput="setText('mc-pump-speed-value', this.value + '%')">
-            <span class="mc-speed-value" id="mc-pump-speed-value">50%</span>
-            <button class="wm-btn wm-btn-manual" onclick="wmSetPumpSpeed(this)">Set</button>
+            <input type="range" min="0" max="100" value="0" id="mc-pump-speed-slider" class="mc-slider" oninput="setText('mc-pump-speed-value', this.value + '%')">
+            <span class="mc-speed-value" id="mc-pump-speed-value">0%</span>
+            <button class="wm-btn wm-btn-manual" id="mc-pump-speed-set-btn" onclick="wmSetPumpSpeed(this)">Set</button>
           </div>
         </div>
         <div class="mc-device-row">
@@ -1198,6 +1216,21 @@ let currentDuration = '1h';
 let currentNode = null;
 let currentSeries = null; // {code, label, unit, color}
 let victronData = {};
+
+// ─── Watermaker multi-pen trend ───────────────────────────────────────────────
+const WM_METRICS = {
+  membrane:   { label: 'Membrane Pressure', unit: 'psi',   color: '#e8a030' },
+  feed:       { label: 'Feed Pressure',     unit: 'psi',   color: '#4a9fd4' },
+  filterdp:   { label: 'Filter Δp',    unit: 'psi',   color: '#c9a35a' },
+  flow:       { label: 'Product Flow',      unit: 'gph',   color: '#3db87a' },
+  cond:       { label: 'Conductivity',      unit: 'µS/cm', color: '#5a8ab0' },
+  tank:       { label: 'Tank Level',        unit: '%',     color: '#2dd4bf' },
+  rpm:        { label: 'HP Pump Speed',     unit: 'rpm',   color: '#a05ad4' },
+  current:    { label: 'Pump Current',      unit: 'A',     color: '#d4527a' },
+  efficiency: { label: 'Efficiency',        unit: '%',     color: '#c9d454' },
+};
+let wmTrendOpen = false;   // true while the modal is in watermaker multi-pen mode
+let activePens = new Set();
 let currentPage = 'overview';
 let lastFlowState = { shoreOn: false, charging: false, discharging: false };
 
@@ -1886,9 +1919,14 @@ async function wmSendCommand(mode, btn) {
 // ─── Manual device control panel ───────────────────────────────────────────────
 let manualPollInterval = null;
 
+let mcSpeedSliderSynced = false; // re-synced to the live speed once each time the HP pump turns on
+
 function openManualModal() {
   document.getElementById('manual-modal').classList.add('open');
   setText('mc-feedback', '');
+  mcSpeedSliderSynced = false;
+  document.getElementById('mc-pump-speed-slider').disabled = true;
+  document.getElementById('mc-pump-speed-set-btn').disabled = true;
   fetchManualPanelLive();
   manualPollInterval = setInterval(fetchManualPanelLive, 3000);
 }
@@ -1953,6 +1991,26 @@ async function fetchManualPanelLive() {
     setText('mc-state-pump', pumpState === '1' ? 'ON' : pumpState === '0' ? 'OFF' : '--');
     const speedPct = get('pump/speed_pct');
     setText('mc-live-pumpspeed', speedPct !== null ? `${Math.round(parseFloat(speedPct))}%` : '--%');
+
+    // Speed slider only makes sense while the HP pump is actually running --
+    // disabled otherwise, and synced to the live commanded speed once each
+    // time the pump turns on (not on every poll, so it doesn't fight the user
+    // mid-drag while they're picking a new speed to send).
+    const pumpOn = pumpState === '1';
+    const speedSlider = document.getElementById('mc-pump-speed-slider');
+    const speedSetBtn = document.getElementById('mc-pump-speed-set-btn');
+    speedSlider.disabled = !pumpOn;
+    speedSetBtn.disabled = !pumpOn;
+    if (pumpOn && !mcSpeedSliderSynced) {
+      const v = speedPct !== null ? Math.round(parseFloat(speedPct)) : 0;
+      speedSlider.value = v;
+      setText('mc-pump-speed-value', v + '%');
+      mcSpeedSliderSynced = true;
+    } else if (!pumpOn) {
+      mcSpeedSliderSynced = false;
+      speedSlider.value = 0;
+      setText('mc-pump-speed-value', '0%');
+    }
 
     const divert = get('divert/state');
     setText('mc-state-divert', divert === '1' ? 'Fresh Tank' : divert === '0' ? 'Overboard' : '--');
@@ -2357,6 +2415,7 @@ function openNodeModal(nodeKey) {
   if (!def) return;
   currentNode = nodeKey;
   currentDuration = '1h';
+  closeWatermakerTrendUI();
 
   document.getElementById('modal-icon').textContent = def.icon;
   document.getElementById('modal-title').textContent = def.title;
@@ -2463,6 +2522,7 @@ function openInfluxModal(field, title, unit, color) {
   currentNode = null;
   currentSeries = { code: field, label: title, unit, color, source: 'influx', field };
   currentDuration = '1h';
+  closeWatermakerTrendUI();
 
   document.getElementById('modal-icon').textContent = '🌡️';
   document.getElementById('modal-title').textContent = title;
@@ -2475,21 +2535,65 @@ function openInfluxModal(field, title, unit, color) {
   loadInfluxHistory(field, unit, color);
 }
 
-// ─── Modal: watermaker chart (MariaDB-backed trend) ────────────────────────────
+// ─── Modal: watermaker chart (MariaDB-backed, multi-pen trend) ────────────────
+// "Pens" mirror an industrial multi-pen chart recorder: any number of metrics
+// can be overlaid on one time axis at once, added/removed without closing the
+// modal. Each open always starts fresh from just the clicked card's metric at
+// 1h — it does not remember whatever combination was active last time.
+function closeWatermakerTrendUI() {
+  wmTrendOpen = false;
+  document.getElementById('wm-pen-btns').style.display = 'none';
+  document.getElementById('wm-pen-btns').innerHTML = '';
+  document.getElementById('wm-pen-legend').style.display = 'none';
+  document.querySelector('.modal-stats').style.display = '';
+}
+
 function openWatermakerModal(metric, title, unit, color) {
   currentNode = null;
-  currentSeries = { code: metric, label: title, unit, color, source: 'watermaker', field: metric };
+  currentSeries = null;
   currentDuration = '1h';
+  wmTrendOpen = true;
+  activePens = new Set([metric]);
 
   document.getElementById('modal-icon').textContent = '💧';
-  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-title').textContent = 'Watermaker Trend';
   document.getElementById('modal-live-grid').innerHTML = '';
   document.getElementById('modal-soc-bar').style.display = 'none';
   document.getElementById('chart-series-btns').innerHTML = '';
+  document.querySelector('.modal-stats').style.display = 'none';
+  document.getElementById('wm-pen-btns').style.display = 'flex';
+  document.getElementById('wm-pen-legend').style.display = 'flex';
   document.getElementById('modal').classList.add('open');
   document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.dur-btn')[0].classList.add('active');
-  loadWatermakerHistory(metric, unit, color);
+  renderWmPenBtns();
+  loadWatermakerHistory();
+}
+
+function toggleWmPen(metric) {
+  if (activePens.has(metric)) {
+    if (activePens.size === 1) return; // keep at least one pen active
+    activePens.delete(metric);
+  } else {
+    activePens.add(metric);
+  }
+  renderWmPenBtns();
+  loadWatermakerHistory();
+}
+
+function renderWmPenBtns() {
+  const wrap = document.getElementById('wm-pen-btns');
+  wrap.innerHTML = '';
+  Object.entries(WM_METRICS).forEach(([key, m]) => {
+    const active = activePens.has(key);
+    const btn = document.createElement('button');
+    btn.className = 'pen-btn' + (active ? ' active' : '');
+    btn.style.color = active ? m.color : '';
+    btn.style.borderColor = active ? m.color : '';
+    btn.innerHTML = `<span class="pen-dot" style="background:${active ? m.color : ''}"></span>${m.label}`;
+    btn.onclick = () => toggleWmPen(key);
+    wrap.appendChild(btn);
+  });
 }
 
 // ─── Modal: shared chart loading ──────────────────────────────────────────────
@@ -2501,17 +2605,18 @@ function setDuration(dur, btn) {
     loadVRMHistory();
   } else if (currentSeries && currentSeries.source === 'influx') {
     loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
-  } else if (currentSeries && currentSeries.source === 'watermaker') {
-    loadWatermakerHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
+  } else if (wmTrendOpen) {
+    loadWatermakerHistory();
   }
 }
 
-async function loadWatermakerHistory(metric, unit, color) {
+async function loadWatermakerHistory() {
   showChartLoading('Loading...');
   try {
-    const res = await fetch(`/api/watermaker/history?metric=${metric}&range=${currentDuration}`);
+    const pens = [...activePens];
+    const res = await fetch(`/api/watermaker/history?metrics=${pens.join(',')}&range=${currentDuration}`);
     const d = await res.json();
-    renderChart(d.times, d.values, color, unit);
+    renderMultiWmChart(pens, d.series || {});
   } catch (e) {
     showChartLoading('Error loading history');
   }
@@ -2596,11 +2701,118 @@ function renderChart(times, values, color, unit) {
   });
 }
 
+// Overlays any number of active watermaker "pens" (metrics) on one time axis.
+// Each pen gets its own auto-scaled y-axis (so mixed units like psi/gph/rpm/%
+// don't fight each other) — only the first two are drawn on the chart edges to
+// avoid clutter, but all of them keep their independent scaling, and every
+// active pen gets a color-matched row in the legend below with its current/
+// min/avg/max values so nothing is lost by hiding the extra axes.
+function renderMultiWmChart(pens, seriesMap) {
+  const allTimes = new Set();
+  pens.forEach(p => (seriesMap[p]?.times || []).forEach(t => allTimes.add(t)));
+  const times = [...allTimes].sort();
+
+  if (times.length === 0) {
+    showChartLoading('No data for this period');
+    document.getElementById('wm-pen-legend').innerHTML = '';
+    return;
+  }
+
+  const labels = times.map(t => {
+    const dt = new Date(t);
+    if (currentDuration === '7d' || currentDuration === '30d')
+      return dt.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+
+  document.getElementById('chart-loading').style.display = 'none';
+  const c = document.getElementById('trend-chart');
+  c.style.display = 'block';
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+
+  const fmt = v => v === null || v === undefined ? '--' : v.toFixed(Math.abs(v) < 10 ? 2 : 1);
+  const datasets = [];
+  const scales = {
+    x: { ticks: { color: '#6b82a0', maxTicksLimit: 8, font: { size: 11 } }, grid: { color: '#1e2d4a' } }
+  };
+  const legendRows = [];
+
+  pens.forEach((metric, i) => {
+    const meta = WM_METRICS[metric];
+    const s = seriesMap[metric] || { times: [], values: [] };
+    const byTime = {};
+    s.times.forEach((t, idx) => { byTime[t] = s.values[idx]; });
+    const values = times.map(t => (t in byTime ? byTime[t] : null));
+
+    const axisId = i === 0 ? 'y' : `y${i}`;
+    datasets.push({
+      label: meta.label,
+      data: values,
+      borderColor: meta.color,
+      backgroundColor: meta.color + '22',
+      borderWidth: 2,
+      pointRadius: values.length > 100 ? 0 : 3,
+      pointHoverRadius: 5,
+      fill: pens.length === 1,
+      tension: .3,
+      spanGaps: true,
+      yAxisID: axisId
+    });
+    scales[axisId] = {
+      position: i % 2 === 0 ? 'left' : 'right',
+      display: i < 2, // only the first two pens draw an axis; the rest still scale independently
+      ticks: { color: meta.color, font: { size: 11 } },
+      grid: { display: i === 0, color: '#1e2d4a' }
+    };
+
+    const present = s.values.filter(v => v !== null && v !== undefined);
+    const now = present.length ? present[present.length - 1] : null;
+    const min = present.length ? Math.min(...present) : null;
+    const max = present.length ? Math.max(...present) : null;
+    const avg = present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
+
+    legendRows.push(`
+      <div class="wm-pen-legend-row">
+        <span class="pen-dot" style="background:${meta.color}"></span>
+        <span class="pen-legend-label">${meta.label}</span>
+        <span class="pen-legend-now" style="color:${meta.color}">${fmt(now)}${meta.unit}</span>
+        <span class="pen-legend-stats">min ${fmt(min)} &middot; avg ${fmt(avg)} &middot; max ${fmt(max)}</span>
+      </div>
+    `);
+  });
+
+  document.getElementById('wm-pen-legend').innerHTML = legendRows.join('');
+
+  trendChart = new Chart(c, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const metric = pens[ctx.datasetIndex];
+              const unit = WM_METRICS[metric].unit;
+              return ctx.parsed.y === null
+                ? `${ctx.dataset.label}: no data`
+                : `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}${unit}`;
+            }
+          }
+        }
+      },
+      scales
+    }
+  });
+}
+
 function closeModal() {
   document.getElementById('modal').classList.remove('open');
   if (trendChart) { trendChart.destroy(); trendChart = null; }
   currentNode = null;
   currentSeries = null;
+  closeWatermakerTrendUI();
 }
 
 function closeModalOutside(e) {
