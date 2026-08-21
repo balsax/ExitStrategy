@@ -153,23 +153,24 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .wm-btn-manual{color:#a78bfa;border-color:#5a3a8a}
 
 /* Manual device control modal */
-.mc-mode-row{display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:.5px solid #1a2438;flex-wrap:wrap}
+.mc-mode-row{display:flex;align-items:center;gap:12px;margin-bottom:.75rem;padding-bottom:.75rem;border-bottom:.5px solid #1a2438;flex-wrap:wrap}
 .mc-fault-inline{align-items:center;gap:12px}
-.mc-devices{display:flex;flex-direction:column;gap:10px;transition:opacity .2s}
-#manual-modal .modal{max-width:920px}
+.mc-devices{display:flex;flex-direction:column;gap:8px;transition:opacity .2s}
+#manual-modal .modal{max-width:920px;padding:1.25rem 1.5rem}
+#manual-modal .modal-header{margin-bottom:.5rem}
 .mc-layout{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
 .mc-layout .mc-devices{flex:1 1 300px}
-.mc-readouts{flex:1 1 260px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:10px;padding:14px}
-.mc-gauge-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 6px}
+.mc-readouts{flex:1 1 260px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:10px;padding:10px}
+.mc-gauge-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 6px}
 .mc-gauge-grid .wm-gauge-block{align-items:center}
-.mc-sub-value{display:grid;grid-template-columns:auto 34px 46px;justify-content:center;gap:8px;width:100%;margin-top:6px;padding-top:6px;border-top:.5px solid #1a2438;font-size:11px}
+.mc-sub-value{display:grid;grid-template-columns:auto 34px 46px;justify-content:center;gap:8px;width:100%;margin-top:4px;padding-top:4px;border-top:.5px solid #1a2438;font-size:11px}
 .mc-sub-value span:first-child{color:#6b82a0;text-transform:uppercase;letter-spacing:.04em}
 .mc-sub-value span:not(:first-child){font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#e0e6f0}
 #mc-live-pumpspeed{text-align:right}
 #mc-live-current{text-align:left}
 .mc-devices.disabled{opacity:.4;pointer-events:none}
 #mc-bypass-panel{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.mc-device-row{display:flex;align-items:center;justify-content:space-between;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:8px;padding:.75rem 1rem;flex-wrap:wrap;gap:8px}
+.mc-device-row{display:flex;align-items:center;justify-content:space-between;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:8px;padding:.5rem 1rem;flex-wrap:wrap;gap:8px}
 .mc-device-info{display:flex;flex-direction:column;gap:3px}
 .mc-device-name{font-size:13px;font-weight:600;color:#e0e6f0}
 .mc-device-state{font-size:11px;color:#6b82a0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -177,7 +178,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .mc-device-btns .wm-btn{padding:6px 16px;font-size:12px}
 .mc-production-stats{display:flex;flex:1;justify-content:center;align-items:center;gap:56px;flex-wrap:wrap}
 .mc-production-stats .mc-device-info{align-items:center;text-align:center}
-.mc-feedback{margin-top:1rem;font-size:12px;color:#6b82a0;text-align:center;min-height:16px}
+.mc-feedback{margin-top:.5rem;font-size:12px;color:#6b82a0;text-align:center;min-height:16px}
 .mc-speed-control{display:flex;align-items:center;gap:10px}
 .mc-slider{width:130px;accent-color:#a78bfa;cursor:pointer}
 .mc-slider:disabled{opacity:.4;cursor:default}
@@ -1073,7 +1074,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
-    <div class="wm-info-label" style="margin:14px 0 8px">Fault Bypass — only the faults below can be bypassed remotely (others require full Manual mode instead)</div>
+    <div class="wm-info-label" style="margin:10px 0 6px">Fault Bypass — only the faults below can be bypassed remotely (others require full Manual mode instead)</div>
     <div class="mc-devices" id="mc-bypass-panel">
       <div class="mc-device-row">
         <div class="mc-device-info">
@@ -1127,7 +1128,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
-    <div class="wm-info-label" style="margin:14px 0 8px">Production Cycle — reset only available while idle</div>
+    <div class="wm-info-label" style="margin:10px 0 6px">Production Cycle — reset only available while idle</div>
     <div class="mc-devices" id="mc-production-panel">
       <div class="mc-device-row">
         <div class="mc-production-stats">
