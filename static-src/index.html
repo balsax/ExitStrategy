@@ -93,7 +93,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 /* Not-connected banner (used on built-but-unwired pages) */
 .notice{display:flex;align-items:center;gap:8px;background:#1a1500;border:.5px solid #7a6020;border-radius:8px;padding:.6rem .9rem;font-size:12px;color:#e8a030;margin-bottom:10px}
 
-/* MQTT diagnostics tree */
+/* Diagnostics tab (MQTT / CAN Bus sub-views) */
+.diag-subtabs{display:flex;gap:8px;margin-bottom:1rem}
+.diag-subtab-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer}
+.diag-subtab-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.diag-panel{display:none}
+.diag-panel.active{display:block}
+.sys-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+
+/* MQTT diagnostics tree (also reused as-is for the CAN Bus tree below) */
 .mqtt-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:.75rem;flex-wrap:wrap}
 .mqtt-search{flex:1;min-width:180px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:8px;padding:8px 12px;font-size:13px;color:#e0e6f0}
 .mqtt-search:focus{outline:none;border-color:#4a9fd4}
@@ -375,7 +383,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <button class="navbtn" id="nav-anchor" onclick="showPage('anchor')"><span>⚓</span>Anchor Watch</button>
   <button class="navbtn" id="nav-chart" onclick="showPage('chart')"><span>🗺️</span>Chart</button>
   <button class="navbtn" id="nav-weather" onclick="showPage('weather')"><span>🌤️</span>Weather</button>
-  <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>🗂️</span>MQTT Diagnostics</button>
+  <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
 
 <!-- ══════════════════════════════ Overview page ══════════════════════════════ -->
@@ -889,24 +897,80 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 </div>
 
-<!-- ══════════════════════════════ MQTT Diagnostics page ══════════════════════════════ -->
+<!-- ══════════════════════════════ Diagnostics page ══════════════════════════════ -->
 <div class="page" id="page-mqtt">
   <div class="section">
-    <span>MQTT Diagnostics · Broker</span>
+    <span>Diagnostics · Broker</span>
     <span class="sys-badge" id="mqtt-state" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">--</span>
   </div>
 
   <div class="flow-wrap">
-    <div class="mqtt-toolbar">
-      <input class="mqtt-search" id="mqtt-search" type="text" placeholder="Filter topics (e.g. fan, relay, power)…" oninput="mqttOnSearch(this.value)">
-      <div class="mqtt-stats">
-        <span><b id="mqtt-topic-count">--</b> topics</span>
-        <span><b id="mqtt-msg-count">--</b> messages received</span>
-        <span id="mqtt-last-update">--</span>
+    <div class="diag-subtabs">
+      <button class="diag-subtab-btn active" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
+      <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">CAN Bus</button>
+      <button class="diag-subtab-btn" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
+    </div>
+
+    <div class="diag-panel active" id="diag-panel-mqtt">
+      <div class="mqtt-toolbar">
+        <input class="mqtt-search" id="mqtt-search" type="text" placeholder="Filter topics (e.g. fan, relay, power)…" oninput="mqttOnSearch(this.value)">
+        <div class="mqtt-stats">
+          <span><b id="mqtt-topic-count">--</b> topics</span>
+          <span><b id="mqtt-msg-count">--</b> messages received</span>
+          <span id="mqtt-last-update">--</span>
+        </div>
+      </div>
+      <div class="mqtt-tree" id="mqtt-tree">
+        <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
-    <div class="mqtt-tree" id="mqtt-tree">
-      <div class="mqtt-empty">Loading…</div>
+
+    <div class="diag-panel" id="diag-panel-canbus">
+      <div class="diag-subtabs" style="margin-bottom:.6rem">
+        <button class="diag-subtab-btn active" id="canbus-view-pgn-btn" onclick="setCanbusView('pgn')">By PGN</button>
+        <button class="diag-subtab-btn" id="canbus-view-device-btn" onclick="setCanbusView('device')">By Device</button>
+      </div>
+      <div class="mqtt-toolbar">
+        <input class="mqtt-search" id="canbus-search" type="text" placeholder="Filter PGNs (e.g. GPS, AIS, 129029)…" oninput="canbusOnSearch(this.value)">
+        <div class="mqtt-stats">
+          <span><b id="canbus-pgn-count">--</b> PGNs seen</span>
+          <span><b id="canbus-device-count">--</b> devices seen</span>
+          <span id="canbus-last-update">--</span>
+        </div>
+      </div>
+      <div class="mqtt-tree" id="canbus-tree">
+        <div class="mqtt-empty">Loading…</div>
+      </div>
+    </div>
+
+    <div class="diag-panel" id="diag-panel-system">
+      <div class="sys-stat-grid">
+        <div class="mlive wm-clickable" onclick="openSystemModal('cpu','CPU Usage','%','#4a9fd4')">
+          <div class="mlive-label">CPU Usage</div>
+          <div class="mlive-val" id="sys-cpu-val">--%</div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('mem','Memory Usage','%','#e8a030')">
+          <div class="mlive-label">Memory Usage</div>
+          <div class="mlive-val" id="sys-mem-val">--%</div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('disk','Disk Usage','%','#3db87a')">
+          <div class="mlive-label">Disk Usage</div>
+          <div class="mlive-val" id="sys-disk-val">--%</div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('temp','CPU Temp','°C','#e05050')">
+          <div class="mlive-label">CPU Temp</div>
+          <div class="mlive-val" id="sys-temp-val">--°C</div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('wifi','WiFi Signal','dBm','#a05ad4')">
+          <div class="mlive-label">WiFi Signal</div>
+          <div class="mlive-val" id="sys-wifi-val">--</div>
+        </div>
+        <div class="mlive">
+          <div class="mlive-label">Bluetooth</div>
+          <div class="mlive-val" id="sys-bt-val">--</div>
+        </div>
+      </div>
+      <div class="notice" id="sys-notice" style="margin-top:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
     </div>
   </div>
 </div>
@@ -1218,7 +1282,7 @@ let currentNode = null;
 let currentSeries = null; // {code, label, unit, color}
 let victronData = {};
 
-// ─── Watermaker multi-pen trend ───────────────────────────────────────────────
+// ─── Multi-pen trend (shared by Watermaker and Server Health) ─────────────────
 const WM_METRICS = {
   membrane:   { label: 'Membrane Pressure', unit: 'psi',   color: '#e8a030' },
   feed:       { label: 'Feed Pressure',     unit: 'psi',   color: '#4a9fd4' },
@@ -1230,7 +1294,16 @@ const WM_METRICS = {
   current:    { label: 'Pump Current',      unit: 'A',     color: '#d4527a' },
   efficiency: { label: 'Efficiency',        unit: '%',     color: '#c9d454' },
 };
-let wmTrendOpen = false;   // true while the modal is in watermaker multi-pen mode
+const SYS_METRICS = {
+  cpu:  { label: 'CPU Usage',    unit: '%',   color: '#4a9fd4' },
+  mem:  { label: 'Memory Usage', unit: '%',   color: '#e8a030' },
+  disk: { label: 'Disk Usage',   unit: '%',   color: '#3db87a' },
+  temp: { label: 'CPU Temp',     unit: '°C',  color: '#e05050' },
+  wifi: { label: 'WiFi Signal',  unit: 'dBm', color: '#a05ad4' },
+};
+let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker or system health)
+let penMetrics = WM_METRICS; // whichever metric registry the open modal is using
+let penEndpoint = '/api/watermaker/history';
 let activePens = new Set();
 let currentPage = 'overview';
 let lastFlowState = { shoreOn: false, charging: false, discharging: false };
@@ -2288,6 +2361,265 @@ function mqttOnSearch(value) {
   renderMqttTree();
 }
 
+// ─── Diagnostics: MQTT / CAN Bus sub-tabs ──────────────────────────────────────
+let diagSubTab = 'mqtt';
+
+function showDiagSub(tab) {
+  diagSubTab = tab;
+  document.getElementById('diag-panel-mqtt').classList.toggle('active', tab === 'mqtt');
+  document.getElementById('diag-panel-canbus').classList.toggle('active', tab === 'canbus');
+  document.getElementById('diag-panel-system').classList.toggle('active', tab === 'system');
+  document.getElementById('diag-sub-mqtt-btn').classList.toggle('active', tab === 'mqtt');
+  document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
+  document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
+}
+
+// ─── CAN Bus diagnostics tree ──────────────────────────────────────────────────
+// Reads the same /api/mqtt/topics feed as the MQTT tab -- n2k_mqtt_bridge.py
+// publishes a live entry under boat/canbus/pgn/<pgn>/* for every PGN it
+// decodes off the bus (see publish_canbus_diag() there), whether or not that
+// PGN is also separately translated to a semantic boat/nav/*|boat/ais/*
+// topic. A PGN with a real description from canboat's own PGN database is
+// "known" and gets that description shown next to its number; a PGN with no
+// (or an "Unknown ...") description is shown as just its raw number, per the
+// bridge's is_known check.
+const CANBUS_TOPIC_PREFIX = 'boat/canbus/pgn/';
+let canbusExpanded = {};
+let canbusSearchTerm = '';
+
+function buildCanbusPgns(topics) {
+  const pgns = {}; // pgn -> { description, src, raw, fields: { name: {value,time} } }
+  for (const [topic, data] of Object.entries(topics)) {
+    if (!topic.startsWith(CANBUS_TOPIC_PREFIX)) continue;
+    const rest = topic.slice(CANBUS_TOPIC_PREFIX.length); // "<pgn>/_description" | "<pgn>/_src" | "<pgn>/_raw" | "<pgn>/field/<name>"
+    const slash = rest.indexOf('/');
+    if (slash === -1) continue;
+    const pgn = rest.slice(0, slash);
+    const key = rest.slice(slash + 1);
+    if (!pgns[pgn]) pgns[pgn] = { description: '', src: null, raw: null, fields: {} };
+    if (key === '_description') pgns[pgn].description = data.value;
+    else if (key === '_src') pgns[pgn].src = data;
+    else if (key === '_raw') pgns[pgn].raw = data;
+    else if (key.startsWith('field/')) pgns[pgn].fields[key.slice('field/'.length)] = data;
+  }
+  return pgns;
+}
+
+// Shared by both CAN Bus views -- "By PGN" expands a PGN directly (expandKey
+// is just the PGN), "By Device" expands the same PGN nested under a device
+// (expandKey scoped per-device so expanding it there doesn't also expand the
+// top-level "By PGN" entry, and vice versa) but shows identical field/raw
+// data either way, since a PGN's decoded content doesn't depend on which
+// view you're browsing it from.
+function renderCanbusPgnBranch(container, pgn, info, expandKey) {
+  const expanded = canbusExpanded[expandKey] === true;
+  const label = info.description ? `${pgn} — ${info.description}` : pgn;
+  const fieldCount = Object.keys(info.fields).length;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mqtt-branch';
+  const row = document.createElement('div');
+  row.className = 'mqtt-branch-row';
+  row.innerHTML = `<span class="mqtt-chevron${expanded ? ' open' : ''}">▶</span><span class="mqtt-branch-name">${escapeHtml(label)}</span><span class="mqtt-branch-count">${fieldCount} field${fieldCount !== 1 ? 's' : ''}</span>`;
+  row.onclick = () => { canbusExpanded[expandKey] = !expanded; renderCanTree(); };
+  wrap.appendChild(row);
+
+  if (expanded) {
+    const childWrap = document.createElement('div');
+    childWrap.className = 'mqtt-children';
+    if (info.src !== null) {
+      childWrap.appendChild(renderMqttLeafRow('Source Address', info.src));
+    }
+    for (const name of Object.keys(info.fields).sort()) {
+      childWrap.appendChild(renderMqttLeafRow(name, info.fields[name]));
+    }
+    // Raw bytes as they appeared on the bus -- the only info available at
+    // all for an unknown PGN (no description, no decoded fields), and a
+    // cross-check against canboat's decode for a known one.
+    if (info.raw !== null) {
+      childWrap.appendChild(renderMqttLeafRow('Raw Bytes', info.raw));
+    }
+    wrap.appendChild(childWrap);
+  }
+  container.appendChild(wrap);
+}
+
+function renderCanbusPgn(container, pgn, info) {
+  renderCanbusPgnBranch(container, pgn, info, pgn);
+}
+
+// ─── CAN Bus diagnostics: devices ──────────────────────────────────────────────
+// "By Device" groups the same facts the other way round -- which PGNs came
+// from which source address -- reading boat/canbus/device/<src>/pgn/<pgn>
+// (published alongside the PGN-indexed topics above) plus boat/canbus/device/
+// <src>/_name when a device has actually identified itself via Product
+// Information or ISO Address Claim (126996/60928). Until a device sends
+// either of those, it just shows as "Device <src>".
+const CANBUS_DEVICE_PREFIX = 'boat/canbus/device/';
+let canbusView = 'pgn'; // 'pgn' | 'device'
+
+function buildCanbusDevices(topics) {
+  const devices = {}; // src -> { name: string|null, pgns: { pgn: {value,time} } }
+  for (const [topic, data] of Object.entries(topics)) {
+    if (!topic.startsWith(CANBUS_DEVICE_PREFIX)) continue;
+    const rest = topic.slice(CANBUS_DEVICE_PREFIX.length); // "<src>/_name" | "<src>/pgn/<pgn>"
+    const slash = rest.indexOf('/');
+    if (slash === -1) continue;
+    const src = rest.slice(0, slash);
+    const key = rest.slice(slash + 1);
+    if (!devices[src]) devices[src] = { name: null, pgns: {} };
+    if (key === '_name') devices[src].name = data.value;
+    else if (key.startsWith('pgn/')) devices[src].pgns[key.slice('pgn/'.length)] = data;
+  }
+  return devices;
+}
+
+function renderCanbusDevice(container, src, info) {
+  const path = 'device:' + src;
+  const expanded = canbusExpanded[path] === true;
+  const label = info.name ? `${info.name} (src ${src})` : `Device ${src}`;
+  const pgnCount = Object.keys(info.pgns).length;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mqtt-branch';
+  const row = document.createElement('div');
+  row.className = 'mqtt-branch-row';
+  row.innerHTML = `<span class="mqtt-chevron${expanded ? ' open' : ''}">▶</span><span class="mqtt-branch-name">${escapeHtml(label)}</span><span class="mqtt-branch-count">${pgnCount} PGN${pgnCount !== 1 ? 's' : ''}</span>`;
+  row.onclick = () => { canbusExpanded[path] = !expanded; renderCanTree(); };
+  wrap.appendChild(row);
+
+  if (expanded) {
+    const childWrap = document.createElement('div');
+    childWrap.className = 'mqtt-children';
+    const pgnKeys = Object.keys(info.pgns).sort((a, b) => Number(a) - Number(b));
+    const allPgns = buildCanbusPgns(mqttTopics); // full field/raw data lives keyed by PGN, not by device
+    for (const pgn of pgnKeys) {
+      const fullInfo = allPgns[pgn] || { description: info.pgns[pgn].value || '', src: null, raw: null, fields: {} };
+      renderCanbusPgnBranch(childWrap, pgn, fullInfo, `device:${src}:${pgn}`);
+    }
+    wrap.appendChild(childWrap);
+  }
+  container.appendChild(wrap);
+}
+
+function setCanbusView(view) {
+  canbusView = view;
+  document.getElementById('canbus-view-pgn-btn').classList.toggle('active', view === 'pgn');
+  document.getElementById('canbus-view-device-btn').classList.toggle('active', view === 'device');
+  document.getElementById('canbus-search').placeholder = view === 'pgn'
+    ? 'Filter PGNs (e.g. GPS, AIS, 129029)…'
+    : 'Filter devices or PGNs…';
+  renderCanTree();
+}
+
+function renderCanTree() {
+  const container = document.getElementById('canbus-tree');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const allPgns = buildCanbusPgns(mqttTopics);
+  const allDevices = buildCanbusDevices(mqttTopics);
+  setText('canbus-pgn-count', Object.keys(allPgns).length);
+  setText('canbus-device-count', Object.keys(allDevices).length);
+  const term = canbusSearchTerm.trim().toLowerCase();
+
+  if (canbusView === 'pgn') {
+    let pgns = allPgns;
+    if (term) {
+      pgns = {};
+      for (const [pgn, info] of Object.entries(allPgns)) {
+        if (pgn.includes(term) || info.description.toLowerCase().includes(term)) pgns[pgn] = info;
+      }
+    }
+    const pgnKeys = Object.keys(pgns);
+    if (pgnKeys.length === 0) {
+      container.innerHTML = `<div class="mqtt-empty">${term ? `No PGNs match "${escapeHtml(canbusSearchTerm)}"` : 'No CAN bus messages received yet — is n2k_mqtt_bridge.py running?'}</div>`;
+      return;
+    }
+    pgnKeys.sort((a, b) => Number(a) - Number(b));
+    for (const pgn of pgnKeys) renderCanbusPgn(container, pgn, pgns[pgn]);
+    return;
+  }
+
+  // 'device' view
+  let devices = allDevices;
+  if (term) {
+    devices = {};
+    for (const [src, info] of Object.entries(allDevices)) {
+      const matchesDevice = src.includes(term) || (info.name || '').toLowerCase().includes(term);
+      const matchingPgns = {};
+      for (const [pgn, rec] of Object.entries(info.pgns)) {
+        if (matchesDevice || pgn.includes(term) || (rec.value || '').toLowerCase().includes(term)) {
+          matchingPgns[pgn] = rec;
+        }
+      }
+      if (Object.keys(matchingPgns).length > 0) {
+        devices[src] = { name: info.name, pgns: matchingPgns };
+        canbusExpanded['device:' + src] = true; // auto-expand matches, same as the MQTT tab does
+      }
+    }
+  }
+  const deviceKeys = Object.keys(devices);
+  if (deviceKeys.length === 0) {
+    container.innerHTML = `<div class="mqtt-empty">${term ? `No devices match "${escapeHtml(canbusSearchTerm)}"` : 'No CAN bus messages received yet — is n2k_mqtt_bridge.py running?'}</div>`;
+    return;
+  }
+  deviceKeys.sort((a, b) => Number(a) - Number(b));
+  for (const src of deviceKeys) renderCanbusDevice(container, src, devices[src]);
+}
+
+function canbusOnSearch(value) {
+  canbusSearchTerm = value;
+  renderCanTree();
+}
+
+// ─── Server Health ──────────────────────────────────────────────────────────
+// Reads the same /api/mqtt/topics feed as the other two sub-tabs --
+// dashboard_api.py's system_health_loop background thread samples this Pi
+// (CPU/memory/disk/temp via /proc & shutil, no new dependency; WiFi via `iw`)
+// every 20s and publishes to boat/system/*, which mqtt_logger.py logs to
+// MariaDB the same as any other boat/* topic, so trend history comes for
+// free through the same multi-pen chart as watermaker.
+function sysHealthColor(value, warnAt, critAt) {
+  if (value === null) return '#445566';
+  if (value >= critAt) return '#e05050';
+  if (value >= warnAt) return '#e8a030';
+  return '#3db87a';
+}
+
+function renderSystemHealth() {
+  const get = key => { const rec = mqttTopics['boat/system/' + key]; return rec ? rec.value : null; };
+  const cpu = get('cpu_percent'), mem = get('mem_percent'), disk = get('disk_percent');
+  const temp = get('cpu_temp_c'), wifi = get('wifi_signal_dbm'), bt = get('bluetooth_active');
+  const anySeen = [cpu, mem, disk, temp].some(v => v !== null);
+  document.getElementById('sys-notice').style.display = anySeen ? 'none' : 'flex';
+
+  const setStat = (id, raw, fmt, warnAt, critAt) => {
+    const el = document.getElementById(id);
+    if (raw === null) { el.textContent = '--'; el.style.color = '#445566'; return; }
+    const v = parseFloat(raw);
+    el.textContent = fmt(v);
+    el.style.color = sysHealthColor(v, warnAt, critAt);
+  };
+  setStat('sys-cpu-val', cpu, v => `${v.toFixed(1)}%`, 70, 90);
+  setStat('sys-mem-val', mem, v => `${v.toFixed(1)}%`, 75, 90);
+  setStat('sys-disk-val', disk, v => `${v.toFixed(1)}%`, 80, 95);
+  setStat('sys-temp-val', temp, v => `${v.toFixed(1)}°C`, 65, 80);
+
+  const wifiEl = document.getElementById('sys-wifi-val');
+  if (wifi === null) { wifiEl.textContent = 'Not connected'; wifiEl.style.color = '#445566'; }
+  else {
+    const dbm = parseFloat(wifi);
+    wifiEl.textContent = `${dbm.toFixed(0)} dBm`;
+    wifiEl.style.color = dbm >= -60 ? '#3db87a' : dbm >= -75 ? '#e8a030' : '#e05050';
+  }
+
+  const btEl = document.getElementById('sys-bt-val');
+  if (bt === '1') { btEl.textContent = 'Active'; btEl.style.color = '#3db87a'; }
+  else if (bt === '0') { btEl.textContent = 'Inactive'; btEl.style.color = '#8fa3bd'; }
+  else { btEl.textContent = 'Not available'; btEl.style.color = '#445566'; }
+}
+
 async function fetchMqtt() {
   const badge = document.getElementById('mqtt-state');
   try {
@@ -2304,7 +2636,10 @@ async function fetchMqtt() {
     setText('mqtt-topic-count', d.count ?? 0);
     setText('mqtt-msg-count', d.message_count ?? 0);
     setText('mqtt-last-update', 'Updated ' + new Date().toLocaleTimeString());
+    setText('canbus-last-update', 'Updated ' + new Date().toLocaleTimeString());
     renderMqttTree();
+    renderCanTree();
+    renderSystemHealth();
   } catch (e) {
     badge.textContent = 'Error'; badge.style.color = '#e05050';
     badge.style.borderColor = '#7a2a2a'; badge.style.background = '#1a0d0d';
@@ -2416,7 +2751,7 @@ function openNodeModal(nodeKey) {
   if (!def) return;
   currentNode = nodeKey;
   currentDuration = '1h';
-  closeWatermakerTrendUI();
+  closePenModalUI();
 
   document.getElementById('modal-icon').textContent = def.icon;
   document.getElementById('modal-title').textContent = def.title;
@@ -2523,7 +2858,7 @@ function openInfluxModal(field, title, unit, color) {
   currentNode = null;
   currentSeries = { code: field, label: title, unit, color, source: 'influx', field };
   currentDuration = '1h';
-  closeWatermakerTrendUI();
+  closePenModalUI();
 
   document.getElementById('modal-icon').textContent = '🌡️';
   document.getElementById('modal-title').textContent = title;
@@ -2536,28 +2871,33 @@ function openInfluxModal(field, title, unit, color) {
   loadInfluxHistory(field, unit, color);
 }
 
-// ─── Modal: watermaker chart (MariaDB-backed, multi-pen trend) ────────────────
+// ─── Modal: multi-pen trend (MariaDB-backed) ───────────────────────────────────
 // "Pens" mirror an industrial multi-pen chart recorder: any number of metrics
-// can be overlaid on one time axis at once, added/removed without closing the
-// modal. Each open always starts fresh from just the clicked card's metric at
-// 1h — it does not remember whatever combination was active last time.
-function closeWatermakerTrendUI() {
-  wmTrendOpen = false;
+// from the same registry (watermaker or system health) can be overlaid on one
+// time axis at once, added/removed without closing the modal. Each open
+// always starts fresh from just the clicked card's metric at 1h — it does not
+// remember whatever combination was active last time. Shared by both sources
+// via penMetrics/penEndpoint rather than duplicating this whole modal a
+// second time for system health.
+function closePenModalUI() {
+  penModalOpen = false;
   document.getElementById('wm-pen-btns').style.display = 'none';
   document.getElementById('wm-pen-btns').innerHTML = '';
   document.getElementById('wm-pen-legend').style.display = 'none';
   document.querySelector('.modal-stats').style.display = '';
 }
 
-function openWatermakerModal(metric, title, unit, color) {
+function openPenModal(metrics, endpoint, icon, title, initialMetric) {
   currentNode = null;
   currentSeries = null;
   currentDuration = '1h';
-  wmTrendOpen = true;
-  activePens = new Set([metric]);
+  penModalOpen = true;
+  penMetrics = metrics;
+  penEndpoint = endpoint;
+  activePens = new Set([initialMetric]);
 
-  document.getElementById('modal-icon').textContent = '💧';
-  document.getElementById('modal-title').textContent = 'Watermaker Trend';
+  document.getElementById('modal-icon').textContent = icon;
+  document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-live-grid').innerHTML = '';
   document.getElementById('modal-soc-bar').style.display = 'none';
   document.getElementById('chart-series-btns').innerHTML = '';
@@ -2567,32 +2907,40 @@ function openWatermakerModal(metric, title, unit, color) {
   document.getElementById('modal').classList.add('open');
   document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.dur-btn')[0].classList.add('active');
-  renderWmPenBtns();
-  loadWatermakerHistory();
+  renderPenBtns();
+  loadPenHistory();
 }
 
-function toggleWmPen(metric) {
+function openWatermakerModal(metric, title, unit, color) {
+  openPenModal(WM_METRICS, '/api/watermaker/history', '💧', 'Watermaker Trend', metric);
+}
+
+function openSystemModal(metric, title, unit, color) {
+  openPenModal(SYS_METRICS, '/api/system/history', '🖥️', 'Server Health Trend', metric);
+}
+
+function togglePen(metric) {
   if (activePens.has(metric)) {
     if (activePens.size === 1) return; // keep at least one pen active
     activePens.delete(metric);
   } else {
     activePens.add(metric);
   }
-  renderWmPenBtns();
-  loadWatermakerHistory();
+  renderPenBtns();
+  loadPenHistory();
 }
 
-function renderWmPenBtns() {
+function renderPenBtns() {
   const wrap = document.getElementById('wm-pen-btns');
   wrap.innerHTML = '';
-  Object.entries(WM_METRICS).forEach(([key, m]) => {
+  Object.entries(penMetrics).forEach(([key, m]) => {
     const active = activePens.has(key);
     const btn = document.createElement('button');
     btn.className = 'pen-btn' + (active ? ' active' : '');
     btn.style.color = active ? m.color : '';
     btn.style.borderColor = active ? m.color : '';
     btn.innerHTML = `<span class="pen-dot" style="background:${active ? m.color : ''}"></span>${m.label}`;
-    btn.onclick = () => toggleWmPen(key);
+    btn.onclick = () => togglePen(key);
     wrap.appendChild(btn);
   });
 }
@@ -2606,18 +2954,18 @@ function setDuration(dur, btn) {
     loadVRMHistory();
   } else if (currentSeries && currentSeries.source === 'influx') {
     loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
-  } else if (wmTrendOpen) {
-    loadWatermakerHistory();
+  } else if (penModalOpen) {
+    loadPenHistory();
   }
 }
 
-async function loadWatermakerHistory() {
+async function loadPenHistory() {
   showChartLoading('Loading...');
   try {
     const pens = [...activePens];
-    const res = await fetch(`/api/watermaker/history?metrics=${pens.join(',')}&range=${currentDuration}`);
+    const res = await fetch(`${penEndpoint}?metrics=${pens.join(',')}&range=${currentDuration}`);
     const d = await res.json();
-    renderMultiWmChart(pens, d.series || {});
+    renderMultiPenChart(pens, d.series || {});
   } catch (e) {
     showChartLoading('Error loading history');
   }
@@ -2708,7 +3056,7 @@ function renderChart(times, values, color, unit) {
 // avoid clutter, but all of them keep their independent scaling, and every
 // active pen gets a color-matched row in the legend below with its current/
 // min/avg/max values so nothing is lost by hiding the extra axes.
-function renderMultiWmChart(pens, seriesMap) {
+function renderMultiPenChart(pens, seriesMap) {
   const allTimes = new Set();
   pens.forEach(p => (seriesMap[p]?.times || []).forEach(t => allTimes.add(t)));
   const times = [...allTimes].sort();
@@ -2739,7 +3087,7 @@ function renderMultiWmChart(pens, seriesMap) {
   const legendRows = [];
 
   pens.forEach((metric, i) => {
-    const meta = WM_METRICS[metric];
+    const meta = penMetrics[metric];
     const s = seriesMap[metric] || { times: [], values: [] };
     const byTime = {};
     s.times.forEach((t, idx) => { byTime[t] = s.values[idx]; });
@@ -2795,7 +3143,7 @@ function renderMultiWmChart(pens, seriesMap) {
           callbacks: {
             label: ctx => {
               const metric = pens[ctx.datasetIndex];
-              const unit = WM_METRICS[metric].unit;
+              const unit = penMetrics[metric].unit;
               return ctx.parsed.y === null
                 ? `${ctx.dataset.label}: no data`
                 : `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}${unit}`;
@@ -2813,7 +3161,7 @@ function closeModal() {
   if (trendChart) { trendChart.destroy(); trendChart = null; }
   currentNode = null;
   currentSeries = null;
-  closeWatermakerTrendUI();
+  closePenModalUI();
 }
 
 function closeModalOutside(e) {

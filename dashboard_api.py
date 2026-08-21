@@ -5,6 +5,8 @@ import glob
 import time
 import json
 import math
+import shutil
+import subprocess
 import sqlite3
 from collections import Counter
 import threading
@@ -482,8 +484,8 @@ WATERMAKER_METRIC_TOPICS = {
     'efficiency': 'boat/watermaker/efficiency',
     'tank':       'boat/watermaker/tank/level',
 }
-WATERMAKER_RANGE_SECONDS = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}
-WATERMAKER_RANGE_BUCKET = {'1h': 30, '6h': 120, '24h': 600, '7d': 3600, '30d': 14400}
+TREND_RANGE_SECONDS = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}
+TREND_RANGE_BUCKET = {'1h': 30, '6h': 120, '24h': 600, '7d': 3600, '30d': 14400}
 
 def get_boat_db():
     s = get_secrets()
@@ -533,8 +535,8 @@ def watermaker_history():
     metrics = [m.strip() for m in metrics_param.split(',') if m.strip()]
     range_val = request.args.get('range', '1h')
 
-    bucket = WATERMAKER_RANGE_BUCKET.get(range_val, 30)
-    seconds = WATERMAKER_RANGE_SECONDS.get(range_val, 3600)
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    seconds = TREND_RANGE_SECONDS.get(range_val, 3600)
     start_dt = datetime.now() - timedelta(seconds=seconds)  # mqtt_readings.ts is local time, not UTC
 
     series = {}
@@ -552,6 +554,151 @@ def watermaker_history():
             series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
 
     return jsonify({'series': series})
+
+# ─── Server health (Pi CPU/memory/disk/temp/WiFi, logged the same way as
+# watermaker telemetry) ─────────────────────────────────────────────────────
+# A background thread (system_health_loop, started below) samples the Pi
+# itself and publishes to boat/system/* on the same MQTT broker everything
+# else uses -- the existing mqtt_logger.py service already subscribes
+# broadly to boat/#, so these get logged into MariaDB for free, and trend
+# queries reuse the exact same bucketed-average approach as watermaker
+# history above. No new dependency (no psutil) -- CPU/memory come from
+# /proc, disk from shutil, temp from the Pi's thermal zone, WiFi from `iw`.
+SYSTEM_METRIC_TOPICS = {
+    'cpu':  'boat/system/cpu_percent',
+    'mem':  'boat/system/mem_percent',
+    'disk': 'boat/system/disk_percent',
+    'temp': 'boat/system/cpu_temp_c',
+    'wifi': 'boat/system/wifi_signal_dbm',
+}
+SYSTEM_HEALTH_INTERVAL_S = 20
+
+@app.route('/api/system/history')
+def system_history():
+    metrics_param = request.args.get('metrics') or request.args.get('metric', 'cpu')
+    metrics = [m.strip() for m in metrics_param.split(',') if m.strip()]
+    range_val = request.args.get('range', '1h')
+
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    seconds = TREND_RANGE_SECONDS.get(range_val, 3600)
+    start_dt = datetime.now() - timedelta(seconds=seconds)
+
+    series = {}
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        for metric in metrics:
+            if metric not in SYSTEM_METRIC_TOPICS:
+                series[metric] = {'times': [], 'values': [], 'error': 'unknown metric'}
+                continue
+            s = query_bucketed_series(cur, SYSTEM_METRIC_TOPICS[metric], start_dt, bucket)
+            keys = sorted(s.keys())
+            series[metric] = {
+                'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+                'values': [round(s[k], 2) for k in keys],
+            }
+        conn.close()
+    except Exception as e:
+        for metric in metrics:
+            series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
+
+    return jsonify({'series': series})
+
+_prev_cpu_times = None  # (idle, total) from the last /proc/stat sample, for the CPU% delta below
+
+def sample_cpu_percent():
+    global _prev_cpu_times
+    try:
+        with open('/proc/stat') as f:
+            fields = f.readline().split()[1:]  # first line: "cpu  <user> <nice> <system> <idle> <iowait> ..."
+        values = [int(v) for v in fields]
+        idle = values[3] + (values[4] if len(values) > 4 else 0)  # idle + iowait
+        total = sum(values)
+    except (OSError, ValueError, IndexError):
+        return None
+    prev = _prev_cpu_times
+    _prev_cpu_times = (idle, total)
+    if prev is None:
+        return None  # need two samples to compute a delta -- nothing to report yet on the very first tick
+    prev_idle, prev_total = prev
+    d_total = total - prev_total
+    if d_total <= 0:
+        return None
+    return round(100.0 * (1 - (idle - prev_idle) / d_total), 1)
+
+def sample_mem_percent():
+    try:
+        info = {}
+        with open('/proc/meminfo') as f:
+            for line in f:
+                k, v = line.split(':', 1)
+                info[k.strip()] = int(v.strip().split()[0])  # kB
+        total = info.get('MemTotal')
+        available = info.get('MemAvailable')
+        if not total or available is None:
+            return None
+        return round(100.0 * (total - available) / total, 1)
+    except (OSError, ValueError):
+        return None
+
+def sample_disk_percent(path='/'):
+    try:
+        usage = shutil.disk_usage(path)
+        return round(100.0 * usage.used / usage.total, 1)
+    except OSError:
+        return None
+
+def sample_cpu_temp_c():
+    try:
+        with open('/sys/class/thermal/thermal_zone0/temp') as f:
+            return round(int(f.read().strip()) / 1000.0, 1)
+    except (OSError, ValueError):
+        return None
+
+def sample_wifi_signal_dbm():
+    # wlan0 may simply not be the boat's active connection (this Pi mainly
+    # runs on eth0) -- returning None here just means the trend chart shows
+    # no data for that period, same as any other not-currently-available metric.
+    try:
+        state = subprocess.run(['ip', '-br', 'addr', 'show', 'wlan0'], capture_output=True, text=True, timeout=3)
+        if 'UP' not in state.stdout:
+            return None
+        link = subprocess.run(['iw', 'dev', 'wlan0', 'link'], capture_output=True, text=True, timeout=3)
+        for line in link.stdout.splitlines():
+            line = line.strip()
+            if line.startswith('signal:'):
+                return float(line.split()[1])  # "signal: -58 dBm"
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        pass
+    return None
+
+def sample_bluetooth_active():
+    try:
+        result = subprocess.run(['systemctl', 'is-active', 'bluetooth'], capture_output=True, text=True, timeout=3)
+        return result.stdout.strip() == 'active'
+    except (OSError, subprocess.SubprocessError):
+        return None  # not installed/managed by systemd on this Pi -- distinct from "installed but off"
+
+def system_health_loop():
+    while True:
+        time.sleep(SYSTEM_HEALTH_INTERVAL_S)
+        try:
+            if not mqtt_client or not mqtt_state['connected']:
+                continue
+            readings = {
+                'boat/system/cpu_percent':      sample_cpu_percent(),
+                'boat/system/mem_percent':      sample_mem_percent(),
+                'boat/system/disk_percent':     sample_disk_percent(),
+                'boat/system/cpu_temp_c':       sample_cpu_temp_c(),
+                'boat/system/wifi_signal_dbm':  sample_wifi_signal_dbm(),
+            }
+            for topic, value in readings.items():
+                if value is not None:
+                    mqtt_client.publish(topic, str(value), retain=False)
+            bt = sample_bluetooth_active()
+            mqtt_client.publish('boat/system/bluetooth_active', '1' if bt else '0' if bt is not None else '', retain=False)
+        except Exception:
+            pass  # a bad sample this tick shouldn't kill the loop -- just try again next interval
 
 # ─── Anchor watch ────────────────────────────────────────────────────────────
 # Anchor position/radius is persisted to a small JSON file (not a DB — this is
@@ -1241,6 +1388,7 @@ if __name__ == '__main__':
         start_mqtt_listener()
         threading.Thread(target=anchor_monitor_loop, daemon=True).start()
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
+        threading.Thread(target=system_health_loop, daemon=True).start()
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a
