@@ -610,6 +610,47 @@ def system_history():
 
     return jsonify({'series': series})
 
+# A rare/mostly-constant status like throttle state doesn't suit a trend line --
+# what's actually useful is "when did this last change", not a chart of a flag
+# sampled every 20s. Reuses the same logged samples (no new storage), just
+# collapses consecutive identical readings into change events via LAG().
+SYSTEM_EVENT_TOPICS = {
+    'throttled': 'boat/system/throttled_detail',
+}
+
+@app.route('/api/system/events')
+def system_events():
+    metric = request.args.get('metric', 'throttled')
+    try:
+        limit = min(int(request.args.get('limit', 15)), 100)
+    except ValueError:
+        limit = 15
+    if metric not in SYSTEM_EVENT_TOPICS:
+        return jsonify({'events': [], 'error': 'unknown metric'}), 400
+
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM mqtt_topics WHERE topic = %s", (SYSTEM_EVENT_TOPICS[metric],))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'events': []})
+        cur.execute("""
+            SELECT ts, value FROM (
+                SELECT ts, value, LAG(value) OVER (ORDER BY ts) AS prev_value
+                FROM mqtt_readings WHERE topic_id = %s
+            ) t
+            WHERE prev_value IS NULL OR value <> prev_value
+            ORDER BY ts DESC
+            LIMIT %s
+        """, (row[0], limit))
+        events = [{'time': ts.strftime('%Y-%m-%dT%H:%M:%S'), 'value': value} for ts, value in cur.fetchall()]
+        conn.close()
+        return jsonify({'events': events})
+    except Exception as e:
+        return jsonify({'events': [], 'error': str(e)})
+
 _prev_cpu_times = None  # (idle, total) from the last /proc/stat sample, for the CPU% delta below
 
 def sample_cpu_percent():
@@ -696,13 +737,33 @@ def sample_load1():
 # "has this happened since boot" (bits 16-19, same order) into one value --
 # only the low nibble matters for a live health flag; a one-time boot-time
 # brownout showing as "currently throttled" forever would just be noise.
-def sample_throttled_active():
+THROTTLE_BITS = [
+    (0, 'Under-voltage'),
+    (1, 'Frequency capped'),
+    (2, 'Throttled'),
+    (3, 'Soft temp limit'),
+]  # bit+16 is the same condition's "has this happened since boot" flag
+
+def sample_throttled_raw():
     try:
         result = subprocess.run(['vcgencmd', 'get_throttled'], capture_output=True, text=True, timeout=3)
-        value = int(result.stdout.strip().split('=')[1], 16)
-        return bool(value & 0xF)
+        return int(result.stdout.strip().split('=')[1], 16)
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):
         return None  # not a Pi, or vcgencmd unavailable
+
+def describe_throttled(value):
+    """A bare OK/THROTTLED flag throws away exactly the detail that matters --
+    which condition (under-voltage/freq cap/active throttle/soft temp limit)
+    and whether it happened at some point since boot even if it's clear right
+    now, which is a real event worth surfacing (e.g. an intermittent power
+    sag) rather than silently clearing itself from view."""
+    now = [label for bit, label in THROTTLE_BITS if value & (1 << bit)]
+    past = [label for bit, label in THROTTLE_BITS if (value & (1 << (bit + 16))) and label not in now]
+    if now:
+        return ' + '.join(now)
+    if past:
+        return f"OK (past: {' + '.join(past)})"
+    return 'OK'
 
 _prev_net_bytes = None  # (rx, tx, timestamp) from the last sample, for the KB/s delta below
 
@@ -780,8 +841,13 @@ def system_health_loop():
                     mqtt_client.publish(topic, str(value), retain=False)
             bt = sample_bluetooth_active()
             mqtt_client.publish('boat/system/bluetooth_active', '1' if bt else '0' if bt is not None else '', retain=False)
-            throttled = sample_throttled_active()
-            mqtt_client.publish('boat/system/throttled_active', '1' if throttled else '0' if throttled is not None else '', retain=False)
+            throttled_raw = sample_throttled_raw()
+            if throttled_raw is not None:
+                mqtt_client.publish('boat/system/throttled_active', '1' if (throttled_raw & 0xF) else '0', retain=False)
+                mqtt_client.publish('boat/system/throttled_detail', describe_throttled(throttled_raw), retain=False)
+            else:
+                mqtt_client.publish('boat/system/throttled_active', '', retain=False)
+                mqtt_client.publish('boat/system/throttled_detail', '', retain=False)
         except Exception:
             pass  # a bad sample this tick shouldn't kill the loop -- just try again next interval
 

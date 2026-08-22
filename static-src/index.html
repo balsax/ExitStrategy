@@ -102,6 +102,11 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .sys-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .spark-wrap{position:relative;height:100px;margin-top:8px}
 .spark-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.events-table{height:100px;margin-top:8px;overflow-y:hidden;font-size:10px}
+.events-row{display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:.5px solid #1a2438;color:#8fa3bd}
+.events-row:last-child{border-bottom:none}
+.events-row .events-time{white-space:nowrap;color:#4a5f7a}
+.events-empty{color:#445566;text-align:center;padding-top:8px}
 
 /* MQTT diagnostics tree (also reused as-is for the CAN Bus tree below) */
 .mqtt-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:.75rem;flex-wrap:wrap}
@@ -966,10 +971,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div class="mlive-val" id="sys-load1-val">--</div>
           <div class="spark-wrap"><canvas id="spark-load1"></canvas></div>
         </div>
-        <div class="mlive wm-clickable" onclick="openSystemModal('throttled','Throttle Status','','#e05050')">
+        <div class="mlive">
           <div class="mlive-label">Throttle Status</div>
           <div class="mlive-val" id="sys-throttled-val">--</div>
-          <div class="spark-wrap"><canvas id="spark-throttled"></canvas></div>
+          <div class="events-table" id="throttled-events"></div>
         </div>
       </div>
 
@@ -1351,7 +1356,6 @@ const SYS_METRICS = {
   load1:     { label: 'Load Average',    unit: '',     color: '#2dd4bf' },
   net_rx:    { label: 'Network RX',      unit: 'KB/s', color: '#c9a35a' },
   net_tx:    { label: 'Network TX',      unit: 'KB/s', color: '#d4527a' },
-  throttled: { label: 'Throttle Status', unit: '',     color: '#e05050' },
   disk_io:   { label: 'Disk I/O',        unit: 'KB/s', color: '#6b9bd1' },
   boot_disk: { label: 'Boot Partition',  unit: '%',    color: '#7ec9a8' },
 };
@@ -2685,18 +2689,26 @@ function renderSystemHealth() {
   setStat('sys-disk_io-val', get('disk_io_kbps'), netFmt, 5000, 20000);
   setStat('sys-boot_disk-val', get('boot_disk_percent'), v => `${v.toFixed(1)}%`, 80, 95);
 
+  // detail names which condition (under-voltage/freq cap/throttled/soft temp
+  // limit) rather than a bare flag, and calls out a past occurrence even if
+  // it's clear right now (e.g. an intermittent power sag) instead of hiding it.
   const throttled = get('throttled_active');
+  const throttledDetail = get('throttled_detail');
   const throttledEl = document.getElementById('sys-throttled-val');
-  if (throttled === '1') { throttledEl.textContent = 'THROTTLED'; throttledEl.style.color = '#e05050'; }
-  else if (throttled === '0') { throttledEl.textContent = 'OK'; throttledEl.style.color = '#3db87a'; }
-  else { throttledEl.textContent = 'Not available'; throttledEl.style.color = '#445566'; }
+  if (throttled === null || throttled === '') { throttledEl.textContent = 'Not available'; throttledEl.style.color = '#445566'; }
+  else if (throttled === '1') { throttledEl.textContent = throttledDetail || 'THROTTLED'; throttledEl.style.color = '#e05050'; }
+  else {
+    const hadPastIssue = throttledDetail && throttledDetail.startsWith('OK (past');
+    throttledEl.textContent = throttledDetail || 'OK';
+    throttledEl.style.color = hadPastIssue ? '#e8a030' : '#3db87a';
+  }
 }
 
 // Small trend-shape preview on each card, same 1h history the full modal
 // chart uses -- refreshed on its own slower interval (see showDiagSub) since
 // a sparkline doesn't need the 3s cadence the live values get, and only
 // while this sub-tab is actually visible.
-const SYS_SPARK_METRICS = ['cpu', 'mem', 'disk', 'temp', 'wifi', 'load1', 'net_rx', 'net_tx', 'throttled', 'disk_io', 'boot_disk'];
+const SYS_SPARK_METRICS = ['cpu', 'mem', 'disk', 'temp', 'wifi', 'load1', 'net_rx', 'net_tx', 'disk_io', 'boot_disk'];
 let sparkCharts = {};
 
 function renderSparkline(metric, values) {
@@ -2730,11 +2742,35 @@ async function fetchSystemSparklines() {
   } catch (e) { /* leave last-known sparklines on screen */ }
 }
 
+// Throttle status is a rare/mostly-constant flag, not a smooth metric -- a
+// list of when it actually changed is more useful than a sparkline of a flag
+// sampled every 20s. Reads /api/system/events, which already collapses
+// consecutive identical samples down to just the transitions server-side.
+async function fetchThrottleEvents() {
+  const container = document.getElementById('throttled-events');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/system/events?metric=throttled&limit=4');
+    const d = await res.json();
+    const events = d.events || [];
+    if (events.length === 0) {
+      container.innerHTML = '<div class="events-empty">No events yet</div>';
+      return;
+    }
+    container.innerHTML = events.map(e => {
+      const dt = new Date(e.time);
+      const timeStr = dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<div class="events-row"><span>${escapeHtml(e.value)}</span><span class="events-time">${timeStr}</span></div>`;
+    }).join('');
+  } catch (e) { /* leave last-known events on screen */ }
+}
+
 let sysSparkInterval = null;
 function updateSysSparklinePolling(tab) {
   if (tab === 'system') {
     fetchSystemSparklines();
-    if (!sysSparkInterval) sysSparkInterval = setInterval(fetchSystemSparklines, 30000);
+    fetchThrottleEvents();
+    if (!sysSparkInterval) sysSparkInterval = setInterval(() => { fetchSystemSparklines(); fetchThrottleEvents(); }, 30000);
   } else if (sysSparkInterval) {
     clearInterval(sysSparkInterval);
     sysSparkInterval = null;
