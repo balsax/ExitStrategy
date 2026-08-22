@@ -973,7 +973,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         </div>
       </div>
 
-      <div class="wm-info-label" style="margin:16px 0 8px">Memory / Drive / Network</div>
+      <div class="wm-info-label" style="margin:16px 0 8px">Memory / Drive</div>
       <div class="sys-stat-grid">
         <div class="mlive wm-clickable" onclick="openSystemModal('mem','Memory Usage','%','#e8a030')">
           <div class="mlive-label">Memory Usage</div>
@@ -995,6 +995,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div class="mlive-val" id="sys-boot_disk-val">--%</div>
           <div class="spark-wrap"><canvas id="spark-boot_disk"></canvas></div>
         </div>
+      </div>
+
+      <div class="wm-info-label" style="margin:16px 0 8px">Network</div>
+      <div class="sys-stat-grid">
         <div class="mlive wm-clickable" onclick="openSystemModal('net_tx','Network TX','KB/s','#d4527a')">
           <div class="mlive-label">Network TX</div>
           <div class="mlive-val" id="sys-net_tx-val">--</div>
