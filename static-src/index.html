@@ -99,7 +99,9 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .diag-subtab-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
 .diag-panel{display:none}
 .diag-panel.active{display:block}
-.sys-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.sys-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.spark-wrap{position:relative;height:32px;margin-top:8px}
+.spark-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 
 /* MQTT diagnostics tree (also reused as-is for the CAN Bus tree below) */
 .mqtt-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:.75rem;flex-wrap:wrap}
@@ -247,7 +249,8 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .marine-alert-detail-item{font-size:12px;color:#c9d4e0;line-height:1.4}
 .marine-alert-detail-item b{color:inherit}
 @media (max-width:820px){.anchor-radar-wrap{width:100%}}
-@media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}}
+@media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}.sys-stat-grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:520px){.sys-stat-grid{grid-template-columns:1fr}}
 
 /* Chart tab — NOAA's own NCDS tiles carry real paper-chart symbology (light
    tones, printed text), so this panel intentionally breaks from the app's
@@ -944,33 +947,74 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     </div>
 
     <div class="diag-panel" id="diag-panel-system">
+      <div class="notice" id="sys-notice" style="margin-bottom:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
+
+      <div class="wm-info-label" style="margin-bottom:8px">CPU</div>
       <div class="sys-stat-grid">
         <div class="mlive wm-clickable" onclick="openSystemModal('cpu','CPU Usage','%','#4a9fd4')">
           <div class="mlive-label">CPU Usage</div>
           <div class="mlive-val" id="sys-cpu-val">--%</div>
-        </div>
-        <div class="mlive wm-clickable" onclick="openSystemModal('mem','Memory Usage','%','#e8a030')">
-          <div class="mlive-label">Memory Usage</div>
-          <div class="mlive-val" id="sys-mem-val">--%</div>
-        </div>
-        <div class="mlive wm-clickable" onclick="openSystemModal('disk','Disk Usage','%','#3db87a')">
-          <div class="mlive-label">Disk Usage</div>
-          <div class="mlive-val" id="sys-disk-val">--%</div>
+          <div class="spark-wrap"><canvas id="spark-cpu"></canvas></div>
         </div>
         <div class="mlive wm-clickable" onclick="openSystemModal('temp','CPU Temp','°C','#e05050')">
           <div class="mlive-label">CPU Temp</div>
           <div class="mlive-val" id="sys-temp-val">--°C</div>
+          <div class="spark-wrap"><canvas id="spark-temp"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('load1','Load Average','','#2dd4bf')">
+          <div class="mlive-label">Load Average (1m)</div>
+          <div class="mlive-val" id="sys-load1-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-load1"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('throttled','Throttle Status','','#e05050')">
+          <div class="mlive-label">Throttle Status</div>
+          <div class="mlive-val" id="sys-throttled-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-throttled"></canvas></div>
+        </div>
+      </div>
+
+      <div class="wm-info-label" style="margin:16px 0 8px">Memory / Drive / Network</div>
+      <div class="sys-stat-grid">
+        <div class="mlive wm-clickable" onclick="openSystemModal('mem','Memory Usage','%','#e8a030')">
+          <div class="mlive-label">Memory Usage</div>
+          <div class="mlive-val" id="sys-mem-val">--%</div>
+          <div class="spark-wrap"><canvas id="spark-mem"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('disk','Disk Usage','%','#3db87a')">
+          <div class="mlive-label">Disk Usage</div>
+          <div class="mlive-val" id="sys-disk-val">--%</div>
+          <div class="spark-wrap"><canvas id="spark-disk"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('disk_io','Disk I/O','KB/s','#6b9bd1')">
+          <div class="mlive-label">Disk I/O</div>
+          <div class="mlive-val" id="sys-disk_io-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-disk_io"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('boot_disk','Boot Partition','%','#7ec9a8')">
+          <div class="mlive-label">Boot Partition</div>
+          <div class="mlive-val" id="sys-boot_disk-val">--%</div>
+          <div class="spark-wrap"><canvas id="spark-boot_disk"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('net_tx','Network TX','KB/s','#d4527a')">
+          <div class="mlive-label">Network TX</div>
+          <div class="mlive-val" id="sys-net_tx-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-net_tx"></canvas></div>
+        </div>
+        <div class="mlive wm-clickable" onclick="openSystemModal('net_rx','Network RX','KB/s','#c9a35a')">
+          <div class="mlive-label">Network RX</div>
+          <div class="mlive-val" id="sys-net_rx-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-net_rx"></canvas></div>
         </div>
         <div class="mlive wm-clickable" onclick="openSystemModal('wifi','WiFi Signal','dBm','#a05ad4')">
           <div class="mlive-label">WiFi Signal</div>
           <div class="mlive-val" id="sys-wifi-val">--</div>
+          <div class="spark-wrap"><canvas id="spark-wifi"></canvas></div>
         </div>
         <div class="mlive">
           <div class="mlive-label">Bluetooth</div>
           <div class="mlive-val" id="sys-bt-val">--</div>
         </div>
       </div>
-      <div class="notice" id="sys-notice" style="margin-top:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
     </div>
   </div>
 </div>
@@ -1295,11 +1339,17 @@ const WM_METRICS = {
   efficiency: { label: 'Efficiency',        unit: '%',     color: '#c9d454' },
 };
 const SYS_METRICS = {
-  cpu:  { label: 'CPU Usage',    unit: '%',   color: '#4a9fd4' },
-  mem:  { label: 'Memory Usage', unit: '%',   color: '#e8a030' },
-  disk: { label: 'Disk Usage',   unit: '%',   color: '#3db87a' },
-  temp: { label: 'CPU Temp',     unit: '°C',  color: '#e05050' },
-  wifi: { label: 'WiFi Signal',  unit: 'dBm', color: '#a05ad4' },
+  cpu:       { label: 'CPU Usage',       unit: '%',    color: '#4a9fd4' },
+  mem:       { label: 'Memory Usage',    unit: '%',    color: '#e8a030' },
+  disk:      { label: 'Disk Usage',      unit: '%',    color: '#3db87a' },
+  temp:      { label: 'CPU Temp',        unit: '°C',   color: '#e05050' },
+  wifi:      { label: 'WiFi Signal',     unit: 'dBm',  color: '#a05ad4' },
+  load1:     { label: 'Load Average',    unit: '',     color: '#2dd4bf' },
+  net_rx:    { label: 'Network RX',      unit: 'KB/s', color: '#c9a35a' },
+  net_tx:    { label: 'Network TX',      unit: 'KB/s', color: '#d4527a' },
+  throttled: { label: 'Throttle Status', unit: '',     color: '#e05050' },
+  disk_io:   { label: 'Disk I/O',        unit: 'KB/s', color: '#6b9bd1' },
+  boot_disk: { label: 'Boot Partition',  unit: '%',    color: '#7ec9a8' },
 };
 let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker or system health)
 let penMetrics = WM_METRICS; // whichever metric registry the open modal is using
@@ -2372,6 +2422,7 @@ function showDiagSub(tab) {
   document.getElementById('diag-sub-mqtt-btn').classList.toggle('active', tab === 'mqtt');
   document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
+  updateSysSparklinePolling(tab);
 }
 
 // ─── CAN Bus diagnostics tree ──────────────────────────────────────────────────
@@ -2618,6 +2669,72 @@ function renderSystemHealth() {
   if (bt === '1') { btEl.textContent = 'Active'; btEl.style.color = '#3db87a'; }
   else if (bt === '0') { btEl.textContent = 'Inactive'; btEl.style.color = '#8fa3bd'; }
   else { btEl.textContent = 'Not available'; btEl.style.color = '#445566'; }
+
+  // Load average thresholds assume a 4-core Pi (this boat's ExitStrategyRaspberry) --
+  // >2 is already elevated for a single-purpose embedded box, >=4 fully saturates it.
+  const load1 = get('load1');
+  setStat('sys-load1-val', load1, v => v.toFixed(2), 2, 4);
+
+  const netFmt = v => v >= 1024 ? `${(v / 1024).toFixed(2)} MB/s` : `${v.toFixed(1)} KB/s`;
+  setStat('sys-net_rx-val', get('net_rx_kbps'), netFmt, 5000, 20000);
+  setStat('sys-net_tx-val', get('net_tx_kbps'), netFmt, 5000, 20000);
+  setStat('sys-disk_io-val', get('disk_io_kbps'), netFmt, 5000, 20000);
+  setStat('sys-boot_disk-val', get('boot_disk_percent'), v => `${v.toFixed(1)}%`, 80, 95);
+
+  const throttled = get('throttled_active');
+  const throttledEl = document.getElementById('sys-throttled-val');
+  if (throttled === '1') { throttledEl.textContent = 'THROTTLED'; throttledEl.style.color = '#e05050'; }
+  else if (throttled === '0') { throttledEl.textContent = 'OK'; throttledEl.style.color = '#3db87a'; }
+  else { throttledEl.textContent = 'Not available'; throttledEl.style.color = '#445566'; }
+}
+
+// Small trend-shape preview on each card, same 1h history the full modal
+// chart uses -- refreshed on its own slower interval (see showDiagSub) since
+// a sparkline doesn't need the 3s cadence the live values get, and only
+// while this sub-tab is actually visible.
+const SYS_SPARK_METRICS = ['cpu', 'mem', 'disk', 'temp', 'wifi', 'load1', 'net_rx', 'net_tx', 'throttled', 'disk_io', 'boot_disk'];
+let sparkCharts = {};
+
+function renderSparkline(metric, values) {
+  const canvas = document.getElementById('spark-' + metric);
+  if (!canvas) return;
+  if (sparkCharts[metric]) { sparkCharts[metric].destroy(); sparkCharts[metric] = null; }
+  if (!values || values.length < 2) return; // nothing meaningful to draw a line through yet
+  const color = SYS_METRICS[metric].color;
+  sparkCharts[metric] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: values.map((_, i) => i),
+      datasets: [{ data: values, borderColor: color, backgroundColor: color + '22', borderWidth: 1.5, pointRadius: 0, fill: true, tension: .3 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { display: false }, y: { display: false } },
+    },
+  });
+}
+
+async function fetchSystemSparklines() {
+  try {
+    const res = await fetch(`/api/system/history?metrics=${SYS_SPARK_METRICS.join(',')}&range=1h`);
+    const d = await res.json();
+    const series = d.series || {};
+    for (const metric of SYS_SPARK_METRICS) {
+      renderSparkline(metric, (series[metric] || {}).values);
+    }
+  } catch (e) { /* leave last-known sparklines on screen */ }
+}
+
+let sysSparkInterval = null;
+function updateSysSparklinePolling(tab) {
+  if (tab === 'system') {
+    fetchSystemSparklines();
+    if (!sysSparkInterval) sysSparkInterval = setInterval(fetchSystemSparklines, 30000);
+  } else if (sysSparkInterval) {
+    clearInterval(sysSparkInterval);
+    sysSparkInterval = null;
+  }
 }
 
 async function fetchMqtt() {

@@ -565,11 +565,17 @@ def watermaker_history():
 # history above. No new dependency (no psutil) -- CPU/memory come from
 # /proc, disk from shutil, temp from the Pi's thermal zone, WiFi from `iw`.
 SYSTEM_METRIC_TOPICS = {
-    'cpu':  'boat/system/cpu_percent',
-    'mem':  'boat/system/mem_percent',
-    'disk': 'boat/system/disk_percent',
-    'temp': 'boat/system/cpu_temp_c',
-    'wifi': 'boat/system/wifi_signal_dbm',
+    'cpu':        'boat/system/cpu_percent',
+    'mem':        'boat/system/mem_percent',
+    'disk':       'boat/system/disk_percent',
+    'temp':       'boat/system/cpu_temp_c',
+    'wifi':       'boat/system/wifi_signal_dbm',
+    'load1':      'boat/system/load1',
+    'net_rx':     'boat/system/net_rx_kbps',
+    'net_tx':     'boat/system/net_tx_kbps',
+    'throttled':  'boat/system/throttled_active',
+    'disk_io':    'boat/system/disk_io_kbps',
+    'boot_disk':  'boat/system/boot_disk_percent',
 }
 SYSTEM_HEALTH_INTERVAL_S = 20
 
@@ -679,24 +685,103 @@ def sample_bluetooth_active():
     except (OSError, subprocess.SubprocessError):
         return None  # not installed/managed by systemd on this Pi -- distinct from "installed but off"
 
+def sample_load1():
+    try:
+        return round(os.getloadavg()[0], 2)
+    except OSError:
+        return None
+
+# vcgencmd's throttled bitmask packs both "is this happening right now" (bits
+# 0-3: under-voltage / arm freq capped / throttled / soft temp limit) and
+# "has this happened since boot" (bits 16-19, same order) into one value --
+# only the low nibble matters for a live health flag; a one-time boot-time
+# brownout showing as "currently throttled" forever would just be noise.
+def sample_throttled_active():
+    try:
+        result = subprocess.run(['vcgencmd', 'get_throttled'], capture_output=True, text=True, timeout=3)
+        value = int(result.stdout.strip().split('=')[1], 16)
+        return bool(value & 0xF)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None  # not a Pi, or vcgencmd unavailable
+
+_prev_net_bytes = None  # (rx, tx, timestamp) from the last sample, for the KB/s delta below
+
+def sample_net_rates():
+    try:
+        with open('/sys/class/net/eth0/statistics/rx_bytes') as f:
+            rx = int(f.read().strip())
+        with open('/sys/class/net/eth0/statistics/tx_bytes') as f:
+            tx = int(f.read().strip())
+    except (OSError, ValueError):
+        return None, None
+    global _prev_net_bytes
+    now = time.time()
+    prev = _prev_net_bytes
+    _prev_net_bytes = (rx, tx, now)
+    if prev is None:
+        return None, None  # need two samples to compute a rate -- nothing to report on the first tick
+    prev_rx, prev_tx, prev_t = prev
+    dt = now - prev_t
+    if dt <= 0:
+        return None, None
+    return round((rx - prev_rx) / dt / 1024.0, 2), round((tx - prev_tx) / dt / 1024.0, 2)
+
+DISK_DEVICE = 'sda'  # matches df -h's `/` mount (/dev/sda2) on this Pi
+_prev_disk_sectors = None  # (read, write, timestamp) from the last sample, for the KB/s delta below
+
+def sample_disk_io_kbps():
+    try:
+        with open('/proc/diskstats') as f:
+            for line in f:
+                fields = line.split()
+                if fields[2] == DISK_DEVICE:
+                    read_sectors, write_sectors = int(fields[5]), int(fields[9])
+                    break
+            else:
+                return None
+    except (OSError, ValueError, IndexError):
+        return None
+    global _prev_disk_sectors
+    now = time.time()
+    prev = _prev_disk_sectors
+    _prev_disk_sectors = (read_sectors, write_sectors, now)
+    if prev is None:
+        return None  # need two samples to compute a rate -- nothing to report on the first tick
+    prev_read, prev_write, prev_t = prev
+    dt = now - prev_t
+    if dt <= 0:
+        return None
+    # /proc/diskstats sectors are always 512 bytes regardless of the drive's
+    # actual physical sector size -- combined read+write, same as net rates above.
+    delta_sectors = (read_sectors - prev_read) + (write_sectors - prev_write)
+    return round(delta_sectors * 512 / dt / 1024.0, 2)
+
 def system_health_loop():
     while True:
         time.sleep(SYSTEM_HEALTH_INTERVAL_S)
         try:
             if not mqtt_client or not mqtt_state['connected']:
                 continue
+            rx_kbps, tx_kbps = sample_net_rates()
             readings = {
                 'boat/system/cpu_percent':      sample_cpu_percent(),
                 'boat/system/mem_percent':      sample_mem_percent(),
                 'boat/system/disk_percent':     sample_disk_percent(),
                 'boat/system/cpu_temp_c':       sample_cpu_temp_c(),
                 'boat/system/wifi_signal_dbm':  sample_wifi_signal_dbm(),
+                'boat/system/load1':            sample_load1(),
+                'boat/system/net_rx_kbps':      rx_kbps,
+                'boat/system/net_tx_kbps':      tx_kbps,
+                'boat/system/disk_io_kbps':     sample_disk_io_kbps(),
+                'boat/system/boot_disk_percent': sample_disk_percent('/boot/firmware'),
             }
             for topic, value in readings.items():
                 if value is not None:
                     mqtt_client.publish(topic, str(value), retain=False)
             bt = sample_bluetooth_active()
             mqtt_client.publish('boat/system/bluetooth_active', '1' if bt else '0' if bt is not None else '', retain=False)
+            throttled = sample_throttled_active()
+            mqtt_client.publish('boat/system/throttled_active', '1' if throttled else '0' if throttled is not None else '', retain=False)
         except Exception:
             pass  # a bad sample this tick shouldn't kill the loop -- just try again next interval
 
