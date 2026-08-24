@@ -287,6 +287,11 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-me-row{display:flex;justify-content:space-between;gap:14px;padding:2px 0;color:#c9d4e0}
 .chart-me-row span:first-child{color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em}
 .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+.chart-me-divider{border-top:.5px solid #2a3a5a;margin:6px 0}
+.chart-me-ap-controls{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chart-me-ap-controls .wm-btn{padding:4px 8px;font-size:11px;flex:1;min-width:38px;text-align:center}
+.chart-dest-panel{display:none;position:absolute;bottom:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;min-width:130px}
+.chart-dest-panel.active{display:block}
 .ais-target-label.leaflet-tooltip{background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;font-size:11px;padding:2px 7px;border-radius:5px;box-shadow:none;white-space:nowrap}
 .ais-target-label.leaflet-tooltip::before{display:none}
 .ais-popup .leaflet-popup-content-wrapper{background:#0f1628;color:#e0e6f0;border:1px solid #2a3a5a;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
@@ -815,6 +820,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
       <label><input type="checkbox" data-chart-layer="AIS Traffic"> AIS Traffic</label>
       <label><input type="checkbox" id="chart-me-toggle" data-chart-layer="My Vessel"> My Vessel &amp; Autopilot</label>
+      <label><input type="checkbox" id="chart-dest-toggle" data-chart-layer="Destination"> Destination &amp; ETA</label>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
@@ -834,7 +840,37 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         <div class="chart-me-row"><span>Heading</span><span id="chart-me-heading">--°</span></div>
         <div class="chart-me-row"><span>COG</span><span id="chart-me-cog">--°</span></div>
         <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
-        <div class="chart-me-row"><span>Autopilot</span><span id="chart-me-autopilot">Not wired</span></div>
+        <div class="chart-me-divider"></div>
+        <div class="chart-me-row">
+          <span>Autopilot</span>
+          <span class="sys-badge" id="chart-me-ap-mode" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not wired</span>
+        </div>
+        <div class="chart-me-row"><span>Hdg to Steer</span><span id="chart-me-ap-hts">--°</span></div>
+        <div class="chart-me-row"><span>Rudder</span><span id="chart-me-ap-rudder">--°</span></div>
+        <div class="chart-me-row"><span>Rate of Turn</span><span id="chart-me-ap-rot">--°/min</span></div>
+        <!-- Controls are placeholders only -- no confirmed command path yet (see
+             n2k_mqtt_bridge.py PGN_MAP notes); disabled until wired and verified
+             against real GHP 12 / GHC 10 traffic. -->
+        <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
+          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-10°</button>
+          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-1°</button>
+          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+1°</button>
+          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+10°</button>
+        </div>
+        <div class="chart-me-ap-controls" id="chart-me-ap-mode-controls">
+          <button class="wm-btn wm-btn-start" disabled title="Autopilot not on N2K network yet">Engage</button>
+          <button class="wm-btn wm-btn-stop" disabled title="Autopilot not on N2K network yet">Standby</button>
+        </div>
+      </div>
+      <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
+           autopilot, Garmin's own PGN table confirms the 1243 transmits this,
+           so it needs no reverse-engineering. Only ever populated while the
+           chartplotter has an active Go To/route; empty otherwise. -->
+      <div class="chart-dest-panel" id="chart-dest-panel">
+        <div class="chart-me-row"><span>Distance</span><span id="chart-dest-distance">-- nm</span></div>
+        <div class="chart-me-row"><span>Bearing</span><span id="chart-dest-bearing">--°</span></div>
+        <div class="chart-me-row"><span>VMG</span><span id="chart-dest-vmg">-- kn</span></div>
+        <div class="chart-me-row"><span>ETA</span><span id="chart-dest-eta">--</span></div>
       </div>
     </div>
   </div>
@@ -915,7 +951,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <div class="flow-wrap">
     <div class="diag-subtabs">
       <button class="diag-subtab-btn active" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
-      <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">CAN Bus</button>
+      <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
     </div>
 
@@ -1120,7 +1156,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         </div>
         <div class="mc-device-row">
           <div class="mc-device-info">
-            <span class="mc-device-name">HP Pump</span>
+            <span class="mc-device-name">HP Pump Run Enable</span>
             <span class="mc-device-state" id="mc-state-pump">--</span>
           </div>
           <div class="mc-device-btns">
@@ -2057,8 +2093,6 @@ function openManualModal() {
   document.getElementById('manual-modal').classList.add('open');
   setText('mc-feedback', '');
   mcSpeedSliderSynced = false;
-  document.getElementById('mc-pump-speed-slider').disabled = true;
-  document.getElementById('mc-pump-speed-set-btn').disabled = true;
   fetchManualPanelLive();
   manualPollInterval = setInterval(fetchManualPanelLive, 3000);
 }
@@ -2124,15 +2158,12 @@ async function fetchManualPanelLive() {
     const speedPct = get('pump/speed_pct');
     setText('mc-live-pumpspeed', speedPct !== null ? `${Math.round(parseFloat(speedPct))}%` : '--%');
 
-    // Speed slider only makes sense while the HP pump is actually running --
-    // disabled otherwise, and synced to the live commanded speed once each
-    // time the pump turns on (not on every poll, so it doesn't fight the user
+    // Slider stays enabled at all times so a speed can be staged before the
+    // HP pump is started. Synced to the live commanded speed once each time
+    // the pump turns on (not on every poll, so it doesn't fight the user
     // mid-drag while they're picking a new speed to send).
     const pumpOn = pumpState === '1';
     const speedSlider = document.getElementById('mc-pump-speed-slider');
-    const speedSetBtn = document.getElementById('mc-pump-speed-set-btn');
-    speedSlider.disabled = !pumpOn;
-    speedSetBtn.disabled = !pumpOn;
     if (pumpOn && !mcSpeedSliderSynced) {
       const v = speedPct !== null ? Math.round(parseFloat(speedPct)) : 0;
       speedSlider.value = v;
@@ -2140,8 +2171,6 @@ async function fetchManualPanelLive() {
       mcSpeedSliderSynced = true;
     } else if (!pumpOn) {
       mcSpeedSliderSynced = false;
-      speedSlider.value = 0;
-      setText('mc-pump-speed-value', '0%');
     }
 
     const divert = get('divert/state');
@@ -4489,7 +4518,8 @@ async function initChartMap() {
   chartSoundingsGroup = L.layerGroup();
   chartAisGroup = L.layerGroup();
   chartMeGroup = L.layerGroup();
-  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup };
+  chartDestGroup = L.layerGroup();
+  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup, 'Destination': chartDestGroup };
   document.querySelectorAll('#chart-layer-toggles input[type="checkbox"]').forEach(cb => {
     cb.checked = false;
     cb.addEventListener('change', () => {
@@ -4506,6 +4536,12 @@ async function initChartMap() {
   if (chartMeToggle) {
     chartMeToggle.addEventListener('change', () => {
       document.getElementById('chart-me-panel').classList.toggle('active', chartMeToggle.checked);
+    });
+  }
+  const chartDestToggle = document.getElementById('chart-dest-toggle');
+  if (chartDestToggle) {
+    chartDestToggle.addEventListener('change', () => {
+      document.getElementById('chart-dest-panel').classList.toggle('active', chartDestToggle.checked);
     });
   }
 
@@ -4546,16 +4582,76 @@ let chartAisOwnHeadingLine = null; // heading reference line, white — see CHAR
 let chartAisTargetMarkers = {};
 let chartAisTargetTrailLines = {};
 let chartAisTargetVectorLines = {};
+let chartDestGroup = null; // destination waypoint marker + rhumb line to it
+let chartDestMarker = null;
+let chartDestLine = null;
 
 // "My Vessel & Autopilot" panel — heading/COG/SOG are real (same MQTT topics
-// fetchChartAisLive already reads for the own-boat marker below). Autopilot
-// has no data source anywhere in this project yet — no MQTT topic, no
-// simulator — so it's shown as not-wired rather than guessing a topic name,
-// same convention as the Weather tab's wind card.
-function updateChartMePanel(heading, cog, sog) {
+// fetchChartAisLive already reads for the own-boat marker below).
+//
+// Autopilot: the GHP 12/GHC 10 aren't on the N2K network yet, so these topics
+// don't exist in n2k_mqtt_bridge.py's PGN_MAP -- names below are the prospective
+// boat/nav/* topics matching its existing naming convention (see canboat's
+// 126720 garminAutopilot* / 127237 headingTrackControl / 127245 rudder PGNs),
+// picked so this panel needs no changes once the bridge is actually wired up.
+// Until then get() always returns null here and the panel just shows "--".
+const AP_MODE_BADGES = {
+  Standby:      { text: 'Standby',      color: '#6b82a0', border: '#334455', bg: '#0a0e1a' },
+  'Shadow Drive': { text: 'Shadow Drive', color: '#a78bfa', border: '#5a3a8a', bg: '#1a1030' },
+  Engaged:      { text: 'Engaged',      color: '#3db87a', border: '#2a7a4a', bg: '#0d2b1a' },
+};
+function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot) {
   setText('chart-me-heading', heading !== null ? `${Math.round(parseFloat(heading))}°` : '--°');
   setText('chart-me-cog', cog !== null ? `${Math.round(parseFloat(cog))}°` : '--°');
   setText('chart-me-sog', sog !== null ? `${parseFloat(sog).toFixed(1)} kn` : '-- kn');
+
+  const badge = AP_MODE_BADGES[apMode] || { text: 'Not wired', color: '#6b82a0', border: '#334455', bg: '#0a0e1a' };
+  const modeEl = document.getElementById('chart-me-ap-mode');
+  modeEl.textContent = badge.text;
+  modeEl.style.color = badge.color;
+  modeEl.style.borderColor = badge.border;
+  modeEl.style.background = badge.bg;
+
+  setText('chart-me-ap-hts', apHts !== null ? `${Math.round(parseFloat(apHts))}°` : '--°');
+  setText('chart-me-ap-rudder', apRudder !== null ? `${parseFloat(apRudder).toFixed(1)}°` : '--°');
+  setText('chart-me-ap-rot', apRot !== null ? `${Math.round(parseFloat(apRot))}°/min` : '--°/min');
+}
+
+// Destination/ETA — standard PGN 129284 (Navigation Data), unlike the autopilot
+// this one is confirmed transmitted by the 1243 itself (Garmin's own PGN table),
+// so no proprietary reverse-engineering is needed. Prospective boat/nav/destination/*
+// topics, same "not wired yet" convention as the autopilot panel above: get()
+// returns null until n2k_mqtt_bridge.py maps this PGN, and only ever populates
+// once the chartplotter has an active Go To/route regardless.
+function chartDestIcon() {
+  return L.divIcon({
+    className: 'chart-dest-icon',
+    html: `<svg width="24" height="24" viewBox="-12 -12 24 24">
+      <line x1="0" y1="10" x2="0" y2="-10" stroke="#e8a030" stroke-width="2"/>
+      <path d="M0,-10 L9,-6 L0,-2 Z" fill="#e8a030" stroke="#fff" stroke-width="1"/>
+      <circle cx="0" cy="10" r="2" fill="#e8a030" stroke="#fff" stroke-width="1"/>
+    </svg>`,
+    iconSize: [24, 24], iconAnchor: [12, 22],
+  });
+}
+
+function chartDestPopupHtml(dist, bearing, vmg, etaTime, etaDate) {
+  const row = (label, val) => `<div class="ais-popup-row"><span>${label}</span><span>${val}</span></div>`;
+  const eta = (etaDate && etaTime) ? `${etaDate} ${etaTime}` : '--';
+  return `<div class="ais-popup-body">
+    <div class="ais-popup-name">Destination</div>
+    ${row('Distance', dist !== null ? `${parseFloat(dist).toFixed(2)} nm` : '--')}
+    ${row('Bearing', bearing !== null ? `${Math.round(parseFloat(bearing))}°` : '--')}
+    ${row('VMG', vmg !== null ? `${parseFloat(vmg).toFixed(1)} kn` : '--')}
+    ${row('ETA', eta)}
+  </div>`;
+}
+
+function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
+  setText('chart-dest-distance', dist !== null ? `${parseFloat(dist).toFixed(2)} nm` : '-- nm');
+  setText('chart-dest-bearing', bearing !== null ? `${Math.round(parseFloat(bearing))}°` : '--°');
+  setText('chart-dest-vmg', vmg !== null ? `${parseFloat(vmg).toFixed(1)} kn` : '-- kn');
+  setText('chart-dest-eta', (etaDate && etaTime) ? `${etaDate} ${etaTime}` : '--');
 }
 
 async function fetchChartAisTargets() {
@@ -4656,7 +4752,20 @@ async function fetchChartAisLive() {
     const heading = get('boat/nav/heading');
     const cog = get('boat/nav/gps/cog');
     const sog = get('boat/nav/gps/sog');
-    updateChartMePanel(heading, cog, sog);
+    const apMode = get('boat/nav/autopilot/mode');
+    const apHts = get('boat/nav/autopilot/heading_to_steer');
+    const apRudder = get('boat/nav/rudder');
+    const apRot = get('boat/nav/autopilot/rate_of_turn');
+    updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot);
+
+    const destLat = get('boat/nav/destination/latitude');
+    const destLon = get('boat/nav/destination/longitude');
+    const destDist = get('boat/nav/destination/distance');
+    const destBearing = get('boat/nav/destination/bearing');
+    const destVmg = get('boat/nav/destination/vmg');
+    const destEtaTime = get('boat/nav/destination/eta_time');
+    const destEtaDate = get('boat/nav/destination/eta_date');
+    updateChartDestPanel(destDist, destBearing, destVmg, destEtaTime, destEtaDate);
 
     if (lat === null || lon === null) {
       await fetchChartAisTargets();
@@ -4716,6 +4825,29 @@ async function fetchChartAisLive() {
     } else if (chartAisOwnVectorLine) {
       chartMeGroup.removeLayer(chartAisOwnVectorLine);
       chartAisOwnVectorLine = null;
+    }
+
+    if (destLat !== null && destLon !== null) {
+      const destLatLng = [parseFloat(destLat), parseFloat(destLon)];
+      if (!chartDestMarker) {
+        chartDestMarker = L.marker(destLatLng, { icon: chartDestIcon() });
+        chartDestMarker.bindPopup('', { className: 'ais-popup' });
+        chartDestGroup.addLayer(chartDestMarker);
+      } else {
+        chartDestMarker.setLatLng(destLatLng);
+      }
+      chartDestMarker.setPopupContent(chartDestPopupHtml(destDist, destBearing, destVmg, destEtaTime, destEtaDate));
+
+      const destLinePts = [latLng, destLatLng];
+      if (!chartDestLine) {
+        chartDestLine = L.polyline(destLinePts, { color: '#e8a030', weight: 2, opacity: 0.7, dashArray: '6,6' });
+        chartDestGroup.addLayer(chartDestLine);
+      } else {
+        chartDestLine.setLatLngs(destLinePts);
+      }
+    } else {
+      if (chartDestMarker) { chartDestGroup.removeLayer(chartDestMarker); chartDestMarker = null; }
+      if (chartDestLine) { chartDestGroup.removeLayer(chartDestLine); chartDestLine = null; }
     }
 
     await fetchChartAisTargets();

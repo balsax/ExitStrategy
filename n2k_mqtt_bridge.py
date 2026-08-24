@@ -126,6 +126,20 @@ PGN_MAP = {
         "Date": ("boat/nav/system/date", "slow", None),
         "Time": ("boat/nav/system/time", "slow", None),
     },
+    129284: {  # Navigation Data -- standard PGN (not proprietary like the autopilot),
+               # confirmed transmitted by the 1243 itself per Garmin's own PGN table,
+               # but still unverified here -- no chartplotter is on the bus yet to
+               # check field names/units against, same caveat as the rest below.
+               # Only ever populated by the source device while it has an active
+               # Go To/route; absent otherwise.
+        "Destination Latitude":                      ("boat/nav/destination/latitude",  "slow", 6),
+        "Destination Longitude":                     ("boat/nav/destination/longitude", "slow", 6),
+        "Distance to Waypoint":                      ("boat/nav/destination/distance",  "slow", 1),
+        "Bearing, Position to Destination Waypoint": ("boat/nav/destination/bearing",   "slow", 1),
+        "Waypoint Closing Velocity":                 ("boat/nav/destination/vmg",       "slow", 2),
+        "ETA Time":                                  ("boat/nav/destination/eta_time",  "slow", None),
+        "ETA Date":                                  ("boat/nav/destination/eta_date",  "slow", None),
+    },
 }
 
 # AIS PGNs can't use the flat PGN_MAP above because the MQTT topic itself is
