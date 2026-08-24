@@ -282,16 +282,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 .ais-recenter-btn{position:absolute;top:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
-.chart-me-panel{display:none;position:absolute;bottom:10px;left:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;min-width:130px}
-.chart-me-panel.active{display:block}
+.chart-left-panels{position:absolute;bottom:10px;left:10px;z-index:500;display:flex;flex-direction:column;gap:8px}
+.chart-side-panel{display:none;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;width:170px}
+.chart-side-panel.active{display:block}
 .chart-me-row{display:flex;justify-content:space-between;gap:14px;padding:2px 0;color:#c9d4e0}
 .chart-me-row span:first-child{color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em}
 .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
 .chart-me-divider{border-top:.5px solid #2a3a5a;margin:6px 0}
 .chart-me-ap-controls{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .chart-me-ap-controls .wm-btn{padding:4px 8px;font-size:11px;flex:1;min-width:38px;text-align:center}
-.chart-dest-panel{display:none;position:absolute;bottom:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;min-width:130px}
-.chart-dest-panel.active{display:block}
 .ais-target-label.leaflet-tooltip{background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;font-size:11px;padding:2px 7px;border-radius:5px;box-shadow:none;white-space:nowrap}
 .ais-target-label.leaflet-tooltip::before{display:none}
 .ais-popup .leaflet-popup-content-wrapper{background:#0f1628;color:#e0e6f0;border:1px solid #2a3a5a;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
@@ -813,14 +812,13 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <div class="page" id="page-chart">
   <div class="chart-controls-row">
     <div class="chart-layer-toggles" id="chart-layer-toggles">
+      <label><input type="checkbox" id="chart-me-toggle" data-chart-layer="My Vessel"> My Vessel &amp; Autopilot</label>
+      <label><input type="checkbox" data-chart-layer="AIS Traffic"> AIS Traffic</label>
       <label><input type="checkbox" data-chart-layer="Aids to Navigation"> Aids to Navigation</label>
       <label><input type="checkbox" data-chart-layer="Bridges"> Bridges</label>
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
-      <label><input type="checkbox" data-chart-layer="AIS Traffic"> AIS Traffic</label>
-      <label><input type="checkbox" id="chart-me-toggle" data-chart-layer="My Vessel"> My Vessel &amp; Autopilot</label>
-      <label><input type="checkbox" id="chart-dest-toggle" data-chart-layer="Destination"> Destination &amp; ETA</label>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
@@ -836,41 +834,44 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="chart-map-wrap">
       <div id="chart-map" style="width:100%;height:100%"></div>
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
-      <div class="chart-me-panel" id="chart-me-panel">
-        <div class="chart-me-row"><span>Heading</span><span id="chart-me-heading">--°</span></div>
-        <div class="chart-me-row"><span>COG</span><span id="chart-me-cog">--°</span></div>
-        <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
-        <div class="chart-me-divider"></div>
-        <div class="chart-me-row">
-          <span>Autopilot</span>
-          <span class="sys-badge" id="chart-me-ap-mode" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not wired</span>
+      <div class="chart-left-panels">
+        <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
+             autopilot, Garmin's own PGN table confirms the 1243 transmits this,
+             so it needs no reverse-engineering. Only ever populated while the
+             chartplotter has an active Go To/route; empty otherwise. Also
+             auto-shown whenever the autopilot panel below reports Engaged. -->
+        <div class="chart-dest-panel chart-side-panel" id="chart-dest-panel">
+          <div class="chart-me-row"><span>Distance</span><span id="chart-dest-distance">-- nm</span></div>
+          <div class="chart-me-row"><span>Bearing</span><span id="chart-dest-bearing">--°</span></div>
+          <div class="chart-me-row"><span>VMG</span><span id="chart-dest-vmg">-- kn</span></div>
+          <div class="chart-me-row"><span>ETA</span><span id="chart-dest-eta">--</span></div>
         </div>
-        <div class="chart-me-row"><span>Hdg to Steer</span><span id="chart-me-ap-hts">--°</span></div>
-        <div class="chart-me-row"><span>Rudder</span><span id="chart-me-ap-rudder">--°</span></div>
-        <div class="chart-me-row"><span>Rate of Turn</span><span id="chart-me-ap-rot">--°/min</span></div>
-        <!-- Controls are placeholders only -- no confirmed command path yet (see
-             n2k_mqtt_bridge.py PGN_MAP notes); disabled until wired and verified
-             against real GHP 12 / GHC 10 traffic. -->
-        <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
-          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-10°</button>
-          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-1°</button>
-          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+1°</button>
-          <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+10°</button>
+        <div class="chart-me-panel chart-side-panel" id="chart-me-panel">
+          <div class="chart-me-row"><span>Heading</span><span id="chart-me-heading">--°</span></div>
+          <div class="chart-me-row"><span>COG</span><span id="chart-me-cog">--°</span></div>
+          <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
+          <div class="chart-me-divider"></div>
+          <div class="chart-me-row">
+            <span>Autopilot</span>
+            <span class="sys-badge" id="chart-me-ap-mode" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not wired</span>
+          </div>
+          <div class="chart-me-row"><span>Hdg to Steer</span><span id="chart-me-ap-hts">--°</span></div>
+          <div class="chart-me-row"><span>Rudder</span><span id="chart-me-ap-rudder">--°</span></div>
+          <div class="chart-me-row"><span>Rate of Turn</span><span id="chart-me-ap-rot">--°/min</span></div>
+          <!-- Controls are placeholders only -- no confirmed command path yet (see
+               n2k_mqtt_bridge.py PGN_MAP notes); disabled until wired and verified
+               against real GHP 12 / GHC 10 traffic. -->
+          <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
+            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-10°</button>
+            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-1°</button>
+            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+1°</button>
+            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+10°</button>
+          </div>
+          <div class="chart-me-ap-controls" id="chart-me-ap-mode-controls">
+            <button class="wm-btn wm-btn-start" disabled title="Autopilot not on N2K network yet">Engage</button>
+            <button class="wm-btn wm-btn-stop" disabled title="Autopilot not on N2K network yet">Standby</button>
+          </div>
         </div>
-        <div class="chart-me-ap-controls" id="chart-me-ap-mode-controls">
-          <button class="wm-btn wm-btn-start" disabled title="Autopilot not on N2K network yet">Engage</button>
-          <button class="wm-btn wm-btn-stop" disabled title="Autopilot not on N2K network yet">Standby</button>
-        </div>
-      </div>
-      <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
-           autopilot, Garmin's own PGN table confirms the 1243 transmits this,
-           so it needs no reverse-engineering. Only ever populated while the
-           chartplotter has an active Go To/route; empty otherwise. -->
-      <div class="chart-dest-panel" id="chart-dest-panel">
-        <div class="chart-me-row"><span>Distance</span><span id="chart-dest-distance">-- nm</span></div>
-        <div class="chart-me-row"><span>Bearing</span><span id="chart-dest-bearing">--°</span></div>
-        <div class="chart-me-row"><span>VMG</span><span id="chart-dest-vmg">-- kn</span></div>
-        <div class="chart-me-row"><span>ETA</span><span id="chart-dest-eta">--</span></div>
       </div>
     </div>
   </div>
@@ -4519,29 +4520,35 @@ async function initChartMap() {
   chartAisGroup = L.layerGroup();
   chartMeGroup = L.layerGroup();
   chartDestGroup = L.layerGroup();
-  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup, 'Destination': chartDestGroup };
+  // Destination isn't in this map -- it has no checkbox of its own anymore,
+  // see updateDestPanelVisibility below.
+  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup };
   document.querySelectorAll('#chart-layer-toggles input[type="checkbox"]').forEach(cb => {
-    cb.checked = false;
+    cb.checked = (cb.dataset.chartLayer === 'My Vessel'); // only this one defaults on
     cb.addEventListener('change', () => {
       const group = chartToggleLayers[cb.dataset.chartLayer];
       if (!group) return;
       if (cb.checked) group.addTo(chartMap); else chartMap.removeLayer(group);
     });
+    if (cb.checked) {
+      const group = chartToggleLayers[cb.dataset.chartLayer];
+      if (group) group.addTo(chartMap);
+    }
   });
   updateChartLayerAvailability();
   // The info panel is a second, independent effect of the same checkbox —
   // the generic loop above handles adding/removing chartMeGroup (the marker
-  // + heading/COG lines) from the map, this just handles the HUD text.
+  // + heading/COG lines) from the map, this just handles the HUD text. The
+  // Destination panel/layer piggybacks on this same checkbox too, but only
+  // actually shows while the autopilot also reports Engaged -- see
+  // updateDestPanelVisibility, called here and from every live-data poll.
   const chartMeToggle = document.getElementById('chart-me-toggle');
   if (chartMeToggle) {
+    document.getElementById('chart-me-panel').classList.toggle('active', chartMeToggle.checked);
+    updateDestPanelVisibility(lastApMode);
     chartMeToggle.addEventListener('change', () => {
       document.getElementById('chart-me-panel').classList.toggle('active', chartMeToggle.checked);
-    });
-  }
-  const chartDestToggle = document.getElementById('chart-dest-toggle');
-  if (chartDestToggle) {
-    chartDestToggle.addEventListener('change', () => {
-      document.getElementById('chart-dest-panel').classList.toggle('active', chartDestToggle.checked);
+      updateDestPanelVisibility(lastApMode);
     });
   }
 
@@ -4615,6 +4622,24 @@ function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot) {
   setText('chart-me-ap-hts', apHts !== null ? `${Math.round(parseFloat(apHts))}°` : '--°');
   setText('chart-me-ap-rudder', apRudder !== null ? `${parseFloat(apRudder).toFixed(1)}°` : '--°');
   setText('chart-me-ap-rot', apRot !== null ? `${Math.round(parseFloat(apRot))}°/min` : '--°/min');
+}
+
+// Destination panel/layer has no checkbox of its own -- it rides on "My
+// Vessel & Autopilot", but only actually shows while that's checked AND the
+// autopilot reports Engaged (steering to a waypoint under autopilot is
+// exactly when distance/ETA matters; browsing the chart with the vessel
+// panel open otherwise shouldn't also throw a destination marker up).
+let lastApMode = null; // latest mode seen, so the checkbox handler (no apMode of its own) can re-check this too
+function updateDestPanelVisibility(apMode) {
+  const meToggle = document.getElementById('chart-me-toggle');
+  const shouldShow = !!(meToggle && meToggle.checked && apMode === 'Engaged');
+  document.getElementById('chart-dest-panel').classList.toggle('active', shouldShow);
+  if (!chartMap || !chartDestGroup) return;
+  if (shouldShow) {
+    if (!chartMap.hasLayer(chartDestGroup)) chartDestGroup.addTo(chartMap);
+  } else if (chartMap.hasLayer(chartDestGroup)) {
+    chartMap.removeLayer(chartDestGroup);
+  }
 }
 
 // Destination/ETA — standard PGN 129284 (Navigation Data), unlike the autopilot
@@ -4757,6 +4782,8 @@ async function fetchChartAisLive() {
     const apRudder = get('boat/nav/rudder');
     const apRot = get('boat/nav/autopilot/rate_of_turn');
     updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot);
+    lastApMode = apMode;
+    updateDestPanelVisibility(apMode);
 
     const destLat = get('boat/nav/destination/latitude');
     const destLon = get('boat/nav/destination/longitude');
