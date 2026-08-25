@@ -214,6 +214,27 @@ def sensor():
         val = parse_last(query_influx(flux))
         if val is not None:
             data[field] = round(val, 2)
+
+    # Barometric TENDENCY -- the standard maritime definition is change over
+    # the last 3 hours, not just whether the current absolute reading sits
+    # above/below a fixed threshold. (The frontend used to derive "Rising/
+    # Falling" purely from d.pressure > 1013 / < 1009, which only ever
+    # describes high vs. low pressure, not which way it's moving -- a
+    # steady 1015 hPa reads "Rising · fair weather" forever under that
+    # logic, regardless of whether it's actually risen, fallen, or sat
+    # flat.) A 1-hour-wide window centered on -3h (rather than a single
+    # instant) tolerates a gap in readings landing exactly on the 3h mark.
+    if 'pressure' in data:
+        flux_3h = f'''from(bucket:"{s['INFLUX_BUCKET']}")
+  |> range(start: -3h30m, stop: -2h30m)
+  |> filter(fn: (r) => r._field == "pressure")
+  |> first()'''
+        past = parse_last(query_influx(flux_3h))
+        if past is not None:
+            delta = data['pressure'] - past
+            data['pressure_delta_3h'] = round(delta, 2)
+            data['pressure_trend'] = 'rising' if delta > 1.0 else 'falling' if delta < -1.0 else 'steady'
+
     return jsonify(data)
 
 @app.route('/api/victron')
@@ -1372,6 +1393,29 @@ def _nm_between(lat1, lon1, lat2, lon2):
     dy = (lat2 - lat1) * m_per_deg_lat
     return math.hypot(dx, dy) / 1852.0
 
+def _nws_grid_url(lat, lon, headers, field):
+    """Looks up NWS's /points grid info and returns the requested product
+    URL (field is 'forecast' or 'forecastHourly'), or raises RuntimeError
+    with a clean explanation if this location has none. Most commonly hit
+    offshore: NWS's /points lookup marks open-water locations type=marine
+    with gridId/forecast/forecastHourly all null (only coastal & inland
+    points fall inside one of their gridded-forecast WFO areas) -- and
+    their own API 404s the marine-zone-forecast equivalent product as "not
+    yet supported" (confirmed live against a real Gulf marine zone), so
+    there's no clean JSON fallback available to reach for instead. Letting
+    requests.get(None, ...) run unchecked instead raises a raw
+    "Invalid URL 'None': No scheme supplied" requests.exceptions.MissingSchema,
+    which is what a caller would otherwise see verbatim -- accurate about
+    *why* nothing loaded, but useless as user-facing text."""
+    points = requests.get(f'https://api.weather.gov/points/{lat},{lon}', headers=headers, timeout=8).json()
+    props = points.get('properties', {})
+    url = props.get(field)
+    if url:
+        return url
+    if props.get('type') == 'marine':
+        raise RuntimeError('offshore / marine zone -- NWS only publishes gridded forecasts for coastal & inland points, not open water')
+    raise RuntimeError('no forecast grid for this location')
+
 @app.route('/api/weather/forecast')
 def weather_forecast():
     pos = get_gps_position()
@@ -1386,8 +1430,7 @@ def weather_forecast():
         return jsonify(_weather_cache['data'])
     try:
         headers = {'User-Agent': 'exit-strategy-dashboard (github.com/mikemc)'}
-        points = requests.get(f'https://api.weather.gov/points/{lat},{lon}', headers=headers, timeout=8).json()
-        forecast_url = points['properties']['forecast']
+        forecast_url = _nws_grid_url(lat, lon, headers, 'forecast')
         forecast = requests.get(forecast_url, headers=headers, timeout=8).json()
         periods = forecast['properties']['periods'][:6]
         data = {
@@ -1434,8 +1477,7 @@ def weather_hourly():
         return jsonify(_hourly_cache['data'])
     try:
         headers = {'User-Agent': 'exit-strategy-dashboard (github.com/mikemc)'}
-        points = requests.get(f'https://api.weather.gov/points/{lat},{lon}', headers=headers, timeout=8).json()
-        hourly_url = points['properties']['forecastHourly']
+        hourly_url = _nws_grid_url(lat, lon, headers, 'forecastHourly')
         hourly = requests.get(hourly_url, headers=headers, timeout=8).json()
         periods = hourly['properties']['periods']
         data = {

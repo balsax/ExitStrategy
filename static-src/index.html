@@ -128,6 +128,11 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .sys-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .spark-wrap{position:relative;height:100px;margin-top:8px}
 .spark-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+/* Compact version for a card's own inline trend line (temp/humidity/pressure
+   on the Weather tab) -- same idea as .spark-wrap, just short enough to sit
+   inside a normal stat card instead of being its own dedicated block. */
+.card-spark-wrap{position:relative;height:32px;margin-top:8px}
+.card-spark-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 .events-table{height:100px;margin-top:8px;overflow-y:hidden;font-size:10px}
 .events-row{display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:.5px solid #1a2438;color:#8fa3bd}
 .events-row:last-child{border-bottom:none}
@@ -938,20 +943,23 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <div class="weather-subpage active" id="wxsub-conditions">
     <div class="section">Current Conditions · BME680</div>
     <div class="grid">
-      <div class="card no-click">
+      <div class="card" onclick="openInfluxModal('temp_f','Temperature','°F','#4a9fd4')">
         <div class="card-label">Temperature</div>
         <div class="card-value info" id="wx-temp">--<span class="card-unit">°F</span></div>
         <div class="card-sub" id="wx-temp-sub">Loading...</div>
+        <div class="card-spark-wrap"><canvas id="wx-spark-temp"></canvas></div>
       </div>
-      <div class="card no-click">
+      <div class="card" onclick="openInfluxModal('humidity','Humidity','%','#3db87a')">
         <div class="card-label">Humidity</div>
         <div class="card-value good" id="wx-humidity">--<span class="card-unit">%</span></div>
         <div class="card-sub">Relative humidity</div>
+        <div class="card-spark-wrap"><canvas id="wx-spark-humidity"></canvas></div>
       </div>
-      <div class="card no-click">
+      <div class="card" onclick="openInfluxModal('pressure','Pressure','hPa','#a78bfa')">
         <div class="card-label">Pressure</div>
         <div class="card-value purple" id="wx-pressure">--<span class="card-unit">hPa</span></div>
         <div class="card-sub" id="wx-pressure-sub">Loading...</div>
+        <div class="card-spark-wrap"><canvas id="wx-spark-pressure"></canvas></div>
       </div>
     </div>
 
@@ -1538,6 +1546,7 @@ function showPage(page) {
   } else if (page === 'weather') {
     seedWindDirHistoryFromDB();
     fetchWeatherConditions();
+    fetchWxSparklines();
     fetchWeatherForecast();
     fetchMarineAlerts();
     recenterWindyEmbed();
@@ -1660,6 +1669,23 @@ const NODE_DEFS = {
 function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.innerHTML = val;
+}
+
+// Barometric tendency sub-label -- shared by the Overview and Weather tab
+// pressure cards. Backed by /api/sensor's pressure_trend (real change over
+// the last 3 hours, the standard maritime "rising/falling/steady"
+// definition), not just whether the current reading sits above/below a
+// fixed absolute threshold -- that older approach could only ever describe
+// high vs. low pressure, not which way it's actually moving, so a steady
+// 1015 hPa read "Rising · fair weather" forever. No trend data yet (first
+// ~3 hours after this service starts, before enough history exists) reads
+// as "Gathering trend…" rather than guessing from the absolute value.
+function pressureTrendHtml(d) {
+  if (!d.pressure_trend) return 'Gathering trend…';
+  const label = { rising: '↑ Rising', falling: '↓ Falling', steady: '→ Steady' }[d.pressure_trend];
+  const note = d.pressure_trend === 'rising' ? ' · fair weather' : d.pressure_trend === 'falling' ? ' · watch weather' : '';
+  const tc = d.pressure_trend === 'rising' ? 'good' : d.pressure_trend === 'falling' ? 'warn' : 'info';
+  return `<span class="${tc}">${label}${note}</span>`;
 }
 
 function timeAgo(iso) {
@@ -2916,13 +2942,17 @@ function renderSystemHealth() {
 const SYS_SPARK_METRICS = ['cpu', 'mem', 'disk', 'temp', 'wifi', 'load1', 'net_rx', 'net_tx', 'disk_io', 'boot_disk'];
 let sparkCharts = {};
 
-function renderSparkline(metric, values) {
-  const canvas = document.getElementById('spark-' + metric);
+// canvasId is the element id directly (not derived from key/metric) so this
+// can back both the System tab's spark-<metric> canvases and the Weather
+// tab's wx-spark-<field> ones with the same Chart.js config, keyed in
+// sparkCharts by that same canvasId to keep the two families' cached chart
+// instances from colliding.
+function renderSparkline(canvasId, values, color) {
+  const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  if (sparkCharts[metric]) { sparkCharts[metric].destroy(); sparkCharts[metric] = null; }
+  if (sparkCharts[canvasId]) { sparkCharts[canvasId].destroy(); sparkCharts[canvasId] = null; }
   if (!values || values.length < 2) return; // nothing meaningful to draw a line through yet
-  const color = SYS_METRICS[metric].color;
-  sparkCharts[metric] = new Chart(canvas, {
+  sparkCharts[canvasId] = new Chart(canvas, {
     type: 'line',
     data: {
       labels: values.map((_, i) => i),
@@ -2942,9 +2972,32 @@ async function fetchSystemSparklines() {
     const d = await res.json();
     const series = d.series || {};
     for (const metric of SYS_SPARK_METRICS) {
-      renderSparkline(metric, (series[metric] || {}).values);
+      renderSparkline('spark-' + metric, (series[metric] || {}).values, SYS_METRICS[metric].color);
     }
   } catch (e) { /* leave last-known sparklines on screen */ }
+}
+
+// Weather tab's Temperature/Humidity/Pressure cards -- same /api/trend
+// endpoint the Overview cards' click-to-expand modal already uses (see
+// openInfluxModal/loadInfluxHistory), just rendered as an inline sparkline
+// instead of a full chart. 6h gives enough span for pressure's slow-moving
+// tendency to actually show a shape, without being so long temp/humidity's
+// day/night swing dominates the whole line. Doesn't need the 15s cadence
+// fetchWeatherConditions() polls at -- called once when the tab opens, then
+// on its own much slower interval below.
+const WX_SPARK_FIELDS = {
+  temp: { field: 'temp_f', color: '#4a9fd4' },
+  humidity: { field: 'humidity', color: '#3db87a' },
+  pressure: { field: 'pressure', color: '#a78bfa' },
+};
+async function fetchWxSparklines() {
+  for (const [key, { field, color }] of Object.entries(WX_SPARK_FIELDS)) {
+    try {
+      const res = await fetch(`/api/trend?field=${field}&range=6h`);
+      const d = await res.json();
+      renderSparkline('wx-spark-' + key, d.values, color);
+    } catch (e) { /* leave last-known sparkline on screen */ }
+  }
 }
 
 // Throttle status is a rare/mostly-constant flag, not a smooth metric -- a
@@ -3025,9 +3078,7 @@ async function fetchData() {
     }
     if (d.pressure !== undefined) {
       setText('pressure', `${d.pressure.toFixed(1)}<span class="card-unit">hPa</span>`);
-      const trend = d.pressure > 1013 ? '↑ Rising · fair weather' : d.pressure < 1009 ? '↓ Falling · watch weather' : '→ Steady';
-      const tc = d.pressure > 1013 ? 'good' : d.pressure < 1009 ? 'warn' : 'info';
-      setText('pressure-sub', `<span class="${tc}">${trend}</span>`);
+      setText('pressure-sub', pressureTrendHtml(d));
     }
     if (d.iaq !== undefined) {
       const [label, color] = iaqLabel(d.iaq);
@@ -4337,9 +4388,7 @@ async function fetchWeatherConditions() {
     }
     if (d.pressure !== undefined) {
       setText('wx-pressure', `${d.pressure.toFixed(1)}<span class="card-unit">hPa</span>`);
-      const trend = d.pressure > 1013 ? '↑ Rising · fair weather' : d.pressure < 1009 ? '↓ Falling · watch weather' : '→ Steady';
-      const tc = d.pressure > 1013 ? 'good' : d.pressure < 1009 ? 'warn' : 'info';
-      setText('wx-pressure-sub', `<span class="${tc}">${trend}</span>`);
+      setText('wx-pressure-sub', pressureTrendHtml(d));
     }
   } catch (e) {
     // transient fetch failure — keep last-known readout on screen
@@ -5765,6 +5814,7 @@ setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
 setInterval(() => { if (currentPage === 'weather') fetchWindLive(); }, 2000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
+setInterval(() => { if (currentPage === 'weather') fetchWxSparklines(); }, 60000);
 fetchMarineAlerts(); // global banner — runs on every tab, not gated to currentPage === 'weather'
 setInterval(fetchMarineAlerts, 5 * 60 * 1000);
 setTimeout(() => { if (currentPage === 'electrical') buildFlow(true, false, false); }, 300);
