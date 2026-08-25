@@ -363,6 +363,21 @@ def autopilot_course_change():
     mqtt_client.publish('boat/nav/autopilot/cmd/adjust_heading', str(delta))
     return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/adjust_heading', 'delta': delta})
 
+@app.route('/api/autopilot/set_destination', methods=['POST'])
+def autopilot_set_destination():
+    data = request.get_json(silent=True) or {}
+    try:
+        lat = float(data.get('lat'))
+        lon = float(data.get('lon'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'lat/lon must be numbers'}), 400
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        return jsonify({'error': 'lat/lon out of range'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/nav/autopilot/cmd/set_destination', f"{lat},{lon}")
+    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/set_destination', 'lat': lat, 'lon': lon})
+
 WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual', 'reset'}  # 'reset' clears an active fault -- the device won't accept other manual commands until it's sent
 WATERMAKER_DEVICES = {'pump', 'boost_pump', 'divert', 'flush'}
 # The rest of the hardware-protection faults (HP current) can still only be

@@ -282,6 +282,12 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 .ais-recenter-btn{position:absolute;top:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-tools{position:absolute;top:10px;left:10px;z-index:500;display:flex;gap:6px}
+.chart-tool-btn{background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.chart-tool-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-tool-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.chart-measure-tooltip.leaflet-tooltip{background:#0f1628;border:.5px solid #4a9fd4;color:#e0e6f0;font-size:12px;font-weight:600;padding:3px 8px;border-radius:5px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.chart-measure-tooltip.leaflet-tooltip::before{display:none}
 .chart-left-panels{position:absolute;bottom:10px;left:10px;z-index:500;display:flex;flex-direction:column;gap:8px}
 .chart-side-panel{display:none;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;width:170px}
 .chart-side-panel.active{display:block}
@@ -837,6 +843,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="chart-map-wrap">
       <div id="chart-map" style="width:100%;height:100%"></div>
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
+      <div class="chart-tools">
+        <button class="chart-tool-btn" id="chart-tool-destination-btn" onclick="setChartToolMode('destination')" title="Click the chart to set a new destination">📍 Set Destination</button>
+        <button class="chart-tool-btn" id="chart-tool-measure-btn" onclick="setChartToolMode('measure')" title="Click twice on the chart to measure distance">📏 Measure</button>
+      </div>
       <div class="chart-left-panels">
         <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
              autopilot, Garmin's own PGN table confirms the 1243 transmits this,
@@ -2320,6 +2330,24 @@ async function wmAdjustAutopilotCourse(delta, btn) {
   btn.disabled = false;
   btn.textContent = failed ? '⚠' : original;
   if (failed) setTimeout(() => { btn.textContent = original; }, 1500);
+}
+
+// Called from dragging the destination pin, or clicking the chart in Set
+// Destination mode (see chartToolMode below). No button to flash on failure
+// here (drag/click, not a click on a button), so failure just means the
+// pin's optimistic position gets overwritten by the next poll's real value
+// once chartDestSyncSuppressUntil expires -- a quiet, self-correcting revert.
+async function wmSetDestination(lat, lon) {
+  try {
+    const res = await fetch('/api/autopilot/set_destination', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Command failed');
+  } catch (e) {
+    console.error('Failed to set destination:', e.message);
+  }
 }
 
 async function wmSetDevice(device, state, btn) {
@@ -4559,6 +4587,7 @@ async function initChartMap() {
     return; // already loaded once this session — the cell index doesn't change on the fly
   }
   chartMap = L.map('chart-map', { zoomControl: true, minZoom: 5, maxZoom: 18 }).setView(AIS_DEFAULT_CENTER, 13);
+  chartMap.on('click', handleChartMapClick);
 
   // Base layer options — same tile sources as the AIS tab. "Chart" (NCDS)
   // isn't ready to attach until loadNcdsBase() resolves below, so switching
@@ -4659,6 +4688,7 @@ let chartAisTargetVectorLines = {};
 let chartDestGroup = null; // destination waypoint marker + rhumb line to it
 let chartDestMarker = null;
 let chartDestLine = null;
+let chartDestSyncSuppressUntil = 0; // Date.now()-comparable; see dragend handler below
 
 // "My Vessel & Autopilot" panel — heading/COG/SOG are real (same MQTT topics
 // fetchChartAisLive already reads for the own-boat marker below).
@@ -4789,6 +4819,78 @@ function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
     setText('chart-dest-eta', '--');
     setText('chart-dest-eta-in', '--');
   }
+}
+
+// ─── Chart tools: Set Destination (click-to-place) and Measure ────────────────
+// Mutually exclusive modes armed by the toolbar buttons over the map. A plain
+// map click only ever reaches handleChartMapClick when it misses every
+// marker -- Leaflet markers stop click propagation for their own popups, so
+// this naturally only fires for clicks "off" the destination pin/AIS targets/
+// chart features, no extra check needed for that.
+let chartToolMode = null; // null | 'destination' | 'measure'
+
+function setChartToolMode(mode) {
+  chartToolMode = (chartToolMode === mode) ? null : mode;
+  document.getElementById('chart-tool-destination-btn').classList.toggle('active', chartToolMode === 'destination');
+  document.getElementById('chart-tool-measure-btn').classList.toggle('active', chartToolMode === 'measure');
+  if (chartToolMode !== 'measure') clearMeasureTool();
+  chartMap.getContainer().style.cursor = chartToolMode ? 'crosshair' : '';
+}
+
+function handleChartMapClick(e) {
+  if (chartToolMode === 'destination') {
+    const { lat, lng } = e.latlng;
+    L.popup({ className: 'ais-popup' })
+      .setLatLng(e.latlng)
+      .setContent(`<div class="ais-popup-body">
+        <div class="ais-popup-name">Set Destination</div>
+        <div class="ais-popup-row"><span>Position</span><span>${lat.toFixed(5)}, ${lng.toFixed(5)}</span></div>
+        <button class="wm-btn wm-btn-start" style="width:100%;margin-top:8px" onclick="wmConfirmSetDestination(${lat}, ${lng})">Set Destination Here</button>
+      </div>`)
+      .openOn(chartMap);
+  } else if (chartToolMode === 'measure') {
+    handleMeasureClick(e.latlng);
+  }
+}
+
+async function wmConfirmSetDestination(lat, lon) {
+  await wmSetDestination(lat, lon);
+  chartMap.closePopup();
+  setChartToolMode(null); // one-shot -- placing a destination turns the tool back off
+}
+
+let chartMeasureOrigin = null;
+let chartMeasureLine = null;
+let chartMeasureTooltip = null;
+
+function handleMeasureClick(latlng) {
+  if (chartMeasureOrigin) {
+    // Second click: freeze the line where it is and stop following the
+    // mouse. The next click (origin now null) starts a fresh measurement.
+    chartMap.off('mousemove', updateMeasureLine);
+    chartMeasureOrigin = null;
+    return;
+  }
+  clearMeasureTool(); // only one measurement on screen at a time
+  chartMeasureOrigin = latlng;
+  chartMeasureLine = L.polyline([latlng, latlng], { color: '#4a9fd4', weight: 2, dashArray: '4,4' }).addTo(chartMap);
+  chartMeasureTooltip = L.tooltip({ permanent: true, direction: 'right', className: 'chart-measure-tooltip' })
+    .setLatLng(latlng).setContent('0.00 nm').addTo(chartMap);
+  chartMap.on('mousemove', updateMeasureLine);
+}
+
+function updateMeasureLine(e) {
+  if (!chartMeasureOrigin || !chartMeasureLine) return;
+  chartMeasureLine.setLatLngs([chartMeasureOrigin, e.latlng]);
+  const { distM } = aisDistanceBearing(chartMeasureOrigin.lat, chartMeasureOrigin.lng, e.latlng.lat, e.latlng.lng);
+  chartMeasureTooltip.setLatLng(e.latlng).setContent(`${(distM / 1852).toFixed(2)} nm`);
+}
+
+function clearMeasureTool() {
+  if (chartMeasureLine) { chartMap.removeLayer(chartMeasureLine); chartMeasureLine = null; }
+  if (chartMeasureTooltip) { chartMap.removeLayer(chartMeasureTooltip); chartMeasureTooltip = null; }
+  chartMap.off('mousemove', updateMeasureLine);
+  chartMeasureOrigin = null;
 }
 
 async function fetchChartAisTargets() {
@@ -4968,15 +5070,26 @@ async function fetchChartAisLive() {
     if (destLat !== null && destLon !== null) {
       const destLatLng = [parseFloat(destLat), parseFloat(destLon)];
       if (!chartDestMarker) {
-        chartDestMarker = L.marker(destLatLng, { icon: chartDestIcon() });
+        chartDestMarker = L.marker(destLatLng, { icon: chartDestIcon(), draggable: true });
         chartDestMarker.bindPopup('', { className: 'ais-popup' });
+        // Suppress poll-driven resync for a few seconds after a drag -- the
+        // simulator needs a round trip (MQTT command -> new position ->
+        // republished) before the live topics agree, and without this the
+        // pin would visibly snap back to the old spot for a tick or two.
+        chartDestMarker.on('dragend', e => {
+          const ll = e.target.getLatLng();
+          chartDestSyncSuppressUntil = Date.now() + 4000;
+          wmSetDestination(ll.lat, ll.lng);
+        });
         chartDestGroup.addLayer(chartDestMarker);
-      } else {
+      } else if (Date.now() > chartDestSyncSuppressUntil) {
         chartDestMarker.setLatLng(destLatLng);
       }
       chartDestMarker.setPopupContent(chartDestPopupHtml(destDist, destBearing, destVmg, destEtaTime, destEtaDate));
 
-      const destLinePts = [latLng, destLatLng];
+      // Rhumb line follows wherever the marker actually is right now, not
+      // the (possibly stale, if suppressed above) MQTT position.
+      const destLinePts = [latLng, chartDestMarker.getLatLng()];
       if (!chartDestLine) {
         chartDestLine = L.polyline(destLinePts, { color: '#e8a030', weight: 2, opacity: 0.7, dashArray: '6,6' });
         chartDestGroup.addLayer(chartDestLine);

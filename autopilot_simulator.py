@@ -17,11 +17,13 @@ wind/wave, and once Engaged, a destination waypoint ahead on that heading
 with distance/ETA/VMG counting down.
 
 Runs the timed schedule below by default, but also accepts live commands
-at any point, from either stdin (type one and press Enter) or MQTT on
-boat/nav/autopilot/cmd/mode (matches dashboard_api.py's
-/api/autopilot/control, so the Chart page's Engage/Standby buttons drive
+at any point, from either stdin (type one and press Enter) or MQTT on the
+matching boat/nav/autopilot/cmd/* topic (matches dashboard_api.py's
+/api/autopilot/* endpoints, so the Chart page's buttons/pin drag drive
 this too):
   engage | standby | shadow | quit  (quit is stdin-only)
+  a signed number, e.g. -10 or 1    (heading delta, the course-change buttons)
+  dest:lat,lon                      (new destination, dragging/clicking the pin)
 The first manual command takes over from the timer permanently for that
 run (so you can just let it auto-engage and watch, or drive it by hand
 from a terminal or the dashboard).
@@ -59,6 +61,10 @@ CMD_TOPIC_MODE = "boat/nav/autopilot/cmd/mode"
 # Matches dashboard_api.py's /api/autopilot/course_change -- payload is a
 # signed degree delta (e.g. "-10", "1") applied to the held target heading.
 CMD_TOPIC_ADJUST = "boat/nav/autopilot/cmd/adjust_heading"
+# Matches dashboard_api.py's /api/autopilot/set_destination -- payload is
+# "lat,lon", from either dragging the destination pin or clicking the chart
+# in Set Destination mode.
+CMD_TOPIC_SET_DEST = "boat/nav/autopilot/cmd/set_destination"
 
 TOPIC_DEST_LAT = "boat/nav/destination/latitude"
 TOPIC_DEST_LON = "boat/nav/destination/longitude"
@@ -89,6 +95,18 @@ def meters_to_latlon_offset(anchor_lat, dx_m, dy_m):
     meters_per_deg_lon = METERS_PER_DEG_LAT * math.cos(math.radians(anchor_lat))
     dlon = dx_m / meters_per_deg_lon if meters_per_deg_lon > 0 else 0
     return dlat, dlon
+
+
+def distance_bearing(lat1, lon1, lat2, lon2):
+    """Inverse of meters_to_latlon_offset -- flat-earth approximation, same as
+    the dashboard's own aisDistanceBearing() JS helper, consistent for the
+    small distances a coastal/inland sim scenario covers."""
+    meters_per_deg_lon = METERS_PER_DEG_LAT * math.cos(math.radians(lat1))
+    dx = (lon2 - lon1) * meters_per_deg_lon
+    dy = (lat2 - lat1) * METERS_PER_DEG_LAT
+    dist_m = math.hypot(dx, dy)
+    bearing = (math.degrees(math.atan2(dx, dy)) + 360) % 360
+    return dist_m, bearing
 
 
 def input_reader(cmd_queue):
@@ -124,9 +142,16 @@ def main():
     def on_connect(c, userdata, flags, reason_code, properties):
         c.subscribe(CMD_TOPIC_MODE)
         c.subscribe(CMD_TOPIC_ADJUST)
+        c.subscribe(CMD_TOPIC_SET_DEST)
 
     def on_message(c, userdata, msg):
-        cmd_queue.put(msg.payload.decode('utf-8', errors='ignore').strip().lower())
+        payload = msg.payload.decode('utf-8', errors='ignore').strip().lower()
+        # Tagged by topic rather than sniffing payload shape -- set_destination's
+        # "lat,lon" payload is otherwise indistinguishable from other formats.
+        # (Also typeable at stdin as "dest:lat,lon" for the same effect.)
+        if msg.topic == CMD_TOPIC_SET_DEST:
+            payload = f"dest:{payload}"
+        cmd_queue.put(payload)
 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -173,6 +198,16 @@ def main():
             while not cmd_queue.empty():
                 cmd = cmd_queue.get_nowait()
                 if not cmd:
+                    continue
+                if cmd.startswith('dest:'):
+                    try:
+                        lat_s, lon_s = cmd[5:].split(',')
+                        dest_lat, dest_lon = float(lat_s), float(lon_s)
+                        dest_distance_m, dest_bearing = distance_bearing(args.start_lat, args.start_lon, dest_lat, dest_lon)
+                        print(f"\nNew destination: {dest_lat:.6f}, {dest_lon:.6f} "
+                              f"({dest_distance_m / NM_TO_M:.2f}nm @ {dest_bearing:.0f}° from start)")
+                    except (ValueError, IndexError):
+                        print(f"\nBad destination payload: '{cmd}' -- expected dest:lat,lon")
                     continue
                 try:
                     # A signed number is a heading-delta command (the course-change
