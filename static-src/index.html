@@ -93,6 +93,26 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 /* Not-connected banner (used on built-but-unwired pages) */
 .notice{display:flex;align-items:center;gap:8px;background:#1a1500;border:.5px solid #7a6020;border-radius:8px;padding:.6rem .9rem;font-size:12px;color:#e8a030;margin-bottom:10px}
 
+/* Wind instrument (overhead boat view, Weather tab) */
+.wind-section{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;margin-bottom:10px}
+.wind-instrument{display:flex;gap:20px;align-items:center;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:16px;width:420px;flex-shrink:0}
+.wind-diagram-wrap{position:relative;flex-shrink:0}
+.wind-diagram{width:180px;height:180px;display:block}
+.wind-readouts{display:flex;flex-direction:column;gap:8px;min-width:180px}
+.wind-readout-row{display:grid;grid-template-columns:10px 70px 1fr 1fr;align-items:center;gap:8px;font-size:13px;color:#c9d4e0}
+.wind-readout-row span:nth-child(3),.wind-readout-row span:nth-child(4){font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;text-align:right}
+.wind-readout-swatch{width:10px;height:10px;border-radius:50%}
+.wind-readout-apparent .wind-readout-swatch{background:#e05050}
+.wind-readout-true .wind-readout-swatch{background:#3db87a}
+.wind-history-note{font-size:10px;color:#4a5a7a;margin-top:4px}
+/* Twice wind-instrument's width (420px), same card chrome */
+.wind-speed-card{display:flex;flex-direction:column;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:16px;width:840px;max-width:100%;flex-shrink:0}
+.wind-speed-chart-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.wind-speed-chart-label{font-size:10px;color:#6b82a0;text-transform:uppercase;letter-spacing:.04em}
+.wind-speed-range-buttons{display:flex;gap:4px;flex-wrap:wrap}
+.wind-speed-range-buttons .dur-btn.active{border-color:#3db87a;color:#3db87a;background:#0d2b1a}
+.wind-speed-chart-canvas-wrap{position:relative;flex:1;min-height:170px}
+
 /* Diagnostics tab (MQTT / CAN Bus sub-views) */
 .diag-subtabs{display:flex;gap:8px;margin-bottom:1rem}
 .diag-subtab-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer}
@@ -931,16 +951,76 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
     <div class="section">Wind</div>
     <div class="notice">
-      <span>⚠ Not yet wired — needs an NMEA2000 wind transducer on the CAN bus (PGN 130306, mapped in n2k_mqtt_bridge.py).</span>
+      <span>⚠ Apparent not yet wired — needs an NMEA2000 wind transducer on the CAN bus (PGN 130306, mapped in n2k_mqtt_bridge.py). True wind below is calculated from apparent + SOG/heading, so it's equally unavailable until then.</span>
     </div>
-    <div class="grid">
-      <div class="card no-click">
-        <div class="card-label">Wind Speed</div>
-        <div class="card-value" id="wx-wind-speed">--<span class="card-unit">kn</span></div>
+    <div class="wind-section">
+      <div class="wind-instrument">
+        <div class="wind-diagram-wrap">
+          <svg class="wind-diagram" viewBox="-50 -50 100 100">
+          <!-- Boat hull, bottom of the z-order on purpose -- everything else
+               (no-go wedge, history shading, arrows) should draw over it, not
+               the other way around. Curved bow entry + straight parallel
+               sides + flat transom reads as a hull; the old all-curves shape
+               (pointed top, single rounded bottom) read as a teardrop. -->
+          <path d="M0,-28 Q9,-14 9,0 L9,18 L-9,18 L-9,0 Q-9,-14 0,-28 Z" fill="#1e2d4a" stroke="#4a5a7a" stroke-width="1.5"/>
+          <!-- No-go zone: a boat can't sail effectively pointed within ~35° of
+               true wind either side of the bow -- static reference wedge, not
+               data-driven, so it's plain markup rather than JS-generated like
+               the history arc below. -35°/+35° from bow, radius 0-48. -->
+          <path d="M0,0 L-27.53,-39.32 A48,48 0 0 1 27.53,-39.32 Z" fill="#7a1010" fill-opacity="0.15"/>
+          <line x1="0" y1="0" x2="-27.53" y2="-39.32" stroke="#7a2a2a" stroke-width="0.75" stroke-dasharray="2,2"/>
+          <line x1="0" y1="0" x2="27.53" y2="-39.32" stroke="#7a2a2a" stroke-width="0.75" stroke-dasharray="2,2"/>
+          <circle r="48" fill="none" stroke="#1e2d4a" stroke-width="1"/>
+          <line x1="0" y1="-48" x2="0" y2="-44" stroke="#334455" stroke-width="1.5"/>
+          <line x1="48" y1="0" x2="44" y2="0" stroke="#334455" stroke-width="1.5"/>
+          <line x1="0" y1="48" x2="0" y2="44" stroke="#334455" stroke-width="1.5"/>
+          <line x1="-48" y1="0" x2="-44" y2="0" stroke="#334455" stroke-width="1.5"/>
+          <text x="0" y="-38" text-anchor="middle" font-size="7" fill="#4a5a7a">BOW</text>
+          <g id="wind-history-bins"></g>
+          <g id="wind-true-arrow">
+            <line x1="0" y1="-40" x2="0" y2="-20" stroke="#3db87a" stroke-width="2.5"/>
+            <path d="M-5,-20 L5,-20 L0,-13 Z" fill="#3db87a"/>
+          </g>
+          <g id="wind-app-arrow">
+            <line x1="0" y1="-48" x2="0" y2="-25" stroke="#e05050" stroke-width="2.5"/>
+            <path d="M-5,-25 L5,-25 L0,-18 Z" fill="#e05050"/>
+          </g>
+          </svg>
+        </div>
+        <div class="wind-readouts">
+          <div class="wind-readout-row wind-readout-apparent">
+            <span class="wind-readout-swatch"></span>
+            <span>Apparent</span>
+            <span id="wx-wind-app-speed">-- kn</span>
+            <span id="wx-wind-app-angle">--°</span>
+          </div>
+          <div class="wind-readout-row wind-readout-true">
+            <span class="wind-readout-swatch"></span>
+            <span>True</span>
+            <span id="wx-wind-true-speed">-- kn</span>
+            <span id="wx-wind-true-angle">--°</span>
+          </div>
+          <div class="wind-readout-row wind-readout-dir">
+            <span></span>
+            <span>True Dir</span>
+            <span id="wx-wind-true-dir">--°</span>
+            <span></span>
+          </div>
+          <div class="wind-history-note">Shaded band: true wind direction over the last 10 min</div>
+        </div>
       </div>
-      <div class="card no-click">
-        <div class="card-label">Wind Angle</div>
-        <div class="card-value" id="wx-wind-angle">--<span class="card-unit">°</span></div>
+      <div class="wind-speed-card">
+        <div class="wind-speed-chart-header">
+          <div class="wind-speed-chart-label" id="wind-speed-chart-label">True Wind Speed</div>
+          <div class="wind-speed-range-buttons" id="wind-speed-range-buttons">
+            <button class="dur-btn active" onclick="setWindChartRange('10m', this)">10 min</button>
+            <button class="dur-btn" onclick="setWindChartRange('1h', this)">1 hr</button>
+            <button class="dur-btn" onclick="setWindChartRange('6h', this)">6 hr</button>
+            <button class="dur-btn" onclick="setWindChartRange('24h', this)">24 hr</button>
+            <button class="dur-btn" onclick="setWindChartRange('7d', this)">Week</button>
+          </div>
+        </div>
+        <div class="wind-speed-chart-canvas-wrap"><canvas id="wind-speed-chart"></canvas></div>
       </div>
     </div>
 
@@ -4265,12 +4345,192 @@ async function fetchWeatherConditions() {
     const res = await fetch('/api/mqtt/topics');
     const d = await res.json();
     const t = d.topics || {};
-    const get = k => t[k] ? t[k].value : null;
-    const windSpeed = get('boat/nav/wind/speed');
-    const windAngle = get('boat/nav/wind/angle');
-    setText('wx-wind-speed', windSpeed !== null ? `${parseFloat(windSpeed).toFixed(1)}<span class="card-unit">kn</span>` : '--<span class="card-unit">kn</span>');
-    setText('wx-wind-angle', windAngle !== null ? `${Math.round(parseFloat(windAngle))}<span class="card-unit">°</span>` : '--<span class="card-unit">°</span>');
+    const get = k => t[k] ? parseFloat(t[k].value) : null;
+    updateWindInstrument(get('boat/nav/wind/speed'), get('boat/nav/wind/angle'), get('boat/nav/gps/sog'), get('boat/nav/heading'));
   } catch (e) {}
+
+  fetchWindSpeedHistory();
+}
+
+// True wind from apparent wind + boat speed -- standard vector triangle: the
+// apparent wind felt on a moving boat is the true wind plus an induced
+// headwind equal to boat speed, so subtracting boat speed from the apparent
+// wind's forward (bow-axis) component and re-deriving speed/angle from
+// what's left recovers the true wind. Uses SOG as the boat-speed term
+// (speed-through-water isn't wired) -- close enough absent current, but
+// current will skew this. awa/twa: degrees, 0=bow, clockwise to starboard,
+// matching PGN 130306's own convention directly (and SVG rotate(), which
+// is also clockwise-positive from "up") -- no sign flipping needed anywhere.
+function trueWindFromApparent(awsKn, awaDeg, boatSpeedKn) {
+  const awaRad = awaDeg * Math.PI / 180;
+  const x = awsKn * Math.cos(awaRad) - boatSpeedKn; // forward axis, boat speed removed
+  const y = awsKn * Math.sin(awaRad);                // athwartships axis, unaffected
+  const tws = Math.hypot(x, y);
+  const twa = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return { tws, twa };
+}
+
+// Rolling history of the boat-relative true wind angle, shaded as an
+// annular band on the dial so a shifty vs. steady breeze is visible at a
+// glance -- same boat-relative frame the live arrows already draw in, so
+// no re-projection needed even as the boat's own heading changes underneath
+// it (that's an inherent property of a boat-relative angle, same as the
+// live TWA arrow itself, not something to special-case around here).
+const WIND_HISTORY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const WIND_HISTORY_BIN_DEG = 5; // bucket width for the density shading below
+const WIND_HISTORY_MAX_SPEED_KN = 30; // true wind speed that maps to the shading's full radial length
+const WIND_HISTORY_R1 = 30, WIND_HISTORY_R2 = 47; // radius range the shading can occupy -- R1 fixed, R2 varies with speed
+let windDirHistory = []; // {t, twa, tws}[]
+
+function polarPoint(r, angleDeg) {
+  const rad = angleDeg * Math.PI / 180;
+  return [r * Math.sin(rad), -r * Math.cos(rad)];
+}
+
+// Annular sector (donut segment), clockwise from startDeg to endDeg -- same
+// 0=bow/up, clockwise-positive convention the wind arrows already use.
+function annularSectorPath(r1, r2, startDeg, endDeg) {
+  let span = (endDeg - startDeg + 360) % 360;
+  if (span < 2) span = 2; // a single/near-identical sample still needs a visible sliver
+  endDeg = startDeg + span;
+  const largeArc = span > 180 ? 1 : 0;
+  const [xo1, yo1] = polarPoint(r2, startDeg);
+  const [xo2, yo2] = polarPoint(r2, endDeg);
+  const [xi2, yi2] = polarPoint(r1, endDeg);
+  const [xi1, yi1] = polarPoint(r1, startDeg);
+  return `M${xo1},${yo1} A${r2},${r2} 0 ${largeArc} 1 ${xo2},${yo2} `
+       + `L${xi2},${yi2} A${r1},${r1} 0 ${largeArc} 0 ${xi1},${yi1} Z`;
+}
+
+// Wind-rose style shading -- buckets recent samples into WIND_HISTORY_BIN_DEG
+// bins and draws each as its own annular sector: OPACITY scaled by that bin's
+// share of the busiest bin's weight (recency-weighted density, as before --
+// brightens as the wind's currently coming from a direction, fades smoothly
+// over the window rather than disappearing outright at the edge), and radial
+// LENGTH scaled by that bin's (also recency-weighted) average true wind
+// speed, from R1 out to R2 at WIND_HISTORY_MAX_SPEED_KN and up. So a
+// direction that's both prevalent/recent AND been blowing hard reads as a
+// long, bright wedge; a brief light-air excursion stays a short, faint one.
+function updateWindHistoryArc(twa, tws) {
+  const now = Date.now();
+  if (twa !== null && tws !== null) windDirHistory.push({ t: now, twa, tws });
+  windDirHistory = windDirHistory.filter(s => now - s.t <= WIND_HISTORY_WINDOW_MS);
+
+  const binsG = document.getElementById('wind-history-bins');
+  binsG.innerHTML = '';
+  if (windDirHistory.length === 0) return;
+
+  const nBins = 360 / WIND_HISTORY_BIN_DEG;
+  const weights = new Array(nBins).fill(0);
+  const speedSums = new Array(nBins).fill(0); // ageWeight-weighted, for each bin's average speed
+  windDirHistory.forEach(s => {
+    const ageWeight = Math.max(0, 1 - (now - s.t) / WIND_HISTORY_WINDOW_MS);
+    const bin = Math.floor(((s.twa % 360) + 360) % 360 / WIND_HISTORY_BIN_DEG);
+    weights[bin] += ageWeight;
+    speedSums[bin] += ageWeight * s.tws;
+  });
+  const maxWeight = Math.max(...weights);
+
+  for (let i = 0; i < nBins; i++) {
+    if (weights[i] === 0) continue;
+    const start = i * WIND_HISTORY_BIN_DEG;
+    const intensity = weights[i] / maxWeight; // 0-1, 1 = the most prevalent + recent direction
+    const avgSpeed = speedSums[i] / weights[i];
+    const r2 = WIND_HISTORY_R1 + Math.min(1, avgSpeed / WIND_HISTORY_MAX_SPEED_KN) * (WIND_HISTORY_R2 - WIND_HISTORY_R1);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', annularSectorPath(WIND_HISTORY_R1, r2, start, start + WIND_HISTORY_BIN_DEG));
+    path.setAttribute('fill', '#3db87a');
+    path.setAttribute('fill-opacity', (0.08 + intensity * 0.55).toFixed(2));
+    binsG.appendChild(path);
+  }
+}
+
+// True Wind Speed chart -- backed by /api/wind/history (real DB trend query,
+// same query_bucketed_series()/TREND_RANGE_* machinery the watermaker and
+// system-health trend charts already use), not the client-side windDirHistory
+// buffer the compass shading uses. That buffer only ever holds ~10 minutes
+// and resets on page load, so it can't serve the 1hr/6hr/24hr/week ranges;
+// boat/nav/wind/speed is already logged into mqtt_readings for free by
+// mqtt_logger.py's blanket boat/# subscription, so real history exists to
+// query regardless of what this page has seen since it was opened.
+const WIND_RANGE_LABELS = { '10m': 'Last 10 min', '1h': 'Last 1 hr', '6h': 'Last 6 hr', '24h': 'Last 24 hr', '7d': 'Last week' };
+let windChartRange = '10m';
+let windSpeedChart = null;
+
+function setWindChartRange(range, btn) {
+  windChartRange = range;
+  document.querySelectorAll('#wind-speed-range-buttons .dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  fetchWindSpeedHistory();
+}
+
+function formatWindChartLabel(isoTime, range) {
+  const d = new Date(isoTime);
+  // Week view: hour-level detail isn't meaningful at that zoom, show the date instead.
+  return range === '7d'
+    ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function fetchWindSpeedHistory() {
+  setText('wind-speed-chart-label', `True Wind Speed · ${WIND_RANGE_LABELS[windChartRange] || ''}`);
+  const canvas = document.getElementById('wind-speed-chart');
+  if (!canvas) return;
+  try {
+    const res = await fetch(`/api/wind/history?range=${windChartRange}`);
+    const d = await res.json();
+    const times = d.times || [], values = d.values || [];
+    if (times.length < 2) {
+      if (windSpeedChart) { windSpeedChart.destroy(); windSpeedChart = null; }
+      return;
+    }
+    const labels = times.map(t => formatWindChartLabel(t, windChartRange));
+    if (!windSpeedChart) {
+      windSpeedChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels, datasets: [{ data: values, borderColor: '#3db87a', backgroundColor: '#3db87a22', borderWidth: 1.5, pointRadius: 0, fill: true, tension: .3 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: {
+            x: { display: true, ticks: { color: '#6b82a0', font: { size: 10 }, maxTicksLimit: 6, autoSkip: true }, grid: { display: false } },
+            y: { display: true, beginAtZero: true, ticks: { color: '#6b82a0', font: { size: 10 }, callback: v => `${v}kn` }, grid: { color: '#1e2d4a' } },
+          },
+        },
+      });
+    } else {
+      windSpeedChart.data.labels = labels;
+      windSpeedChart.data.datasets[0].data = values;
+      windSpeedChart.update();
+    }
+  } catch (e) {
+    // transient fetch failure — leave last-known chart on screen
+  }
+}
+
+function updateWindInstrument(aws, awa, sog, heading) {
+  setText('wx-wind-app-speed', aws !== null ? `${aws.toFixed(1)} kn` : '-- kn');
+  setText('wx-wind-app-angle', awa !== null ? `${Math.round(awa)}°` : '--°');
+  const appArrow = document.getElementById('wind-app-arrow');
+  appArrow.style.display = awa !== null ? '' : 'none';
+  if (awa !== null) appArrow.setAttribute('transform', `rotate(${awa})`);
+
+  const trueArrow = document.getElementById('wind-true-arrow');
+  if (aws !== null && awa !== null && sog !== null) {
+    const { tws, twa } = trueWindFromApparent(aws, awa, sog);
+    setText('wx-wind-true-speed', `${tws.toFixed(1)} kn`);
+    setText('wx-wind-true-angle', `${Math.round(twa)}°`);
+    trueArrow.style.display = '';
+    trueArrow.setAttribute('transform', `rotate(${twa})`);
+    setText('wx-wind-true-dir', heading !== null ? `${Math.round((heading + twa) % 360)}°` : '--°');
+    updateWindHistoryArc(twa, tws);
+  } else {
+    setText('wx-wind-true-speed', '-- kn');
+    setText('wx-wind-true-angle', '--°');
+    setText('wx-wind-true-dir', '--°');
+    trueArrow.style.display = 'none';
+    updateWindHistoryArc(null, null);
+  }
 }
 
 async function fetchWeatherForecast() {

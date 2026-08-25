@@ -535,8 +535,8 @@ WATERMAKER_METRIC_TOPICS = {
     'efficiency': 'boat/watermaker/efficiency',
     'tank':       'boat/watermaker/tank/level',
 }
-TREND_RANGE_SECONDS = {'1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}
-TREND_RANGE_BUCKET = {'1h': 30, '6h': 120, '24h': 600, '7d': 3600, '30d': 14400}
+TREND_RANGE_SECONDS = {'10m': 600, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}
+TREND_RANGE_BUCKET = {'10m': 5, '1h': 30, '6h': 120, '24h': 600, '7d': 3600, '30d': 14400}
 
 def get_boat_db():
     s = get_secrets()
@@ -605,6 +605,31 @@ def watermaker_history():
             series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
 
     return jsonify({'series': series})
+
+@app.route('/api/wind/history')
+def wind_history():
+    """Single-metric trend for the Weather tab's True Wind Speed chart --
+    same bucketed-average approach as watermaker/system history above, just
+    one topic. boat/nav/wind/speed gets logged into mqtt_readings for free
+    by mqtt_logger.py's blanket boat/# subscription, same as everything
+    else, so no new logging setup needed for this to work."""
+    range_val = request.args.get('range', '1h')
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    seconds = TREND_RANGE_SECONDS.get(range_val, 3600)
+    start_dt = datetime.now() - timedelta(seconds=seconds)
+
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        series = query_bucketed_series(cur, 'boat/nav/wind/speed', start_dt, bucket)
+        conn.close()
+        keys = sorted(series.keys())
+        return jsonify({
+            'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+            'values': [round(series[k], 2) for k in keys],
+        })
+    except Exception as e:
+        return jsonify({'times': [], 'values': [], 'error': str(e)})
 
 # ─── Server health (Pi CPU/memory/disk/temp/WiFi, logged the same way as
 # watermaker telemetry) ─────────────────────────────────────────────────────

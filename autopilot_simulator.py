@@ -11,10 +11,15 @@ once Engaged, since the Destination & ETA panel only shows itself while
 autopilot mode reads Engaged -- this is the only way to test that link
 without a chartplotter on the bus either.
 
-Simulates Standby -> (optional) Shadow Drive -> Engaged, holding a target
-heading with small rudder jitter like a real autopilot correcting for
-wind/wave, and once Engaged, a destination waypoint ahead on that heading
-with distance/ETA/VMG counting down.
+Simulates Standby -> (optional) Shadow Drive -> Engaged, with small rudder
+jitter like a real autopilot correcting for wind/wave. Once Engaged: if a
+destination is set (the default; see --no-destination), this is "Go To"
+behavior -- it continuously steers toward the destination's live bearing
+from gps_simulator.py's actual reported position (subscribes to
+boat/nav/gps/latitude|longitude), same as a real chartplotter/autopilot
+integration, with distance/bearing/VMG/ETA all derived from that real
+position rather than assumed. No destination: plain heading-hold, driven
+by the target heading and the course-change (+/-1/+/-10) commands.
 
 Runs the timed schedule below by default, but also accepts live commands
 at any point, from either stdin (type one and press Enter) or MQTT on the
@@ -74,6 +79,14 @@ TOPIC_DEST_VMG = "boat/nav/destination/vmg"
 TOPIC_DEST_ETA_TIME = "boat/nav/destination/eta_time"
 TOPIC_DEST_ETA_DATE = "boat/nav/destination/eta_date"
 
+# Read-only from this script's point of view -- gps_simulator.py (or real GPS
+# hardware once wired) is the source of truth for actual position. Needed to
+# steer toward a destination for real: without it, "Engaged + a destination"
+# could only ever hold whatever bearing was true back when the destination
+# was first set, not track it as the boat actually moves.
+TOPIC_GPS_LAT = "boat/nav/gps/latitude"
+TOPIC_GPS_LON = "boat/nav/gps/longitude"
+
 METERS_PER_DEG_LAT = 111_320.0
 NM_TO_M = 1852.0
 
@@ -128,12 +141,12 @@ def main():
     ap.add_argument('--engage-after', type=float, default=8.0, help='Seconds in Standby before Shadow Drive/Engaged begins (default 8)')
     ap.add_argument('--shadow-drive-for', type=float, default=0.0, help='Seconds to hold Shadow Drive before Engaged (default 0, skip straight to Engaged)')
     ap.add_argument('--dest-distance-nm', type=float, default=5.0, help='Initial distance to the simulated destination waypoint once engaged, nm (default 5)')
-    ap.add_argument('--sog-kn', type=float, default=6.0, help='Simulated speed over ground while engaged, used to count down destination distance/ETA (default 6kn)')
     ap.add_argument('--no-destination', action='store_true', help="Don't simulate boat/nav/destination/* -- autopilot-only")
     ap.add_argument('--rate', type=float, default=1.0, help='Publish interval in seconds (default 1.0)')
     args = ap.parse_args()
 
     cmd_queue = queue.Queue()  # created before the MQTT client so on_message below can feed it too
+    live_pos = {'lat': args.start_lat, 'lon': args.start_lon}  # updated from gps_simulator.py; see on_message
 
     secrets = get_secrets()
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=MQTT_CLIENT_ID)
@@ -143,8 +156,21 @@ def main():
         c.subscribe(CMD_TOPIC_MODE)
         c.subscribe(CMD_TOPIC_ADJUST)
         c.subscribe(CMD_TOPIC_SET_DEST)
+        c.subscribe(TOPIC_GPS_LAT)
+        c.subscribe(TOPIC_GPS_LON)
 
     def on_message(c, userdata, msg):
+        # GPS position updates live_pos directly -- frequent (1Hz) plain
+        # floats, no reason to route them through cmd_queue's command
+        # parsing like the mode/adjust/dest topics below.
+        if msg.topic in (TOPIC_GPS_LAT, TOPIC_GPS_LON):
+            try:
+                value = float(msg.payload.decode('utf-8', errors='ignore'))
+            except ValueError:
+                return
+            live_pos['lat' if msg.topic == TOPIC_GPS_LAT else 'lon'] = value
+            return
+
         payload = msg.payload.decode('utf-8', errors='ignore').strip().lower()
         # Tagged by topic rather than sniffing payload shape -- set_destination's
         # "lat,lon" payload is otherwise indistinguishable from other formats.
@@ -169,11 +195,12 @@ def main():
         dest_distance_m * math.cos(math.radians(args.target_heading)),
     )
     dest_lat, dest_lon = args.start_lat + dlat, args.start_lon + dlon
-    # Bearing to the destination is fixed at this same original angle forever --
-    # the waypoint's geometry doesn't change just because the held heading gets
-    # adjusted afterward, so it's captured separately from target_heading below
-    # before that becomes mutable.
+    # Bearing/distance are recomputed live every Engaged tick below from
+    # gps_simulator.py's actual reported position (live_pos) once a
+    # destination exists -- this initial value is just what's true before
+    # the first tick runs.
     dest_bearing = args.target_heading
+    prev_dest_distance_m = dest_distance_m  # for VMG: rate of closure = distance delta / dt
 
     print(f"Simulating autopilot: Standby for {args.engage_after:.0f}s" +
           (f", then Shadow Drive for {args.shadow_drive_for:.0f}s" if args.shadow_drive_for > 0 else "") +
@@ -203,9 +230,10 @@ def main():
                     try:
                         lat_s, lon_s = cmd[5:].split(',')
                         dest_lat, dest_lon = float(lat_s), float(lon_s)
-                        dest_distance_m, dest_bearing = distance_bearing(args.start_lat, args.start_lon, dest_lat, dest_lon)
+                        dest_distance_m, dest_bearing = distance_bearing(live_pos['lat'], live_pos['lon'], dest_lat, dest_lon)
+                        prev_dest_distance_m = dest_distance_m  # avoid a bogus VMG spike on the next tick
                         print(f"\nNew destination: {dest_lat:.6f}, {dest_lon:.6f} "
-                              f"({dest_distance_m / NM_TO_M:.2f}nm @ {dest_bearing:.0f}° from start)")
+                              f"({dest_distance_m / NM_TO_M:.2f}nm @ {dest_bearing:.0f}° from current position)")
                     except (ValueError, IndexError):
                         print(f"\nBad destination payload: '{cmd}' -- expected dest:lat,lon")
                     continue
@@ -243,6 +271,17 @@ def main():
                 mode = 'Engaged'
 
             if mode == 'Engaged':
+                if not args.no_destination:
+                    # "Go To" behavior: continuously steer toward the destination's
+                    # live bearing from the boat's actual reported position
+                    # (live_pos, from gps_simulator.py), not a fixed heading set
+                    # once at the start. This overrides any pending course-change
+                    # command while a destination is active -- same as a real
+                    # chartplotter/autopilot integration, where Nav mode drives
+                    # the heading, not the +/-1/+/-10 buttons.
+                    dest_distance_m, dest_bearing = distance_bearing(live_pos['lat'], live_pos['lon'], dest_lat, dest_lon)
+                    target_heading = dest_bearing
+
                 # Small heading-hold jitter/correction around the target --
                 # rudder is derived from the correction, like a real autopilot
                 # nudging against wind/wave rather than holding a dead-flat lock.
@@ -261,20 +300,25 @@ def main():
 
             dest_status = ""
             if not args.no_destination and mode == 'Engaged':
-                sog_mps = args.sog_kn * 0.514444
-                dest_distance_m = max(0.0, dest_distance_m - sog_mps * dt)
                 dist_nm = dest_distance_m / NM_TO_M
-                eta_s = dest_distance_m / sog_mps if sog_mps > 0 else 0
+                # VMG from the actual change in distance -- real now that
+                # dest_distance_m tracks true position, not an assumed closing
+                # rate. Guards a near-zero/negative delta (drifting away, or
+                # dt too small) rather than reporting a bogus huge/negative kn.
+                vmg_mps = max(0.0, (prev_dest_distance_m - dest_distance_m) / dt) if dt > 0 else 0.0
+                prev_dest_distance_m = dest_distance_m
+                vmg_kn = vmg_mps * 1.94384
+                eta_s = dest_distance_m / vmg_mps if vmg_mps > 0.05 else 0
                 eta_dt = datetime.now() + timedelta(seconds=eta_s)
 
                 client.publish(TOPIC_DEST_LAT, f"{dest_lat:.6f}", retain=False)
                 client.publish(TOPIC_DEST_LON, f"{dest_lon:.6f}", retain=False)
                 client.publish(TOPIC_DEST_DIST, f"{dist_nm:.2f}", retain=False)
                 client.publish(TOPIC_DEST_BEARING, f"{dest_bearing:.1f}", retain=False)
-                client.publish(TOPIC_DEST_VMG, f"{args.sog_kn:.1f}", retain=False)
+                client.publish(TOPIC_DEST_VMG, f"{vmg_kn:.1f}", retain=False)
                 client.publish(TOPIC_DEST_ETA_TIME, eta_dt.strftime('%H:%M:%S'), retain=False)
                 client.publish(TOPIC_DEST_ETA_DATE, eta_dt.strftime('%Y-%m-%d'), retain=False)
-                dest_status = f" dest={dist_nm:.2f}nm eta={eta_dt.strftime('%H:%M')}"
+                dest_status = f" dest={dist_nm:.2f}nm brg={dest_bearing:.0f}° vmg={vmg_kn:.1f}kn"
 
             print(f"\r[{mode:<12}] hdg={heading_now:.1f}° hts={target_heading if mode=='Engaged' else 0:.0f}° "
                   f"rudder={rudder:+.1f}°{dest_status}   ", end='', flush=True)
