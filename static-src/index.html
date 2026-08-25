@@ -289,8 +289,11 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-me-row span:first-child{color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em}
 .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
 .chart-me-divider{border-top:.5px solid #2a3a5a;margin:6px 0}
-.chart-me-ap-controls{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.chart-me-ap-controls .wm-btn{padding:4px 8px;font-size:11px;flex:1;min-width:38px;text-align:center}
+.chart-me-section-label{text-align:center;color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em;padding:2px 0}
+.chart-rudder-indicator{flex:1;display:inline-block;height:16px}
+.chart-rudder-indicator svg{width:100%;height:100%;display:block}
+.chart-me-ap-controls{display:flex;gap:3px;margin-top:6px}
+.chart-me-ap-controls .wm-btn{padding:4px 2px;font-size:11px;flex:1;min-width:0;text-align:center}
 .ais-target-label.leaflet-tooltip{background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;font-size:11px;padding:2px 7px;border-radius:5px;box-shadow:none;white-space:nowrap}
 .ais-target-label.leaflet-tooltip::before{display:none}
 .ais-popup .leaflet-popup-content-wrapper{background:#0f1628;color:#e0e6f0;border:1px solid #2a3a5a;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
@@ -843,33 +846,49 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         <div class="chart-dest-panel chart-side-panel" id="chart-dest-panel">
           <div class="chart-me-row"><span>Distance</span><span id="chart-dest-distance">-- nm</span></div>
           <div class="chart-me-row"><span>Bearing</span><span id="chart-dest-bearing">--°</span></div>
+          <div class="chart-me-row"><span>Hdg to Steer</span><span id="chart-me-ap-hts">--°</span></div>
           <div class="chart-me-row"><span>VMG</span><span id="chart-dest-vmg">-- kn</span></div>
           <div class="chart-me-row"><span>ETA</span><span id="chart-dest-eta">--</span></div>
+          <div class="chart-me-row"><span>Time To</span><span id="chart-dest-eta-in">--</span></div>
+          <div class="chart-me-divider"></div>
+          <div class="chart-me-section-label">Course Change</div>
+          <!-- Wired to autopilot_simulator.py's boat/nav/autopilot/cmd/adjust_heading
+               (dev only) -- same real-hardware caveat as Engage/Standby above: no
+               confirmed safe command path for actual GHP 12 / GHC 10 traffic yet. -->
+          <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
+            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(-10, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">-10°</button>
+            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(-1, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">-1°</button>
+            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(1, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">+1°</button>
+            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(10, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">+10°</button>
+          </div>
         </div>
         <div class="chart-me-panel chart-side-panel" id="chart-me-panel">
+          <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
           <div class="chart-me-row"><span>Heading</span><span id="chart-me-heading">--°</span></div>
           <div class="chart-me-row"><span>COG</span><span id="chart-me-cog">--°</span></div>
-          <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
+          <div class="chart-me-row">
+            <span>Rudder</span>
+            <span class="chart-rudder-indicator">
+              <svg viewBox="0 0 100 16" preserveAspectRatio="none">
+                <line x1="8" y1="8" x2="92" y2="8" stroke="#2a3a5a" stroke-width="1.5"/>
+                <line x1="50" y1="3" x2="50" y2="13" stroke="#4a5a7a" stroke-width="1.5"/>
+                <text x="3" y="14" font-size="7" fill="#4a5a7a">P</text>
+                <text x="97" y="14" font-size="7" fill="#4a5a7a" text-anchor="end">S</text>
+                <circle id="chart-me-ap-rudder-dot" cx="50" cy="8" r="4" fill="#6b82a0"><title>Rudder: --</title></circle>
+              </svg>
+            </span>
+          </div>
           <div class="chart-me-divider"></div>
           <div class="chart-me-row">
             <span>Autopilot</span>
             <span class="sys-badge" id="chart-me-ap-mode" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not wired</span>
           </div>
-          <div class="chart-me-row"><span>Hdg to Steer</span><span id="chart-me-ap-hts">--°</span></div>
-          <div class="chart-me-row"><span>Rudder</span><span id="chart-me-ap-rudder">--°</span></div>
-          <div class="chart-me-row"><span>Rate of Turn</span><span id="chart-me-ap-rot">--°/min</span></div>
-          <!-- Controls are placeholders only -- no confirmed command path yet (see
-               n2k_mqtt_bridge.py PGN_MAP notes); disabled until wired and verified
-               against real GHP 12 / GHC 10 traffic. -->
-          <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
-            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-10°</button>
-            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">-1°</button>
-            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+1°</button>
-            <button class="wm-btn wm-btn-manual" disabled title="Autopilot not on N2K network yet">+10°</button>
-          </div>
+          <!-- Engage/Standby ARE wired, but only to autopilot_simulator.py's
+               boat/nav/autopilot/cmd/mode -- real hardware isn't on the bus and
+               there's still no confirmed safe transmit path even once it is. -->
           <div class="chart-me-ap-controls" id="chart-me-ap-mode-controls">
-            <button class="wm-btn wm-btn-start" disabled title="Autopilot not on N2K network yet">Engage</button>
-            <button class="wm-btn wm-btn-stop" disabled title="Autopilot not on N2K network yet">Standby</button>
+            <button class="wm-btn wm-btn-start" id="chart-me-ap-engage-btn" onclick="wmSetAutopilotMode('engage', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Engage</button>
+            <button class="wm-btn wm-btn-stop" id="chart-me-ap-standby-btn" onclick="wmSetAutopilotMode('standby', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Standby</button>
           </div>
         </div>
       </div>
@@ -2253,6 +2272,54 @@ async function wmResetFault(btn) {
     btn.disabled = false;
     btn.textContent = original;
   }
+}
+
+// Engage/Standby buttons in the Chart page's autopilot panel. Same request
+// shape as wmSetDevice below, but this panel has no feedback line to write
+// into -- errors just flash the button itself, and success is confirmed by
+// the mode badge updating on the next 3s poll (fetchChartAisLive) rather
+// than an explicit message here.
+async function wmSetAutopilotMode(mode, btn) {
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  let failed = false;
+  try {
+    const res = await fetch('/api/autopilot/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Command failed');
+  } catch (e) {
+    failed = true;
+  }
+  btn.disabled = false;
+  btn.textContent = failed ? '⚠' : original;
+  if (failed) setTimeout(() => { btn.textContent = original; }, 1500);
+}
+
+// Course-change buttons (-10/-1/+1/+10) in the same panel -- same
+// dev-simulator-only caveat and button-flash-on-error pattern as
+// wmSetAutopilotMode above.
+async function wmAdjustAutopilotCourse(delta, btn) {
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  let failed = false;
+  try {
+    const res = await fetch('/api/autopilot/course_change', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delta }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Command failed');
+  } catch (e) {
+    failed = true;
+  }
+  btn.disabled = false;
+  btn.textContent = failed ? '⚠' : original;
+  if (failed) setTimeout(() => { btn.textContent = original; }, 1500);
 }
 
 async function wmSetDevice(device, state, btn) {
@@ -4607,7 +4674,27 @@ const AP_MODE_BADGES = {
   'Shadow Drive': { text: 'Shadow Drive', color: '#a78bfa', border: '#5a3a8a', bg: '#1a1030' },
   Engaged:      { text: 'Engaged',      color: '#3db87a', border: '#2a7a4a', bg: '#0d2b1a' },
 };
-function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot) {
+// Horizontal rudder-angle indicator (dot on a line, port/starboard) --
+// full-scale is +/-RUDDER_RANGE_DEG each side of center. 30 is a generic
+// small-sailboat hard-over figure; the simulator's own rudder tops out at
+// +/-15 so in practice the dot never quite reaches either end. cx/radius
+// are in the SVG's own 0-100 viewBox units, not pixels -- the element
+// scales to whatever width the panel's flex layout actually gives it.
+const RUDDER_RANGE_DEG = 30;
+function updateRudderIndicator(apRudder) {
+  const dot = document.getElementById('chart-me-ap-rudder-dot');
+  if (!dot) return;
+  const deg = apRudder !== null ? parseFloat(apRudder) : 0;
+  const clamped = Math.max(-RUDDER_RANGE_DEG, Math.min(RUDDER_RANGE_DEG, deg));
+  dot.setAttribute('cx', (50 + (clamped / RUDDER_RANGE_DEG) * 42).toFixed(1));
+  // Neutral near center, ambering out as it approaches hard-over -- a rough
+  // at-a-glance sense of how hard the autopilot is working, not a real limit.
+  dot.setAttribute('fill', Math.abs(clamped) / RUDDER_RANGE_DEG > 0.66 ? '#e8a030' : '#6b82a0');
+  const title = dot.querySelector('title');
+  if (title) title.textContent = apRudder !== null ? `Rudder: ${deg.toFixed(1)}°` : 'Rudder: --';
+}
+
+function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder) {
   setText('chart-me-heading', heading !== null ? `${Math.round(parseFloat(heading))}°` : '--°');
   setText('chart-me-cog', cog !== null ? `${Math.round(parseFloat(cog))}°` : '--°');
   setText('chart-me-sog', sog !== null ? `${parseFloat(sog).toFixed(1)} kn` : '-- kn');
@@ -4619,9 +4706,21 @@ function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot) {
   modeEl.style.borderColor = badge.border;
   modeEl.style.background = badge.bg;
 
-  setText('chart-me-ap-hts', apHts !== null ? `${Math.round(parseFloat(apHts))}°` : '--°');
-  setText('chart-me-ap-rudder', apRudder !== null ? `${parseFloat(apRudder).toFixed(1)}°` : '--°');
-  setText('chart-me-ap-rot', apRot !== null ? `${Math.round(parseFloat(apRot))}°/min` : '--°/min');
+  // Heading to Steer only means anything while the autopilot has an active
+  // order -- canboat's own notes on this PGN 126720 field say values >=1000
+  // rad are a sentinel for "no active order" rather than a real heading.
+  // Gated on mode here (not just apHts !== null) so it doesn't stay frozen
+  // on the last commanded heading after dropping back to Standby -- MQTT
+  // topics aren't retained, and neither the real device nor the simulator
+  // publishes a fresh value once there's no order to report.
+  setText('chart-me-ap-hts', (apMode === 'Engaged' && apHts !== null) ? `${Math.round(parseFloat(apHts))}°` : '--°');
+  updateRudderIndicator(apRudder);
+
+  // Disable whichever button matches the mode already in effect -- both stay
+  // enabled for Shadow Drive/not-wired, since neither Engage nor Standby is
+  // the current state then.
+  document.getElementById('chart-me-ap-engage-btn').disabled = (apMode === 'Engaged');
+  document.getElementById('chart-me-ap-standby-btn').disabled = (apMode === 'Standby');
 }
 
 // Destination panel/layer has no checkbox of its own -- it rides on "My
@@ -4676,7 +4775,20 @@ function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
   setText('chart-dest-distance', dist !== null ? `${parseFloat(dist).toFixed(2)} nm` : '-- nm');
   setText('chart-dest-bearing', bearing !== null ? `${Math.round(parseFloat(bearing))}°` : '--°');
   setText('chart-dest-vmg', vmg !== null ? `${parseFloat(vmg).toFixed(1)} kn` : '-- kn');
-  setText('chart-dest-eta', (etaDate && etaTime) ? `${etaDate} ${etaTime}` : '--');
+
+  if (etaDate && etaTime) {
+    const etaDt = new Date(`${etaDate}T${etaTime}`);
+    const now = new Date();
+    // Same-day arrivals just show the time -- the date's implied. A
+    // different-day ETA keeps the date too, so it doesn't read as "today"
+    // by omission.
+    const sameDay = etaDt.toDateString() === now.toDateString();
+    setText('chart-dest-eta', sameDay ? etaTime : `${etaDate} ${etaTime}`);
+    setText('chart-dest-eta-in', wmFormatDuration((etaDt - now) / 1000));
+  } else {
+    setText('chart-dest-eta', '--');
+    setText('chart-dest-eta-in', '--');
+  }
 }
 
 async function fetchChartAisTargets() {
@@ -4780,8 +4892,7 @@ async function fetchChartAisLive() {
     const apMode = get('boat/nav/autopilot/mode');
     const apHts = get('boat/nav/autopilot/heading_to_steer');
     const apRudder = get('boat/nav/rudder');
-    const apRot = get('boat/nav/autopilot/rate_of_turn');
-    updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder, apRot);
+    updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder);
     lastApMode = apMode;
     updateDestPanelVisibility(apMode);
 

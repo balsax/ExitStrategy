@@ -327,6 +327,42 @@ def mqtt_topics():
         'topics': topics,
     })
 
+# No real autopilot is on the N2K network yet, and even once one is, there's
+# no confirmed safe command path for it -- canboat's own reverse-engineering
+# of PGN 126720 marks the command-direction messages "decode-only... not a
+# transmit path" (see n2k_mqtt_bridge.py's PGN_MAP notes). This only ever
+# reaches autopilot_simulator.py, the dev stand-in listening on the same
+# boat/nav/autopilot/cmd/mode topic -- publishing here has zero effect on
+# any physical CAN bus regardless of what's connected to it.
+AUTOPILOT_MODES = {'engage', 'standby', 'shadow'}
+
+@app.route('/api/autopilot/control', methods=['POST'])
+def autopilot_control():
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode')
+    if mode not in AUTOPILOT_MODES:
+        return jsonify({'error': f'mode must be one of {sorted(AUTOPILOT_MODES)}'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/nav/autopilot/cmd/mode', mode)
+    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/mode', 'mode': mode})
+
+AUTOPILOT_COURSE_DELTAS = {-10, -1, 1, 10}  # matches the Chart page's four course-change buttons
+
+@app.route('/api/autopilot/course_change', methods=['POST'])
+def autopilot_course_change():
+    data = request.get_json(silent=True) or {}
+    try:
+        delta = int(data.get('delta'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'delta must be an integer'}), 400
+    if delta not in AUTOPILOT_COURSE_DELTAS:
+        return jsonify({'error': f'delta must be one of {sorted(AUTOPILOT_COURSE_DELTAS)}'}), 400
+    if not mqtt_client or not mqtt_state['connected']:
+        return jsonify({'error': 'MQTT broker not connected'}), 503
+    mqtt_client.publish('boat/nav/autopilot/cmd/adjust_heading', str(delta))
+    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/adjust_heading', 'delta': delta})
+
 WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual', 'reset'}  # 'reset' clears an active fault -- the device won't accept other manual commands until it's sent
 WATERMAKER_DEVICES = {'pump', 'boost_pump', 'divert', 'flush'}
 # The rest of the hardware-protection faults (HP current) can still only be
