@@ -282,12 +282,12 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 .ais-recenter-btn{position:absolute;top:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
-.chart-tools{position:absolute;top:10px;left:10px;z-index:500;display:flex;gap:6px}
-.chart-tool-btn{background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
-.chart-tool-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
-.chart-tool-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+.chart-crosshair-cursor,
+.chart-crosshair-cursor .leaflet-interactive{cursor:crosshair !important}
 .chart-measure-tooltip.leaflet-tooltip{background:#0f1628;border:.5px solid #4a9fd4;color:#e0e6f0;font-size:12px;font-weight:600;padding:3px 8px;border-radius:5px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .chart-measure-tooltip.leaflet-tooltip::before{display:none}
+.chart-measure-seg-label.leaflet-tooltip{background:#0f1628cc;border:.5px solid #2a3a5a;color:#8fa3bd;font-size:10px;font-weight:600;padding:1px 5px;border-radius:4px;box-shadow:none}
+.chart-measure-seg-label.leaflet-tooltip::before{display:none}
 .chart-left-panels{position:absolute;bottom:10px;left:10px;z-index:500;display:flex;flex-direction:column;gap:8px}
 .chart-side-panel{display:none;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 12px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-size:11px;width:170px}
 .chart-side-panel.active{display:block}
@@ -843,10 +843,6 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="chart-map-wrap">
       <div id="chart-map" style="width:100%;height:100%"></div>
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
-      <div class="chart-tools">
-        <button class="chart-tool-btn" id="chart-tool-destination-btn" onclick="setChartToolMode('destination')" title="Click the chart to set a new destination">📍 Set Destination</button>
-        <button class="chart-tool-btn" id="chart-tool-measure-btn" onclick="setChartToolMode('measure')" title="Click twice on the chart to measure distance">📏 Measure</button>
-      </div>
       <div class="chart-left-panels">
         <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
              autopilot, Garmin's own PGN table confirms the 1243 transmits this,
@@ -4586,8 +4582,11 @@ async function initChartMap() {
     chartMap.invalidateSize();
     return; // already loaded once this session — the cell index doesn't change on the fly
   }
-  chartMap = L.map('chart-map', { zoomControl: true, minZoom: 5, maxZoom: 18 }).setView(AIS_DEFAULT_CENTER, 13);
+  chartMap = L.map('chart-map', { zoomControl: false, minZoom: 5, maxZoom: 18 }).setView(AIS_DEFAULT_CENTER, 13);
+  chartMap.attributionControl.setPrefix(false); // drops the "Leaflet" flag/link, keeps each layer's own required attribution
   chartMap.on('click', handleChartMapClick);
+  chartMap.on('dblclick', handleChartMapDblClick);
+  chartMap.on('contextmenu', handleChartMapContextMenu);
 
   // Base layer options — same tile sources as the AIS tab. "Chart" (NCDS)
   // isn't ready to attach until loadNcdsBase() resolves below, so switching
@@ -4829,27 +4828,44 @@ function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
 // chart features, no extra check needed for that.
 let chartToolMode = null; // null | 'destination' | 'measure'
 
+// Single source of truth for the cursor, called everywhere chartToolMode
+// changes -- a class + !important, not a plain style.cursor, since Leaflet's
+// own CSS sets cursor:grab on the container and its own cursor rules on
+// interactive markers/paths, both of which would otherwise win over a plain
+// inline style. Also covers .leaflet-interactive so hovering a marker/AIS
+// target while a tool's armed still shows crosshair instead of that layer's
+// normal pointer cursor. No tool armed -> class comes off -> Leaflet's own
+// default (grab-to-pan) cursor shows again.
+function updateChartCursor() {
+  chartMap.getContainer().classList.toggle('chart-crosshair-cursor', !!chartToolMode);
+}
+
 function setChartToolMode(mode) {
+  // Only the Measure tool actually arms/toggles via this -- Set Destination
+  // is immediate (right-click menu -> confirm popup at that point, no
+  // separate armed state). No toolbar buttons either; the crosshair cursor
+  // is the only visible indicator Measure is armed.
   chartToolMode = (chartToolMode === mode) ? null : mode;
-  document.getElementById('chart-tool-destination-btn').classList.toggle('active', chartToolMode === 'destination');
-  document.getElementById('chart-tool-measure-btn').classList.toggle('active', chartToolMode === 'measure');
   if (chartToolMode !== 'measure') clearMeasureTool();
-  chartMap.getContainer().style.cursor = chartToolMode ? 'crosshair' : '';
+  updateChartCursor();
 }
 
 function handleChartMapClick(e) {
-  if (chartToolMode === 'destination') {
-    const { lat, lng } = e.latlng;
-    L.popup({ className: 'ais-popup' })
-      .setLatLng(e.latlng)
-      .setContent(`<div class="ais-popup-body">
-        <div class="ais-popup-name">Set Destination</div>
-        <div class="ais-popup-row"><span>Position</span><span>${lat.toFixed(5)}, ${lng.toFixed(5)}</span></div>
-        <button class="wm-btn wm-btn-start" style="width:100%;margin-top:8px" onclick="wmConfirmSetDestination(${lat}, ${lng})">Set Destination Here</button>
-      </div>`)
-      .openOn(chartMap);
-  } else if (chartToolMode === 'measure') {
-    handleMeasureClick(e.latlng);
+  if (chartToolMode === 'measure') {
+    // Debounced -- a dblclick fires two click events first, so an
+    // undebounced handler would add an unwanted extra vertex right before
+    // handleChartMapDblClick adds the real final one. Give it a brief
+    // window to cancel this instead.
+    clearTimeout(chartMeasureClickTimer);
+    chartMeasureClickTimer = setTimeout(() => handleMeasureClick(e.latlng), 250);
+  }
+}
+
+function handleChartMapDblClick(e) {
+  if (chartToolMode === 'measure' && chartMeasurePoints.length > 0) {
+    clearTimeout(chartMeasureClickTimer);
+    addMeasureVertex(e.latlng);
+    finishMeasureRoute();
   }
 }
 
@@ -4859,38 +4875,124 @@ async function wmConfirmSetDestination(lat, lon) {
   setChartToolMode(null); // one-shot -- placing a destination turns the tool back off
 }
 
-let chartMeasureOrigin = null;
-let chartMeasureLine = null;
-let chartMeasureTooltip = null;
-
-function handleMeasureClick(latlng) {
-  if (chartMeasureOrigin) {
-    // Second click: freeze the line where it is and stop following the
-    // mouse. The next click (origin now null) starts a fresh measurement.
-    chartMap.off('mousemove', updateMeasureLine);
-    chartMeasureOrigin = null;
+// Right-click: mid-measurement it's a shortcut for "finish here" (same as
+// double-click); otherwise it opens a quick menu, so either action is
+// reachable without pre-arming the toolbar buttons first. Leaflet already
+// suppresses the browser's own context menu on the map container, so no
+// extra preventDefault needed here.
+function handleChartMapContextMenu(e) {
+  if (chartToolMode === 'measure' && chartMeasurePoints.length > 0) {
+    if (chartMeasurePoints.length === 1) {
+      // Only the origin exists yet -- no completed segment to fall back to,
+      // so finish using wherever the right-click actually landed.
+      addMeasureVertex(e.latlng);
+    }
+    // Otherwise at least one segment is already finalized -- stop there and
+    // discard the in-progress live segment being dragged, rather than
+    // extending the route to the right-click point.
+    finishMeasureRoute();
     return;
   }
-  clearMeasureTool(); // only one measurement on screen at a time
-  chartMeasureOrigin = latlng;
-  chartMeasureLine = L.polyline([latlng, latlng], { color: '#4a9fd4', weight: 2, dashArray: '4,4' }).addTo(chartMap);
-  chartMeasureTooltip = L.tooltip({ permanent: true, direction: 'right', className: 'chart-measure-tooltip' })
-    .setLatLng(latlng).setContent('0.00 nm').addTo(chartMap);
-  chartMap.on('mousemove', updateMeasureLine);
+  const { lat, lng } = e.latlng;
+  L.popup({ className: 'ais-popup' })
+    .setLatLng(e.latlng)
+    .setContent(`<div class="ais-popup-body">
+      <div class="ais-popup-name">Chart Actions</div>
+      <button class="wm-btn wm-btn-start" style="width:100%;margin-top:4px" onclick="wmConfirmSetDestination(${lat}, ${lng})">Set Destination Here</button>
+      <button class="wm-btn wm-btn-manual" style="width:100%;margin-top:6px" onclick="wmStartMeasureHere(${lat}, ${lng})">Start Measuring Here</button>
+    </div>`)
+    .openOn(chartMap);
+}
+
+function wmStartMeasureHere(lat, lon) {
+  chartMap.closePopup();
+  // Guarded, not a bare setChartToolMode('measure') call -- that function
+  // toggles, so calling it while already armed (e.g. right-clicking again
+  // before placing a first point) would switch the tool back OFF instead.
+  if (chartToolMode !== 'measure') setChartToolMode('measure');
+  handleMeasureClick(L.latLng(lat, lon));
+}
+
+// Multi-segment route ruler: each click appends a vertex, chaining a new
+// segment from wherever the last one ended (not a fresh 2-point measurement
+// each time). Each finalized segment gets a permanent label at its own
+// midpoint; the tooltip that follows the mouse always shows the running
+// TOTAL for the whole route (finalized segments + the in-progress one),
+// not just the segment currently being dragged. Double-click finishes the
+// route -- also disables the map's own dblclick-to-zoom while armed so
+// that gesture is free to mean "finish" instead.
+let chartMeasureClickTimer = null; // debounces single vs. double click, see handleChartMapClick
+let chartMeasurePoints = []; // finalized vertices, L.LatLng[]
+let chartMeasureLine = null; // one polyline: finalized points + live cursor point
+let chartMeasureTotalTooltip = null; // follows the mouse
+let chartMeasureSegmentLabels = []; // one permanent tooltip per finalized segment
+
+function routeLengthM(points) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += aisDistanceBearing(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng).distM;
+  }
+  return total;
+}
+
+function handleMeasureClick(latlng) {
+  if (chartMeasurePoints.length === 0) {
+    clearMeasureTool(); // starting fresh clears any previously finished route
+    chartMeasurePoints.push(latlng);
+    chartMeasureLine = L.polyline([latlng, latlng], { color: '#4a9fd4', weight: 2, dashArray: '4,4' }).addTo(chartMap);
+    chartMeasureTotalTooltip = L.tooltip({ permanent: true, direction: 'right', className: 'chart-measure-tooltip' })
+      .setLatLng(latlng).setContent('0.00 nm').addTo(chartMap);
+    chartMap.on('mousemove', updateMeasureLine);
+    chartMap.doubleClickZoom.disable();
+  } else {
+    addMeasureVertex(latlng);
+  }
+}
+
+function addMeasureVertex(latlng) {
+  const prev = chartMeasurePoints[chartMeasurePoints.length - 1];
+  const segM = aisDistanceBearing(prev.lat, prev.lng, latlng.lat, latlng.lng).distM;
+  const mid = L.latLng((prev.lat + latlng.lat) / 2, (prev.lng + latlng.lng) / 2);
+  chartMeasureSegmentLabels.push(
+    L.tooltip({ permanent: true, direction: 'center', className: 'chart-measure-seg-label' })
+      .setLatLng(mid).setContent(`${(segM / 1852).toFixed(2)} nm`).addTo(chartMap)
+  );
+  chartMeasurePoints.push(latlng);
 }
 
 function updateMeasureLine(e) {
-  if (!chartMeasureOrigin || !chartMeasureLine) return;
-  chartMeasureLine.setLatLngs([chartMeasureOrigin, e.latlng]);
-  const { distM } = aisDistanceBearing(chartMeasureOrigin.lat, chartMeasureOrigin.lng, e.latlng.lat, e.latlng.lng);
-  chartMeasureTooltip.setLatLng(e.latlng).setContent(`${(distM / 1852).toFixed(2)} nm`);
+  if (chartMeasurePoints.length === 0 || !chartMeasureLine) return;
+  const livePts = [...chartMeasurePoints, e.latlng];
+  chartMeasureLine.setLatLngs(livePts);
+  chartMeasureTotalTooltip.setLatLng(e.latlng).setContent(`${(routeLengthM(livePts) / 1852).toFixed(2)} nm total`);
+}
+
+function finishMeasureRoute() {
+  chartMap.off('mousemove', updateMeasureLine);
+  chartMap.doubleClickZoom.enable();
+  chartMeasureLine.setLatLngs(chartMeasurePoints); // drop the trailing live-cursor point
+  chartMeasureTotalTooltip.setLatLng(chartMeasurePoints[chartMeasurePoints.length - 1])
+    .setContent(`${(routeLengthM(chartMeasurePoints) / 1852).toFixed(2)} nm total`);
+  chartMeasurePoints = []; // next new route (once re-armed) starts fresh -- clearMeasureTool wipes these finished visuals first
+
+  // Disarm the tool -- finishing a route shouldn't leave it primed to
+  // immediately start another on the next click. Not setChartToolMode(),
+  // which would call clearMeasureTool() and erase the route just finished;
+  // this only flips the mode/cursor back off. Right-click again pulls up
+  // the context menu's "Start Measuring Here" to re-arm it.
+  chartToolMode = null;
+  updateChartCursor();
 }
 
 function clearMeasureTool() {
+  clearTimeout(chartMeasureClickTimer);
   if (chartMeasureLine) { chartMap.removeLayer(chartMeasureLine); chartMeasureLine = null; }
-  if (chartMeasureTooltip) { chartMap.removeLayer(chartMeasureTooltip); chartMeasureTooltip = null; }
+  if (chartMeasureTotalTooltip) { chartMap.removeLayer(chartMeasureTotalTooltip); chartMeasureTotalTooltip = null; }
+  chartMeasureSegmentLabels.forEach(l => chartMap.removeLayer(l));
+  chartMeasureSegmentLabels = [];
   chartMap.off('mousemove', updateMeasureLine);
-  chartMeasureOrigin = null;
+  chartMap.doubleClickZoom.enable();
+  chartMeasurePoints = [];
 }
 
 async function fetchChartAisTargets() {
@@ -5076,6 +5178,17 @@ async function fetchChartAisLive() {
         // simulator needs a round trip (MQTT command -> new position ->
         // republished) before the live topics agree, and without this the
         // pin would visibly snap back to the old spot for a tick or two.
+        // Fires continuously during the drag gesture (unlike dragend, once
+        // at release) -- keeps the rhumb line tracking the pin in real time
+        // instead of only catching up on the next 3s poll. Reads the own-
+        // vessel marker directly rather than closing over this call's own
+        // `latLng` const, which would go stale as soon as a later poll's own
+        // position moves (this handler is only ever registered once, here).
+        chartDestMarker.on('drag', e => {
+          if (chartDestLine && chartAisOwnMarker) {
+            chartDestLine.setLatLngs([chartAisOwnMarker.getLatLng(), e.target.getLatLng()]);
+          }
+        });
         chartDestMarker.on('dragend', e => {
           const ll = e.target.getLatLng();
           chartDestSyncSuppressUntil = Date.now() + 4000;
