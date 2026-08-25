@@ -1533,6 +1533,7 @@ function showPage(page) {
     fetchEngineLive();
     fetchEngineFanConfig();
   } else if (page === 'weather') {
+    seedWindDirHistoryFromDB();
     fetchWeatherConditions();
     fetchWeatherForecast();
     fetchMarineAlerts();
@@ -4341,6 +4342,17 @@ async function fetchWeatherConditions() {
     // transient fetch failure — keep last-known readout on screen
   }
 
+  fetchWindLive();
+
+  fetchWindSpeedHistory();
+}
+
+// Wind arrows/dial only -- polled on its own fast interval (see setInterval
+// below) separate from fetchWeatherConditions()'s 15s cadence, since this is
+// just an in-memory MQTT-topics read (cheap) while the rest of that function
+// hits DB-backed endpoints (temp/humidity/pressure, wind speed trend chart)
+// that don't need -- and shouldn't get -- polled that often on the Pi.
+async function fetchWindLive() {
   try {
     const res = await fetch('/api/mqtt/topics');
     const d = await res.json();
@@ -4348,8 +4360,6 @@ async function fetchWeatherConditions() {
     const get = k => t[k] ? parseFloat(t[k].value) : null;
     updateWindInstrument(get('boat/nav/wind/speed'), get('boat/nav/wind/angle'), get('boat/nav/gps/sog'), get('boat/nav/heading'));
   } catch (e) {}
-
-  fetchWindSpeedHistory();
 }
 
 // True wind from apparent wind + boat speed -- standard vector triangle: the
@@ -4376,11 +4386,56 @@ function trueWindFromApparent(awsKn, awaDeg, boatSpeedKn) {
 // no re-projection needed even as the boat's own heading changes underneath
 // it (that's an inherent property of a boat-relative angle, same as the
 // live TWA arrow itself, not something to special-case around here).
-const WIND_HISTORY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const WIND_HISTORY_BIN_DEG = 5; // bucket width for the density shading below
 const WIND_HISTORY_MAX_SPEED_KN = 30; // true wind speed that maps to the shading's full radial length
 const WIND_HISTORY_R1 = 30, WIND_HISTORY_R2 = 47; // radius range the shading can occupy -- R1 fixed, R2 varies with speed
-let windDirHistory = []; // {t, twa, tws}[]
+const WIND_HISTORY_NBINS = 360 / WIND_HISTORY_BIN_DEG;
+// Per-bin "heat" state -- NOT a log of samples, a live value in [0,1] per bin
+// that chases 1 for whichever bin the wind's currently in and chases 0 for
+// every other bin, both at the same characteristic timescale
+// (WIND_HISTORY_HEAT_TAU_S). That single first-order-lag recurrence is what
+// gives "climbs while the arrow's tail sits over it, fades once it moves on"
+// -- see advanceWindHistoryHeat() below for why this replaced an earlier
+// sum-of-decayed-samples version that could pin a whole swath of bins near
+// max brightness indefinitely (see comment there).
+let windHistoryHeat = new Array(WIND_HISTORY_NBINS).fill(0);
+let windHistorySpeed = new Array(WIND_HISTORY_NBINS).fill(0); // last-known tws per bin, only meaningful where heat > 0
+let windHistoryLastMs = null; // wall-clock time of the last advance() step, null until the first one
+
+// Rebuilds the heat state from real DB history (/api/wind/direction_history)
+// instead of picking up wherever it happened to leave off -- called from
+// showPage() every time the Weather tab is opened, so the shading is
+// correctly populated whether you were away 30 seconds or 3 hours. True wind
+// angle isn't logged directly (it's derived client-side from AWS/AWA/SOG,
+// see trueWindFromApparent()), so the endpoint hands back those three
+// aligned by time bucket and this recomputes TWA/TWS per sample, then
+// replays them through advanceWindHistoryHeat() in chronological order --
+// same function live polling uses per-tick, just fed the past instead of a
+// single live reading, so old bins arrive already decayed exactly as they
+// would have been had this tab been open the whole time. Live polling
+// (updateWindHistoryArc, every 2s via fetchWindLive) takes over seamlessly
+// afterward.
+async function seedWindDirHistoryFromDB() {
+  try {
+    const res = await fetch('/api/wind/direction_history');
+    const d = await res.json();
+    const times = d.times || [], aws = d.aws || [], awa = d.awa || [], sog = d.sog || [];
+    windHistoryHeat = new Array(WIND_HISTORY_NBINS).fill(0);
+    windHistorySpeed = new Array(WIND_HISTORY_NBINS).fill(0);
+    windHistoryLastMs = null;
+    times.forEach((t, i) => {
+      const { twa, tws } = trueWindFromApparent(aws[i], awa[i], sog[i]);
+      advanceWindHistoryHeat(twa, tws, new Date(t).getTime());
+    });
+    // One more decay-only step (no bin to pull toward 1) to carry the state
+    // from the last historical sample up to right now, so a stale tail isn't
+    // sitting at full brightness just because history stopped a few seconds ago.
+    advanceWindHistoryHeat(null, null, Date.now());
+    renderWindHistoryArc();
+  } catch (e) {
+    // transient fetch failure -- leave whatever heat state already exists (probably all-zero on first load)
+  }
+}
 
 function polarPoint(r, angleDeg) {
   const rad = angleDeg * Math.PI / 180;
@@ -4402,54 +4457,77 @@ function annularSectorPath(r1, r2, startDeg, endDeg) {
        + `L${xi2},${yi2} A${r1},${r1} 0 ${largeArc} 0 ${xi1},${yi1} Z`;
 }
 
-// Wind-rose style shading -- buckets recent samples into WIND_HISTORY_BIN_DEG
-// bins and draws each as its own annular sector: OPACITY scaled by that bin's
-// share of the busiest bin's weight (recency-weighted density, as before --
-// brightens as the wind's currently coming from a direction, fades smoothly
-// over the window rather than disappearing outright at the edge), and radial
-// LENGTH scaled by that bin's (also recency-weighted) average true wind
-// speed, from R1 out to R2 at WIND_HISTORY_MAX_SPEED_KN and up. So a
-// direction that's both prevalent/recent AND been blowing hard reads as a
-// long, bright wedge; a brief light-air excursion stays a short, faint one.
-function updateWindHistoryArc(twa, tws) {
-  const now = Date.now();
-  if (twa !== null && tws !== null) windDirHistory.push({ t: now, twa, tws });
-  windDirHistory = windDirHistory.filter(s => now - s.t <= WIND_HISTORY_WINDOW_MS);
+// Wind-rose style "paint that fades" shading. Each bin's heat is a live
+// value chasing a moving target -- 1 for whichever bin twa currently falls
+// in, 0 for every other bin -- via the standard first-order-lag step
+// `heat += (target - heat) * (1 - exp(-dt/tau))`. So the bin under the
+// true-wind arrow's tail climbs toward full brightness the longer the wind
+// keeps blowing from around there (tau ~= time to reach 63% brightness),
+// and the instant the wind moves to a new bin, every OTHER bin starts
+// chasing 0 at that same tau and visibly dims out over the next tau or two.
+//
+// This replaced an earlier version that instead summed recency-decayed
+// samples per bin and ran that sum through a saturating opacity curve. That
+// looked right in a single snapshot, but broke down over time: because
+// real wind direction sweeps back and forth across a many-degree-wide band
+// rather than sitting still, several adjacent bins would each accumulate
+// enough decayed samples to already be pinned near maximum opacity, and the
+// sim kept re-visiting that same band faster than the samples could decay
+// out of saturation -- so the whole swath just sat there looking maximally
+// bright and static ("the seed data never fades"). A bounded per-bin state
+// chasing a single current target sidesteps that entirely: it can't
+// accumulate past 1, and only bins actually near the CURRENT twa get
+// reinforced, so the rest are always genuinely decaying, not just
+// theoretically decaying while incoming samples keep topping them back up.
+const WIND_HISTORY_HEAT_TAU_S = 15; // ramp/decay time constant, seconds -- ~63% after 1 tau, ~86% after 2, fades out over roughly the same span once the wind moves on
+function advanceWindHistoryHeat(twa, tws, atMs) {
+  if (windHistoryLastMs === null) { windHistoryLastMs = atMs; return; } // nothing to lerp from yet
+  const dt = (atMs - windHistoryLastMs) / 1000;
+  windHistoryLastMs = atMs;
+  if (dt <= 0) return; // stale/out-of-order timestamp (e.g. duplicate DB bucket) -- ignore rather than go backwards
+  const alpha = 1 - Math.exp(-dt / WIND_HISTORY_HEAT_TAU_S);
+  const currentBin = twa !== null ? Math.floor(((twa % 360) + 360) % 360 / WIND_HISTORY_BIN_DEG) : null;
+  for (let i = 0; i < WIND_HISTORY_NBINS; i++) {
+    const target = (i === currentBin) ? 1 : 0;
+    windHistoryHeat[i] += (target - windHistoryHeat[i]) * alpha;
+  }
+  if (currentBin !== null) windHistorySpeed[currentBin] += (tws - windHistorySpeed[currentBin]) * alpha;
+}
 
+// Draws the current windHistoryHeat/windHistorySpeed state -- pure render,
+// no state changes, so it can be called standalone after seeding history
+// without also advancing the clock a second time.
+function renderWindHistoryArc() {
   const binsG = document.getElementById('wind-history-bins');
   binsG.innerHTML = '';
-  if (windDirHistory.length === 0) return;
-
-  const nBins = 360 / WIND_HISTORY_BIN_DEG;
-  const weights = new Array(nBins).fill(0);
-  const speedSums = new Array(nBins).fill(0); // ageWeight-weighted, for each bin's average speed
-  windDirHistory.forEach(s => {
-    const ageWeight = Math.max(0, 1 - (now - s.t) / WIND_HISTORY_WINDOW_MS);
-    const bin = Math.floor(((s.twa % 360) + 360) % 360 / WIND_HISTORY_BIN_DEG);
-    weights[bin] += ageWeight;
-    speedSums[bin] += ageWeight * s.tws;
-  });
-  const maxWeight = Math.max(...weights);
-
-  for (let i = 0; i < nBins; i++) {
-    if (weights[i] === 0) continue;
+  for (let i = 0; i < WIND_HISTORY_NBINS; i++) {
+    const heat = windHistoryHeat[i];
+    if (heat < 0.01) continue; // imperceptible -- skip drawing rather than paint a zero-opacity sliver
     const start = i * WIND_HISTORY_BIN_DEG;
-    const intensity = weights[i] / maxWeight; // 0-1, 1 = the most prevalent + recent direction
-    const avgSpeed = speedSums[i] / weights[i];
-    const r2 = WIND_HISTORY_R1 + Math.min(1, avgSpeed / WIND_HISTORY_MAX_SPEED_KN) * (WIND_HISTORY_R2 - WIND_HISTORY_R1);
+    // Anchored at the outer edge (R2, fixed) and grows INWARD toward R1 as
+    // speed increases -- light air sits as a thin sliver right at the rim,
+    // strong wind reaches deep toward the center. (Reversed from growing
+    // outward from R1: that read as backwards -- centered = calm, which
+    // isn't the intuitive direction for "the wind is really cranking.")
+    const r1 = WIND_HISTORY_R2 - Math.min(1, windHistorySpeed[i] / WIND_HISTORY_MAX_SPEED_KN) * (WIND_HISTORY_R2 - WIND_HISTORY_R1);
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', annularSectorPath(WIND_HISTORY_R1, r2, start, start + WIND_HISTORY_BIN_DEG));
+    path.setAttribute('d', annularSectorPath(r1, WIND_HISTORY_R2, start, start + WIND_HISTORY_BIN_DEG));
     path.setAttribute('fill', '#3db87a');
-    path.setAttribute('fill-opacity', (0.08 + intensity * 0.55).toFixed(2));
+    path.setAttribute('fill-opacity', (0.08 + heat * 0.55).toFixed(2));
     binsG.appendChild(path);
   }
 }
 
+function updateWindHistoryArc(twa, tws) {
+  advanceWindHistoryHeat(twa, tws, Date.now());
+  renderWindHistoryArc();
+}
+
 // True Wind Speed chart -- backed by /api/wind/history (real DB trend query,
 // same query_bucketed_series()/TREND_RANGE_* machinery the watermaker and
-// system-health trend charts already use), not the client-side windDirHistory
-// buffer the compass shading uses. That buffer only ever holds ~10 minutes
-// and resets on page load, so it can't serve the 1hr/6hr/24hr/week ranges;
+// system-health trend charts already use), not the client-side windHistoryHeat
+// state the compass shading uses. That state has no memory beyond a couple
+// tau's worth of seconds and resets on page load, so it can't serve the 1hr/6hr/24hr/week ranges;
 // boat/nav/wind/speed is already logged into mqtt_readings for free by
 // mqtt_logger.py's blanket boat/# subscription, so real history exists to
 // query regardless of what this page has seen since it was opened.
@@ -5624,6 +5702,7 @@ setInterval(() => { if (currentPage === 'chart') fetchChartAisLive(); }, 3000);
 setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000);
 setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
+setInterval(() => { if (currentPage === 'weather') fetchWindLive(); }, 2000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
 fetchMarineAlerts(); // global banner — runs on every tab, not gated to currentPage === 'weather'
 setInterval(fetchMarineAlerts, 5 * 60 * 1000);

@@ -631,6 +631,40 @@ def wind_history():
     except Exception as e:
         return jsonify({'times': [], 'values': [], 'error': str(e)})
 
+@app.route('/api/wind/direction_history')
+def wind_direction_history():
+    """Recent apparent wind + SOG, aligned by time bucket, for the Weather
+    tab's compass shading to rebuild itself from whenever that tab is opened
+    -- not just picking up where an in-memory buffer left off. True wind
+    angle is a client-side-derived quantity (from AWS/AWA/SOG together,
+    see trueWindFromApparent() in the frontend), never logged directly, so
+    there's no single topic to query the way /api/wind/history does for
+    speed -- the frontend recomputes TWA per sample from these three series
+    once it has them. Fixed 10-minute window/5s bucket, matching the
+    shading's own rolling window (WIND_HISTORY_WINDOW_MS in the frontend);
+    intersecting all three series' bucket keys so a sample only comes back
+    where every input actually exists, rather than computing a bogus TWA
+    against a missing SOG defaulting to something wrong."""
+    seconds, bucket = 600, 5
+    start_dt = datetime.now() - timedelta(seconds=seconds)
+
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        aws_series = query_bucketed_series(cur, 'boat/nav/wind/speed', start_dt, bucket)
+        awa_series = query_bucketed_series(cur, 'boat/nav/wind/angle', start_dt, bucket)
+        sog_series = query_bucketed_series(cur, 'boat/nav/gps/sog', start_dt, bucket)
+        conn.close()
+        keys = sorted(set(aws_series) & set(awa_series) & set(sog_series))
+        return jsonify({
+            'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+            'aws': [round(aws_series[k], 2) for k in keys],
+            'awa': [round(awa_series[k], 1) for k in keys],
+            'sog': [round(sog_series[k], 2) for k in keys],
+        })
+    except Exception as e:
+        return jsonify({'times': [], 'aws': [], 'awa': [], 'sog': [], 'error': str(e)})
+
 # ─── Server health (Pi CPU/memory/disk/temp/WiFi, logged the same way as
 # watermaker telemetry) ─────────────────────────────────────────────────────
 # A background thread (system_health_loop, started below) samples the Pi

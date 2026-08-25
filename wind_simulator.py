@@ -25,6 +25,12 @@ been seen -- so this can either ride along with gps_simulator.py (or
 real GPS/heading hardware) for a fully consistent scenario, or run
 standalone with its own fixed boat motion.
 
+On top of that slow drift, a GUST fires every couple of minutes --
+true wind speed ramps smoothly up to 1.5x whatever it happened to be
+when the gust started, holds briefly, then eases back down, direction
+untouched -- then a new gust is scheduled a few minutes out. See
+--gust-* flags to tune or disable.
+
 Usage:
   python3 wind_simulator.py
   python3 wind_simulator.py --true-wind-speed 18 --true-wind-dir 045
@@ -83,6 +89,12 @@ def main():
     ap.add_argument('--boat-speed', type=float, default=5.0, help='Boat speed to use until boat/nav/gps/sog is seen live (knots, default 5)')
     ap.add_argument('--boat-heading', type=float, default=0.0, help='Boat heading to use until boat/nav/heading is seen live (degrees, default 0)')
     ap.add_argument('--rate', type=float, default=0.3, help='Publish interval in seconds (default 0.3 -- frequent, small-step updates)')
+    ap.add_argument('--gust-multiplier', type=float, default=1.5, help='Peak gust speed as a multiple of the true wind speed at gust onset (default 1.5, i.e. 50%% over)')
+    ap.add_argument('--gust-interval-min', type=float, default=90.0, help='Shortest gap between gusts, seconds (default 90)')
+    ap.add_argument('--gust-interval-max', type=float, default=240.0, help='Longest gap between gusts, seconds (default 240, so gusts land every couple-few minutes on average)')
+    ap.add_argument('--gust-duration-min', type=float, default=8.0, help='Shortest gust length, seconds (default 8)')
+    ap.add_argument('--gust-duration-max', type=float, default=18.0, help='Longest gust length, seconds (default 18)')
+    ap.add_argument('--no-gusts', action='store_true', help='Disable gusts entirely')
     args = ap.parse_args()
 
     secrets = get_secrets()
@@ -115,6 +127,15 @@ def main():
     twd_offset = 0.0
     tws_velocity = 0.0  # kn/tick -- smoothed, not the raw random draw itself, see below
     twd_velocity = 0.0  # deg/tick -- same
+
+    # Gust scheduling -- next_gust_at/gust_active track a single upcoming or
+    # in-progress gust; wall-clock time.time() is used (not tick count) so
+    # gust cadence stays correct in real seconds regardless of --rate.
+    gust_active = False
+    gust_start_time = 0.0
+    gust_duration = 0.0
+    gust_peak_bonus = 0.0  # kn -- fixed at gust onset from that moment's tws, not re-derived mid-gust
+    next_gust_at = None if args.no_gusts else time.time() + random.uniform(args.gust_interval_min, args.gust_interval_max)
 
     print(f"Simulating true wind {tws:.0f}kn generally from {twd_base:.0f}° "
           f"(wandering within +/-{args.wind_dir_spread:.0f}°, i.e. {(twd_base - args.wind_dir_spread) % 360:.0f}-{(twd_base + args.wind_dir_spread) % 360:.0f}°), "
@@ -155,7 +176,31 @@ def main():
             twd_offset = max(-args.wind_dir_spread, min(args.wind_dir_spread, twd_offset))
             twd = (twd_base + twd_offset) % 360
 
-            aws, awa = apparent_from_true(tws, twd, live['sog'], live['heading'])
+            # Gusts: a temporary boost on top of tws, direction untouched.
+            # Speed rises and falls over the gust smoothly (a single sine
+            # hump across gust_duration -- 0 at both ends, full strength at
+            # the midpoint) rather than snapping to the peak, so it reads as
+            # a puff of wind rather than a step change. gust_peak_bonus is
+            # fixed at onset (args.gust_multiplier x whatever tws was right
+            # then) so the gust doesn't chase tws's own slow drift mid-gust.
+            now = time.time()
+            gust_bonus = 0.0
+            if not args.no_gusts:
+                if not gust_active and next_gust_at is not None and now >= next_gust_at:
+                    gust_active = True
+                    gust_start_time = now
+                    gust_duration = random.uniform(args.gust_duration_min, args.gust_duration_max)
+                    gust_peak_bonus = tws * (args.gust_multiplier - 1.0)
+                if gust_active:
+                    elapsed = now - gust_start_time
+                    if elapsed >= gust_duration:
+                        gust_active = False
+                        next_gust_at = now + random.uniform(args.gust_interval_min, args.gust_interval_max)
+                    else:
+                        gust_bonus = gust_peak_bonus * math.sin(math.pi * elapsed / gust_duration)
+
+            tws_gusted = max(0.0, tws + gust_bonus)
+            aws, awa = apparent_from_true(tws_gusted, twd, live['sog'], live['heading'])
             # A little sensor-like jitter on top of the smooth underlying
             # drift, applied only to what's published (not fed back into
             # twd/tws state) -- a real transducer doesn't read perfectly
@@ -168,8 +213,9 @@ def main():
             if tick % 5 == 0:
                 client.publish(TOPIC_REFERENCE, "Apparent", retain=False)
 
+            gust_tag = f" GUST +{gust_bonus:.1f}kn" if gust_active else ""
             print(f"\rtrue={tws:.1f}kn@{twd:.0f}°  boat={live['sog']:.1f}kn@{live['heading']:.0f}°  "
-                  f"apparent={aws_out:.1f}kn@{awa_out:.0f}°   ", end='', flush=True)
+                  f"apparent={aws_out:.1f}kn@{awa_out:.0f}°{gust_tag}   ", end='', flush=True)
 
             tick += 1
             time.sleep(args.rate)
