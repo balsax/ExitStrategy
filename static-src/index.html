@@ -98,13 +98,19 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .wind-instrument{display:flex;gap:20px;align-items:center;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:16px;width:420px;flex-shrink:0}
 .wind-diagram-wrap{position:relative;flex-shrink:0}
 .wind-diagram{width:180px;height:180px;display:block}
-.wind-readouts{display:flex;flex-direction:column;gap:8px;min-width:180px}
-.wind-readout-row{display:grid;grid-template-columns:10px 70px 1fr 1fr;align-items:center;gap:8px;font-size:13px;color:#c9d4e0}
+/* A single shared grid across all rows (not one grid per row) so each
+   column -- swatch, label, angle, speed -- lines up vertically no matter how
+   wide "Apparent" vs "True" vs "True Dir" happen to be; .wind-readout-row
+   becomes display:contents so its spans join this grid directly instead of
+   laying out in their own isolated row-local grid. */
+.wind-readouts{display:grid;grid-template-columns:10px auto 1fr 1.3fr;align-items:center;row-gap:8px;column-gap:8px;font-size:13px;color:#c9d4e0;min-width:180px}
+.wind-readout-row{display:contents}
+.wind-readout-row span{white-space:nowrap}
 .wind-readout-row span:nth-child(3),.wind-readout-row span:nth-child(4){font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;text-align:right}
 .wind-readout-swatch{width:10px;height:10px;border-radius:50%}
 .wind-readout-apparent .wind-readout-swatch{background:#e05050}
 .wind-readout-true .wind-readout-swatch{background:#3db87a}
-.wind-history-note{font-size:10px;color:#4a5a7a;margin-top:4px}
+.wind-history-note{grid-column:1/-1;font-size:10px;color:#4a5a7a;margin-top:4px}
 /* Twice wind-instrument's width (420px), same card chrome */
 .wind-speed-card{display:flex;flex-direction:column;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:16px;width:840px;max-width:100%;flex-shrink:0}
 .wind-speed-chart-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
@@ -950,9 +956,6 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     </div>
 
     <div class="section">Wind</div>
-    <div class="notice">
-      <span>⚠ Apparent not yet wired — needs an NMEA2000 wind transducer on the CAN bus (PGN 130306, mapped in n2k_mqtt_bridge.py). True wind below is calculated from apparent + SOG/heading, so it's equally unavailable until then.</span>
-    </div>
     <div class="wind-section">
       <div class="wind-instrument">
         <div class="wind-diagram-wrap">
@@ -991,14 +994,14 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div class="wind-readout-row wind-readout-apparent">
             <span class="wind-readout-swatch"></span>
             <span>Apparent</span>
-            <span id="wx-wind-app-speed">-- kn</span>
             <span id="wx-wind-app-angle">--°</span>
+            <span id="wx-wind-app-speed">-- kn</span>
           </div>
           <div class="wind-readout-row wind-readout-true">
             <span class="wind-readout-swatch"></span>
             <span>True</span>
-            <span id="wx-wind-true-speed">-- kn</span>
             <span id="wx-wind-true-angle">--°</span>
+            <span id="wx-wind-true-speed">-- kn</span>
           </div>
           <div class="wind-readout-row wind-readout-dir">
             <span></span>
