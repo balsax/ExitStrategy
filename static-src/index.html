@@ -5263,10 +5263,12 @@ function wmStartMeasureHere(lat, lon) {
 // route -- also disables the map's own dblclick-to-zoom while armed so
 // that gesture is free to mean "finish" instead.
 let chartMeasureClickTimer = null; // debounces single vs. double click, see handleChartMapClick
-let chartMeasurePoints = []; // finalized vertices, L.LatLng[]
+let chartMeasurePoints = []; // vertices of the route currently being drawn, L.LatLng[] -- emptied once finishMeasureRoute() hands off to chartMeasureFinishedPoints below
 let chartMeasureLine = null; // one polyline: finalized points + live cursor point
-let chartMeasureTotalTooltip = null; // follows the mouse
-let chartMeasureSegmentLabels = []; // one permanent tooltip per finalized segment
+let chartMeasureTotalTooltip = null; // follows the mouse while drawing, then stays pinned to the last vertex
+let chartMeasureSegmentLabels = []; // one permanent tooltip per finalized segment, same order as the segments (label i = segment between finished-route vertices i and i+1)
+let chartMeasureFinishedPoints = []; // vertices of the last COMPLETED route -- kept around (unlike chartMeasurePoints) so the drag handlers below have something to mutate
+let chartMeasureVertexMarkers = []; // one draggable marker per finished vertex, added once the route is complete
 
 function routeLengthM(points) {
   let total = 0;
@@ -5314,7 +5316,9 @@ function finishMeasureRoute() {
   chartMeasureLine.setLatLngs(chartMeasurePoints); // drop the trailing live-cursor point
   chartMeasureTotalTooltip.setLatLng(chartMeasurePoints[chartMeasurePoints.length - 1])
     .setContent(`${(routeLengthM(chartMeasurePoints) / 1852).toFixed(2)} nm total`);
+  chartMeasureFinishedPoints = chartMeasurePoints; // hand off to the editable copy -- addMeasureVertexMarkers()/updateMeasureVertex() mutate this one, not chartMeasurePoints
   chartMeasurePoints = []; // next new route (once re-armed) starts fresh -- clearMeasureTool wipes these finished visuals first
+  addMeasureVertexMarkers();
 
   // Disarm the tool -- finishing a route shouldn't leave it primed to
   // immediately start another on the next click. Not setChartToolMode(),
@@ -5325,12 +5329,59 @@ function finishMeasureRoute() {
   updateChartCursor();
 }
 
+function chartMeasureVertexIcon() {
+  return L.divIcon({
+    className: 'chart-measure-vertex-icon',
+    html: `<svg width="14" height="14" viewBox="-7 -7 14 14"><circle r="5" fill="#4a9fd4" stroke="#fff" stroke-width="1.5"/></svg>`,
+    iconSize: [14, 14], iconAnchor: [7, 7],
+  });
+}
+
+// One draggable marker per vertex of a just-completed route -- lets any
+// node (not just the endpoints, and not just by re-measuring from scratch)
+// be dragged to a new spot, with the polyline, both segment labels touching
+// that node, and the running total all updating live during the drag (not
+// just on release) via updateMeasureVertex(). zIndexOffset keeps them above
+// the route line and AIS layer so they're reliably grabbable.
+function addMeasureVertexMarkers() {
+  chartMeasureFinishedPoints.forEach((pt, i) => {
+    const marker = L.marker(pt, { icon: chartMeasureVertexIcon(), draggable: true, zIndexOffset: 1000 });
+    marker.on('drag', e => updateMeasureVertex(i, e.target.getLatLng()));
+    marker.addTo(chartMap);
+    chartMeasureVertexMarkers.push(marker);
+  });
+}
+
+// Recomputes everything that depends on vertex i's position: the polyline
+// itself, whichever of the one or two segment labels touch it (mirroring
+// the same distance/midpoint math addMeasureVertex used when each segment
+// was first drawn), and the total-distance tooltip (always pinned to the
+// route's last vertex, same convention as the rest of this tool -- a no-op
+// reposition unless the vertex being dragged IS the last one).
+function updateMeasureVertex(i, latlng) {
+  chartMeasureFinishedPoints[i] = latlng;
+  chartMeasureLine.setLatLngs(chartMeasureFinishedPoints);
+  if (i > 0) updateMeasureSegmentLabel(i - 1, chartMeasureFinishedPoints[i - 1], latlng);
+  if (i < chartMeasureFinishedPoints.length - 1) updateMeasureSegmentLabel(i, latlng, chartMeasureFinishedPoints[i + 1]);
+  chartMeasureTotalTooltip.setLatLng(chartMeasureFinishedPoints[chartMeasureFinishedPoints.length - 1])
+    .setContent(`${(routeLengthM(chartMeasureFinishedPoints) / 1852).toFixed(2)} nm total`);
+}
+
+function updateMeasureSegmentLabel(segIdx, a, b) {
+  const segM = aisDistanceBearing(a.lat, a.lng, b.lat, b.lng).distM;
+  const mid = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+  chartMeasureSegmentLabels[segIdx].setLatLng(mid).setContent(`${(segM / 1852).toFixed(2)} nm`);
+}
+
 function clearMeasureTool() {
   clearTimeout(chartMeasureClickTimer);
   if (chartMeasureLine) { chartMap.removeLayer(chartMeasureLine); chartMeasureLine = null; }
   if (chartMeasureTotalTooltip) { chartMap.removeLayer(chartMeasureTotalTooltip); chartMeasureTotalTooltip = null; }
   chartMeasureSegmentLabels.forEach(l => chartMap.removeLayer(l));
   chartMeasureSegmentLabels = [];
+  chartMeasureVertexMarkers.forEach(m => chartMap.removeLayer(m));
+  chartMeasureVertexMarkers = [];
+  chartMeasureFinishedPoints = [];
   chartMap.off('mousemove', updateMeasureLine);
   chartMap.doubleClickZoom.enable();
   chartMeasurePoints = [];
