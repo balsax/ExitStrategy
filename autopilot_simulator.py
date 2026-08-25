@@ -86,6 +86,11 @@ TOPIC_DEST_ETA_DATE = "boat/nav/destination/eta_date"
 # was first set, not track it as the boat actually moves.
 TOPIC_GPS_LAT = "boat/nav/gps/latitude"
 TOPIC_GPS_LON = "boat/nav/gps/longitude"
+# SOG/COG, also read-only from here -- used for VMG, see the comment where
+# vmg_kn is computed below for why (gps_simulator.py derives these from its
+# clean internal position, unlike the jittered lat/lon above).
+TOPIC_GPS_SOG = "boat/nav/gps/sog"
+TOPIC_GPS_COG = "boat/nav/gps/cog"
 
 METERS_PER_DEG_LAT = 111_320.0
 NM_TO_M = 1852.0
@@ -146,7 +151,7 @@ def main():
     args = ap.parse_args()
 
     cmd_queue = queue.Queue()  # created before the MQTT client so on_message below can feed it too
-    live_pos = {'lat': args.start_lat, 'lon': args.start_lon}  # updated from gps_simulator.py; see on_message
+    live_pos = {'lat': args.start_lat, 'lon': args.start_lon, 'sog': 0.0, 'cog': None}  # updated from gps_simulator.py; see on_message
 
     secrets = get_secrets()
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=MQTT_CLIENT_ID)
@@ -158,17 +163,20 @@ def main():
         c.subscribe(CMD_TOPIC_SET_DEST)
         c.subscribe(TOPIC_GPS_LAT)
         c.subscribe(TOPIC_GPS_LON)
+        c.subscribe(TOPIC_GPS_SOG)
+        c.subscribe(TOPIC_GPS_COG)
 
     def on_message(c, userdata, msg):
-        # GPS position updates live_pos directly -- frequent (1Hz) plain
-        # floats, no reason to route them through cmd_queue's command
+        # GPS position/SOG/COG update live_pos directly -- frequent (1Hz)
+        # plain floats, no reason to route them through cmd_queue's command
         # parsing like the mode/adjust/dest topics below.
-        if msg.topic in (TOPIC_GPS_LAT, TOPIC_GPS_LON):
+        if msg.topic in (TOPIC_GPS_LAT, TOPIC_GPS_LON, TOPIC_GPS_SOG, TOPIC_GPS_COG):
             try:
                 value = float(msg.payload.decode('utf-8', errors='ignore'))
             except ValueError:
                 return
-            live_pos['lat' if msg.topic == TOPIC_GPS_LAT else 'lon'] = value
+            key = {TOPIC_GPS_LAT: 'lat', TOPIC_GPS_LON: 'lon', TOPIC_GPS_SOG: 'sog', TOPIC_GPS_COG: 'cog'}[msg.topic]
+            live_pos[key] = value
             return
 
         payload = msg.payload.decode('utf-8', errors='ignore').strip().lower()
@@ -200,7 +208,6 @@ def main():
     # destination exists -- this initial value is just what's true before
     # the first tick runs.
     dest_bearing = args.target_heading
-    prev_dest_distance_m = dest_distance_m  # for VMG: rate of closure = distance delta / dt
 
     print(f"Simulating autopilot: Standby for {args.engage_after:.0f}s" +
           (f", then Shadow Drive for {args.shadow_drive_for:.0f}s" if args.shadow_drive_for > 0 else "") +
@@ -217,7 +224,6 @@ def main():
     target_heading = args.target_heading  # mutable now -- course-change commands adjust this directly
 
     start_time = time.time()
-    last_t = start_time
     heading_now = target_heading  # drifts toward target_heading once engaged, like a real AP correcting
 
     try:
@@ -231,7 +237,6 @@ def main():
                         lat_s, lon_s = cmd[5:].split(',')
                         dest_lat, dest_lon = float(lat_s), float(lon_s)
                         dest_distance_m, dest_bearing = distance_bearing(live_pos['lat'], live_pos['lon'], dest_lat, dest_lon)
-                        prev_dest_distance_m = dest_distance_m  # avoid a bogus VMG spike on the next tick
                         print(f"\nNew destination: {dest_lat:.6f}, {dest_lon:.6f} "
                               f"({dest_distance_m / NM_TO_M:.2f}nm @ {dest_bearing:.0f}° from current position)")
                     except (ValueError, IndexError):
@@ -257,8 +262,6 @@ def main():
                     print(f"\nUnrecognized command '{cmd}' -- try: engage | standby | shadow | quit | a heading delta like -10")
 
             now = time.time()
-            dt = now - last_t
-            last_t = now
             elapsed = now - start_time
 
             if manual_mode is not None:
@@ -301,14 +304,26 @@ def main():
             dest_status = ""
             if not args.no_destination and mode == 'Engaged':
                 dist_nm = dest_distance_m / NM_TO_M
-                # VMG from the actual change in distance -- real now that
-                # dest_distance_m tracks true position, not an assumed closing
-                # rate. Guards a near-zero/negative delta (drifting away, or
-                # dt too small) rather than reporting a bogus huge/negative kn.
-                vmg_mps = max(0.0, (prev_dest_distance_m - dest_distance_m) / dt) if dt > 0 else 0.0
-                prev_dest_distance_m = dest_distance_m
-                vmg_kn = vmg_mps * 1.94384
-                eta_s = dest_distance_m / vmg_mps if vmg_mps > 0.05 else 0
+                # VMG to the destination = the component of the boat's actual
+                # speed/course-over-ground that points along the bearing to
+                # the destination -- the standard "VMG to waypoint" formula,
+                # using gps_simulator.py's SOG/COG (which it derives from its
+                # clean internal position -- see its own comment on that).
+                # This replaced an earlier version that differenced
+                # dest_distance_m -- computed from live_pos, the REPORTED
+                # position, which gps_simulator.py deliberately jitters by
+                # +/-1.5m to mimic real GPS fix noise -- over a single ~1s
+                # tick. Differentiating jittered position over a short window
+                # amplifies that noise directly into speed: two consecutive
+                # +/-1.5m fixes can differ by up to 3m, i.e. +/-~5.8kn of
+                # pure jitter on a single tick, on top of the real VMG --
+                # easily enough on its own to swing an apparent 1.5kn down to
+                # under 0 or up past 10kn between ticks. SOG/COG don't have
+                # that problem since gps_simulator.py already derives THEM
+                # from the clean, unjittered position for the same reason.
+                cog = live_pos['cog'] if live_pos['cog'] is not None else target_heading
+                vmg_kn = max(0.0, live_pos['sog'] * math.cos(math.radians(dest_bearing - cog)))
+                eta_s = (dist_nm / vmg_kn) * 3600 if vmg_kn > 0.05 else 0
                 eta_dt = datetime.now() + timedelta(seconds=eta_s)
 
                 client.publish(TOPIC_DEST_LAT, f"{dest_lat:.6f}", retain=False)

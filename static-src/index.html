@@ -5129,9 +5129,16 @@ function chartDestIcon() {
   });
 }
 
+// Year-less "Mon D" formatting for a YYYY-MM-DD ETA date -- an arrival
+// that's days/weeks out doesn't need the year spelled out, that's already
+// implied by whenever "now" is.
+function chartFormatEtaDate(etaDate) {
+  return new Date(`${etaDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function chartDestPopupHtml(dist, bearing, vmg, etaTime, etaDate) {
   const row = (label, val) => `<div class="ais-popup-row"><span>${label}</span><span>${val}</span></div>`;
-  const eta = (etaDate && etaTime) ? `${etaDate} ${etaTime}` : '--';
+  const eta = (etaDate && etaTime) ? `${chartFormatEtaDate(etaDate)} ${etaTime}` : '--';
   return `<div class="ais-popup-body">
     <div class="ais-popup-name">Destination</div>
     ${row('Distance', dist !== null ? `${parseFloat(dist).toFixed(2)} nm` : '--')}
@@ -5153,7 +5160,7 @@ function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
     // different-day ETA keeps the date too, so it doesn't read as "today"
     // by omission.
     const sameDay = etaDt.toDateString() === now.toDateString();
-    setText('chart-dest-eta', sameDay ? etaTime : `${etaDate} ${etaTime}`);
+    setText('chart-dest-eta', sameDay ? etaTime : `${chartFormatEtaDate(etaDate)} ${etaTime}`);
     setText('chart-dest-eta-in', wmFormatDuration((etaDt - now) / 1000));
   } else {
     setText('chart-dest-eta', '--');
