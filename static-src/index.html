@@ -31,6 +31,16 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .card-unit{font-size:14px;color:#6b82a0;margin-left:2px}
 .card-sub{font-size:12px;color:#6b82a0;margin-top:6px}
 .bar-bg{height:5px;background:#1e2d4a;border-radius:3px;margin-top:8px;overflow:hidden}
+/* Overview tank gauges -- same visual idea as the watermaker's .wm-tank-bar
+   (vertical fill, bottom-anchored), just laid out as a plain flex row
+   instead of .wm-tank-col's absolute positioning, which is specific to that
+   page's flow-diagram layout and not reusable here. */
+.tank-row{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:16px;margin-bottom:10px}
+.tank-col{display:flex;flex-direction:column;align-items:center;gap:8px}
+.tank-bar-wrap{width:40px;height:150px;background:#0a0e1a;border:1px solid #1e2d4a;border-radius:6px;position:relative;overflow:hidden}
+.tank-bar-fill{position:absolute;bottom:0;left:0;right:0;transition:height .8s ease,background .5s ease}
+.tank-value{font-size:14px;font-weight:700;color:#e0e6f0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.tank-label{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;text-align:center}
 .bar-fill{height:100%;border-radius:3px}
 .relay-row{display:flex;align-items:center;justify-content:space-between}
 .relay-name{font-size:14px;font-weight:600;color:#e0e6f0}
@@ -477,35 +487,70 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 </div>
 
-<!-- System status -->
-<div class="section clickable" onclick="toggleStatus()">
-  <span>System status <span id="status-summary" style="color:#3db87a;font-size:10px;margin-left:8px;text-transform:none;letter-spacing:0">● All systems online</span></span>
-  <span id="status-toggle" style="font-size:14px;color:#6b82a0">▶</span>
+<!-- Tanks -->
+<div class="section">Tanks</div>
+<div class="tank-row">
+  <div class="tank-col wm-clickable" onclick="openTankModal('fresh_1')">
+    <div class="tank-bar-wrap"><div class="tank-bar-fill" id="tank-fresh_1-fill" style="height:0%"></div></div>
+    <div class="tank-value" id="tank-fresh_1-value">--%</div>
+    <div class="tank-label">Fresh Bow</div>
+  </div>
+  <div class="tank-col wm-clickable" onclick="openTankModal('fresh_2')">
+    <div class="tank-bar-wrap"><div class="tank-bar-fill" id="tank-fresh_2-fill" style="height:0%"></div></div>
+    <div class="tank-value" id="tank-fresh_2-value">--%</div>
+    <div class="tank-label">Fresh Stern</div>
+  </div>
+  <div class="tank-col wm-clickable" onclick="openTankModal('diesel')">
+    <div class="tank-bar-wrap"><div class="tank-bar-fill" id="tank-diesel-fill" style="height:0%"></div></div>
+    <div class="tank-value" id="tank-diesel-value">--%</div>
+    <div class="tank-label">Diesel</div>
+  </div>
+  <div class="tank-col wm-clickable" onclick="openTankModal('black')">
+    <div class="tank-bar-wrap"><div class="tank-bar-fill" id="tank-black-fill" style="height:0%"></div></div>
+    <div class="tank-value" id="tank-black-value">--%</div>
+    <div class="tank-label">Black Water</div>
+  </div>
 </div>
-<div id="status-card" style="display:none">
-  <div class="card no-click">
-    <div class="status-row">
-      <span><span class="sdot" style="background:#3db87a"></span>Cloudflare tunnel</span>
-      <span class="good">Connected</span>
-    </div>
-    <div class="status-row">
-      <span><span class="sdot" style="background:#3db87a"></span>MQTT broker</span>
-      <span class="good">Running</span>
-    </div>
-    <div class="status-row">
-      <span><span class="sdot" style="background:#3db87a"></span>MariaDB</span>
-      <span class="good">Running</span>
-    </div>
-    <div class="status-row">
-      <span><span class="sdot" id="influx-dot" style="background:#3db87a"></span>InfluxDB</span>
-      <span class="good" id="influx-status">Connected</span>
-    </div>
-    <div class="status-row">
-      <span><span class="sdot" id="victron-dot" style="background:#3db87a"></span>Victron VRM</span>
-      <span id="victron-status" class="good">Connected</span>
+
+<!-- House Battery -->
+<div class="section">House Battery</div>
+<div class="grid">
+  <div class="card" onclick="openNodeModal('bat48')">
+    <div class="card-label">State of Charge</div>
+    <div class="card-value" id="batt-soc">--<span class="card-unit">%</span></div>
+    <div class="card-sub" id="batt-soc-sub">Loading...</div>
+    <div class="soc-bar-wrap" style="margin-top:10px;margin-bottom:0">
+      <div class="soc-bar-bg">
+        <div class="soc-bar-fill" id="batt-soc-fill" style="width:0%"><span class="soc-bar-label" id="batt-soc-fill-label"></span></div>
+      </div>
     </div>
   </div>
-  <div class="updated">Last updated: <span id="last-update">--</span></div>
+  <div class="card" onclick="openNodeModal('bat48')">
+    <div class="card-label">Voltage / Current</div>
+    <div class="card-value" id="batt-voltage">--<span class="card-unit">V</span></div>
+    <div class="card-sub" id="batt-current-sub">Loading...</div>
+  </div>
+  <div class="card" onclick="openNodeModal('bat48')">
+    <div class="card-label">Status</div>
+    <div class="card-value" id="batt-state">--</div>
+    <div class="card-sub" id="batt-state-sub">Loading...</div>
+  </div>
+  <div class="card" onclick="openNodeModal('shore')">
+    <div class="card-label">Shore Power</div>
+    <div class="card-value" id="shore-status">--</div>
+    <div class="card-sub" id="shore-sub">Loading...</div>
+  </div>
+</div>
+
+<!-- Bilge Pump -->
+<div class="section">Bilge Pump</div>
+<div class="card no-click">
+  <div class="relay-row">
+    <div class="relay-info">
+      <div class="relay-name" id="bilge-state">--</div>
+      <div class="relay-sub" id="bilge-sub">Loading...</div>
+    </div>
+  </div>
 </div>
 
 <!-- Power control -->
@@ -1118,6 +1163,37 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="diag-panel" id="diag-panel-system">
       <div class="notice" id="sys-notice" style="margin-bottom:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
 
+      <!-- System status (moved here from Overview) -->
+      <div class="section clickable" style="margin-top:0" onclick="toggleStatus()">
+        <span>System status <span id="status-summary" style="color:#3db87a;font-size:10px;margin-left:8px;text-transform:none;letter-spacing:0">● All systems online</span></span>
+        <span id="status-toggle" style="font-size:14px;color:#6b82a0">▶</span>
+      </div>
+      <div id="status-card" style="display:none;margin-bottom:16px">
+        <div class="card no-click">
+          <div class="status-row">
+            <span><span class="sdot" style="background:#3db87a"></span>Cloudflare tunnel</span>
+            <span class="good">Connected</span>
+          </div>
+          <div class="status-row">
+            <span><span class="sdot" style="background:#3db87a"></span>MQTT broker</span>
+            <span class="good">Running</span>
+          </div>
+          <div class="status-row">
+            <span><span class="sdot" style="background:#3db87a"></span>MariaDB</span>
+            <span class="good">Running</span>
+          </div>
+          <div class="status-row">
+            <span><span class="sdot" id="influx-dot" style="background:#3db87a"></span>InfluxDB</span>
+            <span class="good" id="influx-status">Connected</span>
+          </div>
+          <div class="status-row">
+            <span><span class="sdot" id="victron-dot" style="background:#3db87a"></span>Victron VRM</span>
+            <span id="victron-status" class="good">Connected</span>
+          </div>
+        </div>
+        <div class="updated">Last updated: <span id="last-update">--</span></div>
+      </div>
+
       <div class="wm-info-label" style="margin-bottom:8px">CPU</div>
       <div class="sys-stat-grid">
         <div class="mlive wm-clickable" onclick="openSystemModal('cpu','CPU Usage','%','#4a9fd4')">
@@ -1523,6 +1599,14 @@ const SYS_METRICS = {
   disk_io:   { label: 'Disk I/O',        unit: 'KB/s', color: '#6b9bd1' },
   boot_disk: { label: 'Boot Partition',  unit: '%',    color: '#7ec9a8' },
 };
+// Colors match TANK_COLORS (the gauge fill colors) so a tank's chart line
+// and its Overview bar are visually the same fluid at a glance.
+const TANK_METRICS = {
+  fresh_1: { label: 'Fresh Bow',   unit: '%', color: '#4a9fd4' },
+  fresh_2: { label: 'Fresh Stern', unit: '%', color: '#4a9fd4' },
+  diesel:  { label: 'Diesel',      unit: '%', color: '#e8a030' },
+  black:   { label: 'Black Water', unit: '%', color: '#8b5e34' },
+};
 let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker or system health)
 let penMetrics = WM_METRICS; // whichever metric registry the open modal is using
 let penEndpoint = '/api/watermaker/history';
@@ -1720,6 +1804,12 @@ function socColor(pct) {
   if (pct > 30) return '#e8a030';
   return '#e05050';
 }
+
+// Fixed per-fluid-type color, not a level-based status color like
+// socColor() -- the point is identifying which fluid a bar is at a glance
+// (blue water, amber diesel, brown waste), the same way real tank gauges
+// and plumbing labels are color-coded, regardless of how full it is.
+const TANK_COLORS = { fresh_1: '#4a9fd4', fresh_2: '#4a9fd4', diesel: '#e8a030', black: '#8b5e34' };
 
 function fmtVal(v, unit, isText) {
   if (isText) return `<span style="color:#e0e6f0">${v ?? '--'}</span>`;
@@ -3141,6 +3231,33 @@ async function fetchVictron() {
       document.getElementById('bat-soc-text').style.color = soc > 20 ? '#fff' : col;
     }
 
+    // Overview tab's House Battery cards -- same fields as above, just a
+    // second set of DOM targets (a horizontal bar + plain stat cards
+    // instead of the flow diagram's node tank fill), so Overview doesn't
+    // need its own Victron fetch.
+    if (d.soc !== undefined) {
+      const soc = d.soc, col = socColor(soc);
+      setText('batt-soc', `${soc.toFixed(0)}<span class="card-unit">%</span>`);
+      const fill = document.getElementById('batt-soc-fill');
+      fill.style.width = soc + '%'; fill.style.background = col;
+      setText('batt-soc-fill-label', `${soc.toFixed(0)}%`);
+      setText('batt-soc-sub', soc > 60 ? 'Healthy' : soc > 30 ? 'Getting low' : 'Low -- consider charging');
+    }
+    if (d.voltage !== undefined) setText('batt-voltage', `${d.voltage.toFixed(1)}<span class="card-unit">V</span>`);
+    if (d.current !== undefined) {
+      const cur = d.current;
+      setText('batt-current-sub', `${cur >= 0 ? '+' : ''}${cur.toFixed(1)}A ${charging ? '(charging)' : discharging ? '(discharging)' : ''}`);
+    }
+    setText('batt-state', charging ? 'Charging' : discharging ? 'Discharging' : 'Idle');
+    document.getElementById('batt-state').className = 'card-value ' + (charging ? 'good' : discharging ? 'warn' : 'info');
+    setText('batt-state-sub', charging ? 'Shore/engine charging the bank'
+      : discharging && d.time_to_go ? `~${Math.round(d.time_to_go / 3600)}h to empty at this rate`
+      : discharging ? 'Running on battery power'
+      : 'No significant current flow');
+    setText('shore-status', shoreOn ? 'Connected' : 'Not Connected');
+    document.getElementById('shore-status').className = 'card-value ' + (shoreOn ? 'good' : 'info');
+    setText('shore-sub', shoreOn && d.ac_load !== undefined ? `${Math.round(d.ac_load)}W load` : shoreOn ? 'Connected' : 'Running on batteries');
+
     // System state badge
     const stateEl = document.getElementById('sys-state');
     if (charging)    { stateEl.textContent='Charging';    stateEl.style.color='#3db87a'; stateEl.style.borderColor='#2a7a4a'; stateEl.style.background='#0d2b1a'; }
@@ -3167,6 +3284,56 @@ async function fetchVictron() {
     lastFlowState = { shoreOn: false, charging: false, discharging: false };
     if (currentPage === 'electrical') buildFlow(false, false, false);
   }
+}
+
+// Overview tab's Tanks row + Bilge Pump card. Backed by PGN 127505 (Fluid
+// Level, one message per physical tank via its Instance field) and dev-only
+// bilge topics -- see n2k_mqtt_bridge.py's TANK_INSTANCE_TOPICS and
+// tank_simulator.py. Reads /api/mqtt/topics directly (same in-memory,
+// already-cheap source fetchMqtt/fetchWindLive use) rather than a dedicated
+// endpoint, since this is just the latest value per topic, no history math.
+const TANKS = [
+  { key: 'fresh_1', topic: 'boat/nav/tanks/fresh_1/level' },
+  { key: 'fresh_2', topic: 'boat/nav/tanks/fresh_2/level' },
+  { key: 'diesel',  topic: 'boat/nav/tanks/diesel/level' },
+  { key: 'black',   topic: 'boat/nav/tanks/black/level' },
+];
+async function fetchTanksAndBilge() {
+  try {
+    const res = await fetch('/api/mqtt/topics');
+    const d = await res.json();
+    const t = d.topics || {};
+    const get = k => t[k] ? parseFloat(t[k].value) : null;
+
+    TANKS.forEach(({ key, topic }) => {
+      const pct = get(topic);
+      const fill = document.getElementById(`tank-${key}-fill`);
+      const valueEl = document.getElementById(`tank-${key}-value`);
+      if (pct === null) { valueEl.textContent = '--%'; return; }
+      const clamped = Math.max(0, Math.min(100, pct));
+      fill.style.height = clamped + '%';
+      fill.style.background = TANK_COLORS[key];
+      valueEl.textContent = `${clamped.toFixed(0)}%`;
+    });
+
+    // Bilge pump -- a rare on/off event rather than a smooth metric (like
+    // throttle status elsewhere in this app), so the useful readout is
+    // "on right now?" plus when it last ran, not a trend line.
+    const pumpOnRaw = t['boat/nav/bilge/pump_on'];
+    const pumpOn = pumpOnRaw ? parseFloat(pumpOnRaw.value) > 0 : null;
+    const lastRun = t['boat/nav/bilge/last_run'] ? t['boat/nav/bilge/last_run'].value : null;
+    const stateEl = document.getElementById('bilge-state');
+    if (pumpOn === null) {
+      stateEl.textContent = '--'; stateEl.className = 'relay-name';
+      setText('bilge-sub', 'No data');
+    } else if (pumpOn) {
+      stateEl.textContent = 'Running'; stateEl.className = 'relay-name good';
+      setText('bilge-sub', 'Pumping now');
+    } else {
+      stateEl.textContent = 'Standby'; stateEl.className = 'relay-name';
+      setText('bilge-sub', lastRun ? `Last ran ${timeAgo(lastRun)}` : 'No activity yet');
+    }
+  } catch (e) { /* leave last-known tank/bilge readout on screen */ }
 }
 
 // ─── Modal: node popups ───────────────────────────────────────────────────────
@@ -3341,6 +3508,10 @@ function openWatermakerModal(metric, title, unit, color) {
 
 function openSystemModal(metric, title, unit, color) {
   openPenModal(SYS_METRICS, '/api/system/history', '🖥️', 'Server Health Trend', metric);
+}
+
+function openTankModal(metric) {
+  openPenModal(TANK_METRICS, '/api/tanks/history', '🛢️', 'Tank Levels Trend', metric);
 }
 
 function togglePen(metric) {
@@ -5826,9 +5997,11 @@ const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor',
 showPage(initialPage);
 fetchData();
 fetchVictron();
+fetchTanksAndBilge();
 queryRelay1State();
 setInterval(fetchData, 60000);
 setInterval(fetchVictron, 30000);
+setInterval(fetchTanksAndBilge, 5000);
 setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
 setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);

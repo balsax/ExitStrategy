@@ -113,10 +113,11 @@ PGN_MAP = {
         "Alternator Potential": ("boat/nav/engine/alternator_voltage","slow", 2),
         "Fuel Rate":            ("boat/nav/engine/fuel_rate",         "slow", 2),
     },
-    127505: {  # Fluid Level
-        "Level":    ("boat/nav/fluid/level",    "slow", 1),
-        "Capacity": ("boat/nav/fluid/capacity", "slow", 1),
-    },
+    # 127505 (Fluid Level) is handled separately below, not through this flat
+    # PGN_MAP -- it carries an Instance field distinguishing which of several
+    # physical tanks a message is about, and a flat mapping (one fixed topic
+    # per canboat field name) can't represent that; every tank would collide
+    # on the same boat/nav/fluid/level topic. See handle_fluid_level().
     127508: {  # Battery Status
         "Voltage":     ("boat/nav/battery/voltage",     "slow", 2),
         "Current":     ("boat/nav/battery/current",     "slow", 2),
@@ -141,6 +142,35 @@ PGN_MAP = {
         "ETA Date":                                  ("boat/nav/destination/eta_date",  "slow", None),
     },
 }
+
+# PGN 127505 (Fluid Level) reports one physical tank per message, identified
+# by its Instance field -- there are 4 tanks on this boat (2 fresh water, 1
+# diesel, 1 black water), each its own sender on the bus, each publishing its
+# own Instance number. This maps that Instance to which physical tank it is
+# -- installer-assigned at commissioning time, not something this bridge can
+# infer from the PGN itself, so it's a hardcoded guess (0/1/2/3 in the most
+# natural order) until real senders are wired and the actual assignment can
+# be read off the live bus and corrected here. dashboard-dev's
+# tank_simulator.py publishes under these same names for the dev stand-in.
+TANK_INSTANCE_TOPICS = {
+    0: 'fresh_1',
+    1: 'fresh_2',
+    2: 'diesel',
+    3: 'black',
+}
+
+def handle_fluid_level(client, fields):
+    tank = TANK_INSTANCE_TOPICS.get(fields.get("Instance"))
+    if tank is None:
+        return  # unrecognized instance -- don't publish under a guessed tank name
+    if "Level" in fields:
+        topic = f"boat/nav/tanks/{tank}/level"
+        if should_publish(topic, "slow"):
+            client.publish(topic, format_value(fields["Level"], 1), retain=False)
+    if "Capacity" in fields:
+        topic = f"boat/nav/tanks/{tank}/capacity"
+        if should_publish(topic, "slow"):
+            client.publish(topic, format_value(fields["Capacity"], 1), retain=False)
 
 # AIS PGNs can't use the flat PGN_MAP above because the MQTT topic itself is
 # data-dependent — it's keyed by the target vessel's MMSI (canboat's "User ID"
@@ -373,6 +403,10 @@ def handle_line(client, line):
 
     if pgn in AIS_POSITION_PGNS or pgn in AIS_STATIC_PGNS:
         handle_ais_pgn(client, pgn, fields)
+        return
+
+    if pgn == 127505:
+        handle_fluid_level(client, fields)
         return
 
     mapping = PGN_MAP.get(pgn)

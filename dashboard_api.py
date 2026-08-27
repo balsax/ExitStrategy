@@ -293,14 +293,27 @@ def victron_history():
         if not data.get('success'):
             return jsonify({'times': [], 'values': [], 'error': 'VRM API error'})
 
-        records = data.get('records', {})
-        # VRM Graph returns: records -> {code -> [[timestamp_ms, value], ...]}
-        series = None
-        for key, val in records.items():
-            if isinstance(val, list) and len(val) > 0:
-                series = val
-                break
+        # VRM's Graph widget nests the actual [[timestamp, value], ...] list
+        # two levels deep -- records -> some category key (observed: "data",
+        # not the attribute code) -> a stringified instance id -> the point
+        # list -- rather than the flat records->{code: [...]} shape this was
+        # originally written against. That flat assumption meant
+        # `isinstance(val, list)` never matched (val was always a dict one
+        # level too shallow), so this silently returned empty for every
+        # request regardless of whether VRM actually had data. Recursing to
+        # find the first real point list sidesteps needing to know the exact
+        # intermediate key names, which appear to vary by installation/code.
+        def _first_point_series(obj):
+            if isinstance(obj, list):
+                return obj if obj and isinstance(obj[0], list) else None
+            if isinstance(obj, dict):
+                for v in obj.values():
+                    found = _first_point_series(v)
+                    if found is not None:
+                        return found
+            return None
 
+        series = _first_point_series(data.get('records', {}))
         if not series:
             return jsonify({'times': [], 'values': []})
 
@@ -308,8 +321,10 @@ def victron_history():
         values = []
         for point in series:
             if len(point) >= 2 and point[1] is not None:
-                ts_ms = point[0]
-                dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+                # Also seconds, not milliseconds, despite the original ts_ms
+                # name -- verified against a live response (a timestamp that
+                # decoded to the correct current date only as whole seconds).
+                dt = datetime.fromtimestamp(point[0], tz=timezone.utc)
                 times.append(dt.isoformat())
                 values.append(float(point[1]))
 
@@ -687,6 +702,50 @@ def wind_direction_history():
         })
     except Exception as e:
         return jsonify({'times': [], 'aws': [], 'awa': [], 'sog': [], 'error': str(e)})
+
+# ─── Tanks (Overview tab trend modal) ───────────────────────────────────────
+# Same multi-pen bucketed-average approach as watermaker/system health above.
+# boat/nav/tanks/<name>/level gets logged into mqtt_readings for free by
+# mqtt_logger.py's blanket boat/# subscription -- published by
+# n2k_mqtt_bridge.py's handle_fluid_level() once real senders are wired, or
+# tank_simulator.py's dev stand-in until then.
+TANK_METRIC_TOPICS = {
+    'fresh_1': 'boat/nav/tanks/fresh_1/level',
+    'fresh_2': 'boat/nav/tanks/fresh_2/level',
+    'diesel':  'boat/nav/tanks/diesel/level',
+    'black':   'boat/nav/tanks/black/level',
+}
+
+@app.route('/api/tanks/history')
+def tanks_history():
+    metrics_param = request.args.get('metrics') or request.args.get('metric', 'fresh_1')
+    metrics = [m.strip() for m in metrics_param.split(',') if m.strip()]
+    range_val = request.args.get('range', '1h')
+
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    seconds = TREND_RANGE_SECONDS.get(range_val, 3600)
+    start_dt = datetime.now() - timedelta(seconds=seconds)
+
+    series = {}
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        for metric in metrics:
+            if metric not in TANK_METRIC_TOPICS:
+                series[metric] = {'times': [], 'values': [], 'error': 'unknown metric'}
+                continue
+            s = query_bucketed_series(cur, TANK_METRIC_TOPICS[metric], start_dt, bucket)
+            keys = sorted(s.keys())
+            series[metric] = {
+                'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+                'values': [round(s[k], 2) for k in keys],
+            }
+        conn.close()
+    except Exception as e:
+        for metric in metrics:
+            series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
+
+    return jsonify({'series': series})
 
 # ─── Server health (Pi CPU/memory/disk/temp/WiFi, logged the same way as
 # watermaker telemetry) ─────────────────────────────────────────────────────
@@ -1263,6 +1322,101 @@ def anchor_test_alert():
         'ntfy_configured': bool(get_secrets().get('NTFY_TOPIC')),
     })
 
+# ─── Tank / battery low-level alarms ────────────────────────────────────────
+# Same ntfy push mechanism and notify-on-transition + repeat-while-tripped
+# pattern as the anchor watch alarms above (send_ntfy, a per-condition
+# *_notified_at timestamp reset to 0 once clear so the next trip notifies
+# immediately rather than waiting out a stale repeat window) -- just no GPIO
+# buzzer, since that's specifically the anchor watch's own physical alarm
+# and there's no way to tell which condition tripped it from a buzzer alone.
+#
+# Runs on its own, much slower cadence than anchor watch's 5s: tank/battery
+# levels change over hours, not seconds, so there's no reason to poll that
+# often, and it also means far fewer extra background calls to the Victron
+# VRM API (SOC has no MQTT topic to read locally the way tank levels do --
+# get_vrm_data() is the same live call /api/victron makes) on top of
+# whatever the frontend itself is already polling.
+TANK_BATTERY_MONITOR_INTERVAL_S = 120
+# 30 min, not anchor watch's 180s -- these conditions can stay tripped for
+# hours (e.g. low diesel until the next fuel dock), and repeating every 3
+# minutes for that whole stretch would just be naggy.
+TANK_BATTERY_NOTIFY_REPEAT_S = 1800
+
+BATTERY_SOC_WARNING_PCT = 30.0
+BATTERY_SOC_ALARM_PCT = 20.0
+LOW_TANK_ALARM_PCT = 20.0    # diesel + fresh water
+BLACK_TANK_ALARM_PCT = 75.0  # high, not low -- needs a pump-out
+
+_tank_battery_monitor = {
+    'soc_level': 'normal',  # normal | warning | alarm
+    'soc_notified_at': 0,
+    'diesel_notified_at': 0,
+    'fresh_1_notified_at': 0,
+    'fresh_2_notified_at': 0,
+    'black_notified_at': 0,
+}
+
+def _check_low_tank(key, value, threshold, title, label, emoji):
+    tripped = value is not None and value < threshold
+    if tripped and time.time() - _tank_battery_monitor[key] > TANK_BATTERY_NOTIFY_REPEAT_S:
+        send_ntfy(title, f'{emoji} {label} is at {value:.0f}% -- below the {threshold:.0f}% alarm threshold.', tags='warning')
+        _tank_battery_monitor[key] = time.time()
+    elif not tripped:
+        _tank_battery_monitor[key] = 0
+
+def tank_battery_monitor_loop():
+    while True:
+        time.sleep(TANK_BATTERY_MONITOR_INTERVAL_S)
+        try:
+            now = time.time()
+
+            # Battery SOC has two severity levels, unlike the single-
+            # threshold tank checks below, so it needs its own small state
+            # machine: notify immediately on entering a WORSE level, then
+            # keep repeating on the shared timer while still at warning or
+            # alarm, and reset (so the next drop notifies right away)
+            # once it's back to normal.
+            soc = get_vrm_data().get('soc')
+            if soc is not None:
+                level = ('alarm' if soc < BATTERY_SOC_ALARM_PCT
+                         else 'warning' if soc < BATTERY_SOC_WARNING_PCT else 'normal')
+                prev = _tank_battery_monitor['soc_level']
+                entered_worse = (level == 'alarm' and prev != 'alarm') or (level == 'warning' and prev == 'normal')
+                repeat_due = now - _tank_battery_monitor['soc_notified_at'] > TANK_BATTERY_NOTIFY_REPEAT_S
+                if level != 'normal' and (entered_worse or repeat_due):
+                    if level == 'alarm':
+                        send_ntfy('Battery critically low',
+                                  f'🔋 House battery SOC is {soc:.0f}% -- below the {BATTERY_SOC_ALARM_PCT:.0f}% alarm threshold.',
+                                  tags='warning')
+                    else:
+                        send_ntfy('Battery low',
+                                  f'🔋 House battery SOC is {soc:.0f}% -- below the {BATTERY_SOC_WARNING_PCT:.0f}% warning threshold.',
+                                  priority='high', tags='warning')
+                    _tank_battery_monitor['soc_notified_at'] = now
+                if level == 'normal':
+                    _tank_battery_monitor['soc_notified_at'] = 0
+                _tank_battery_monitor['soc_level'] = level
+
+            with mqtt_lock:
+                topics = mqtt_state['topics']
+            def tank_pct(name):
+                rec = topics.get(f'boat/nav/tanks/{name}/level')
+                return float(rec['value']) if rec else None
+
+            _check_low_tank('diesel_notified_at', tank_pct('diesel'), LOW_TANK_ALARM_PCT, 'Diesel low', 'Diesel tank', '⛽')
+            _check_low_tank('fresh_1_notified_at', tank_pct('fresh_1'), LOW_TANK_ALARM_PCT, 'Fresh water low', 'Fresh Bow tank', '🚰')
+            _check_low_tank('fresh_2_notified_at', tank_pct('fresh_2'), LOW_TANK_ALARM_PCT, 'Fresh water low', 'Fresh Stern tank', '🚰')
+
+            black = tank_pct('black')
+            black_full = black is not None and black >= BLACK_TANK_ALARM_PCT
+            if black_full and now - _tank_battery_monitor['black_notified_at'] > TANK_BATTERY_NOTIFY_REPEAT_S:
+                send_ntfy('Black water tank full', f'🚽 Black water tank is at {black:.0f}% -- consider a pump-out.', tags='warning')
+                _tank_battery_monitor['black_notified_at'] = now
+            elif not black_full:
+                _tank_battery_monitor['black_notified_at'] = 0
+        except Exception:
+            pass  # never let one bad reading kill the monitor thread
+
 # ─── AIS targets ────────────────────────────────────────────────────────────
 # Unlike single-value nav topics, AIS is many independent vessels publishing
 # under boat/ais/<mmsi>/<field> — this groups that flat topic dict back into
@@ -1733,6 +1887,7 @@ if __name__ == '__main__':
         threading.Thread(target=anchor_monitor_loop, daemon=True).start()
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
         threading.Thread(target=system_health_loop, daemon=True).start()
+        threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a
