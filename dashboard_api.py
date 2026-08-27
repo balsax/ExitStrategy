@@ -806,8 +806,12 @@ def system_history():
 # what's actually useful is "when did this last change", not a chart of a flag
 # sampled every 20s. Reuses the same logged samples (no new storage), just
 # collapses consecutive identical readings into change events via LAG().
+# bilge_pump is the same idea applied to boat/nav/bilge/pump_on (0/1) -- "how
+# often has it run" wants a list of on/off transitions, not a trend line of
+# a flag either.
 SYSTEM_EVENT_TOPICS = {
     'throttled': 'boat/system/throttled_detail',
+    'bilge_pump': 'boat/nav/bilge/pump_on',
 }
 
 @app.route('/api/system/events')

@@ -47,11 +47,18 @@ MQTT_CLIENT_ID = "tank_simulator"
 # negative and trigger a refill once LOW; black water drifts positive and
 # triggers a pump-out once HIGH -- same fields, just read in the direction
 # that matches how each tank actually behaves.
+#
+# Trigger levels are kept a healthy margin clear of dashboard_api.py's own
+# alarm thresholds (LOW_TANK_ALARM_PCT=20 for fresh/diesel, BLACK_TANK_-
+# ALARM_PCT=75 for black water) on purpose -- this simulator is meant to
+# demo normal level movement, not spam ntfy every few minutes. Push a tank
+# past its trigger by hand (or just lower these) if you actually want to
+# exercise the alarms.
 TANKS = {
-    'fresh_1': {'level': 82.0, 'drift': (-0.9, -0.3), 'trigger': 12.0, 'reset_to': 98.0},
-    'fresh_2': {'level': 65.0, 'drift': (-0.8, -0.25), 'trigger': 12.0, 'reset_to': 98.0},
-    'diesel':  {'level': 90.0, 'drift': (-0.15, -0.03), 'trigger': 18.0, 'reset_to': 100.0},
-    'black':   {'level': 25.0, 'drift': (0.15, 0.6), 'trigger': 92.0, 'reset_to': 5.0},
+    'fresh_1': {'level': 82.0, 'drift': (-0.9, -0.3), 'trigger': 35.0, 'reset_to': 98.0},
+    'fresh_2': {'level': 65.0, 'drift': (-0.8, -0.25), 'trigger': 35.0, 'reset_to': 98.0},
+    'diesel':  {'level': 90.0, 'drift': (-0.15, -0.03), 'trigger': 35.0, 'reset_to': 100.0},
+    'black':   {'level': 25.0, 'drift': (0.15, 0.6), 'trigger': 60.0, 'reset_to': 5.0},
 }
 
 # Bilge: mostly off, briefly on every few minutes (a float switch tripping

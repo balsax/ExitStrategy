@@ -148,6 +148,17 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .events-row:last-child{border-bottom:none}
 .events-row .events-time{white-space:nowrap;color:#4a5f7a}
 .events-empty{color:#445566;text-align:center;padding-top:8px}
+/* Bilge pump history modal -- a vertical timeline (dots + connecting line)
+   instead of a plain row list, so a run's shape over time reads at a
+   glance rather than as a table of timestamps. */
+.bl-timeline{position:relative;padding-left:24px;max-height:60vh;overflow-y:auto}
+.bl-timeline::before{content:'';position:absolute;left:7px;top:4px;bottom:4px;width:2px;background:#1e2d4a}
+.bl-timeline-item{position:relative;padding-bottom:18px}
+.bl-timeline-item:last-child{padding-bottom:0}
+.bl-timeline-dot{position:absolute;left:-24px;top:2px;width:14px;height:14px;border-radius:50%;border:2px solid #0f1628;background:#4a5f7a}
+.bl-timeline-dot.started{background:#3db87a}
+.bl-timeline-label{font-size:13px;font-weight:600;color:#e0e6f0}
+.bl-timeline-time{font-size:11px;color:#6b82a0;margin-top:2px}
 
 /* MQTT diagnostics tree (also reused as-is for the CAN Bus tree below) */
 .mqtt-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:.75rem;flex-wrap:wrap}
@@ -544,7 +555,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
 <!-- Bilge Pump -->
 <div class="section">Bilge Pump</div>
-<div class="card no-click">
+<div class="card wm-clickable" onclick="openBilgeModal()">
   <div class="relay-row">
     <div class="relay-info">
       <div class="relay-name" id="bilge-state">--</div>
@@ -1320,6 +1331,20 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
     <!-- Per-pen legend (watermaker multi-metric trend only) -->
     <div class="wm-pen-legend" id="wm-pen-legend" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Bilge Pump history -->
+<div class="modal-overlay" id="bilge-modal" onclick="closeBilgeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🚰</span>
+        <span>Bilge Pump History</span>
+      </div>
+      <button class="modal-close" onclick="closeBilgeModal()">×</button>
+    </div>
+    <div class="bl-timeline" id="bilge-timeline"></div>
   </div>
 </div>
 
@@ -3334,6 +3359,56 @@ async function fetchTanksAndBilge() {
       setText('bilge-sub', lastRun ? `Last ran ${timeAgo(lastRun)}` : 'No activity yet');
     }
   } catch (e) { /* leave last-known tank/bilge readout on screen */ }
+}
+
+// Bilge pump run history -- "how often has it been running" wants a
+// chronological timeline of on/off transitions, not a trend line of a flag.
+// Same /api/system/events endpoint (LAG()-collapsed value changes, already
+// used for throttle status) with metric=bilge_pump. Opens on click like the
+// tank/battery cards' own modals, fetched fresh each open rather than kept
+// live-polling in the background -- run history doesn't change often enough
+// to need that.
+async function openBilgeModal() {
+  document.getElementById('bilge-modal').classList.add('open');
+  const container = document.getElementById('bilge-timeline');
+  container.innerHTML = '<div class="events-empty">Loading…</div>';
+  try {
+    const res = await fetch('/api/system/events?metric=bilge_pump&limit=30');
+    const d = await res.json();
+    const events = d.events || [];
+    if (events.length === 0) {
+      container.innerHTML = '<div class="events-empty">No runs logged yet</div>';
+      return;
+    }
+    // events[] is newest-first -- a "Stopped" at index i paired with the
+    // next (older, i+1) entry being a "Started" is that run's start, so a
+    // duration can be shown without a separate chronological pass.
+    container.innerHTML = events.map((e, i) => {
+      const dt = new Date(e.time);
+      const timeStr = dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const started = parseFloat(e.value) > 0;
+      let label = started ? 'Started' : 'Stopped';
+      if (!started && events[i + 1] && parseFloat(events[i + 1].value) > 0) {
+        const durS = (dt - new Date(events[i + 1].time)) / 1000;
+        if (durS > 0 && durS < 3600) label += ` · ran ${durS < 60 ? durS.toFixed(0) + 's' : (durS / 60).toFixed(1) + 'm'}`;
+      }
+      return `<div class="bl-timeline-item">
+        <div class="bl-timeline-dot${started ? ' started' : ''}"></div>
+        <div class="bl-timeline-label">${escapeHtml(label)}</div>
+        <div class="bl-timeline-time">${timeStr}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="events-empty">Failed to load history</div>';
+  }
+}
+
+function closeBilgeModal() {
+  document.getElementById('bilge-modal').classList.remove('open');
+}
+
+function closeBilgeModalOutside(e) {
+  if (e.target === document.getElementById('bilge-modal')) closeBilgeModal();
 }
 
 // ─── Modal: node popups ───────────────────────────────────────────────────────
