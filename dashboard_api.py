@@ -2,12 +2,14 @@ from flask import Flask, jsonify, request, send_from_directory, Response
 import requests
 import os
 import glob
+import io
 import time
 import json
 import math
 import shutil
 import subprocess
 import sqlite3
+from PIL import Image
 from collections import Counter
 import threading
 import paho.mqtt.client as mqtt
@@ -1621,21 +1623,19 @@ def ncds_meta():
         'regionCount': len(files),
     })
 
-@app.route('/api/charts/ncds/tiles/<int:z>/<int:x>/<int:y>.png')
-def ncds_tile(z, x, y):
-    files = _ncds_files()
-    if not files:
-        return '', 404
+def _ncds_lookup_tile(files, z, x, y):
+    """Best real tile at exactly this z/x/y across every region file, or
+    None if nothing has a row there.
+    Regions' rectangular bounding boxes overlap at low zoom even though
+    their real detailed coverage doesn't -- NOAA's own MBTiles fill that
+    whole rectangle with tiles, including a blank placeholder (~190 bytes)
+    for the parts outside real coverage. So more than one region file can
+    have a row at the same z/x/y, and taking the first hit (alphabetical
+    file order) can return a neighboring region's blank placeholder instead
+    of the real content sitting in the correct one. Checking every match
+    and keeping the largest reliably picks the real tile: actual chart
+    imagery compresses to KB, blank placeholders don't."""
     tms_row = (2 ** z - 1) - y  # MBTiles stores rows TMS-style; Leaflet requests XYZ
-    # Regions' rectangular bounding boxes overlap at low zoom even though
-    # their real detailed coverage doesn't -- NOAA's own MBTiles fill that
-    # whole rectangle with tiles, including a blank placeholder (~190 bytes)
-    # for the parts outside real coverage. So more than one region file can
-    # have a row at the same z/x/y, and taking the first hit (alphabetical
-    # file order) can return a neighboring region's blank placeholder instead
-    # of the real content sitting in the correct one. Checking every match
-    # and keeping the largest reliably picks the real tile: actual chart
-    # imagery compresses to KB, blank placeholders don't.
     best = None
     for path in files:
         conn = sqlite3.connect(path)
@@ -1650,9 +1650,50 @@ def ncds_tile(z, x, y):
             conn.close()
         if row is not None and (best is None or len(row[0]) > len(best)):
             best = row[0]
-    if best is None:
+    return best
+
+NCDS_OVERZOOM_MAX_LEVELS = 8  # how far up the ancestor chain to search before giving up on a missing tile
+
+@app.route('/api/charts/ncds/tiles/<int:z>/<int:x>/<int:y>.png')
+def ncds_tile(z, x, y):
+    files = _ncds_files()
+    if not files:
         return '', 404
-    return Response(best, mimetype='image/png')
+
+    data = _ncds_lookup_tile(files, z, x, y)
+    if data is not None:
+        return Response(data, mimetype='image/png')
+
+    # No tile at this exact z/x/y -- NOAA's own detailed rendering doesn't
+    # cover every square inch of a region even within its own declared
+    # maxzoom (spot-checked once: a region with 200k+ real z16 tiles still
+    # had none within 150+ tiles of a specific Gulf-coast point that DOES
+    # have real z15 coverage). Leaflet's maxNativeZoom already gives
+    # "zoom past the edge, see an upscaled blurry tile" for free once a
+    # whole REGION tops out at some zoom -- this is the same idea applied
+    # per-tile instead of globally, for small gaps inside an otherwise-
+    # detailed region. Walk up the pyramid to the nearest ancestor zoom
+    # that DOES have a real tile, crop out the sub-square this tile
+    # corresponds to, and scale it back up to 256x256.
+    for k in range(1, NCDS_OVERZOOM_MAX_LEVELS + 1):
+        pz = z - k
+        if pz < 0:
+            break
+        tile_px = 256 >> k
+        if tile_px < 1:
+            break
+        ancestor = _ncds_lookup_tile(files, pz, x >> k, y >> k)
+        if ancestor is None:
+            continue
+        sub_x, sub_y = x & ((1 << k) - 1), y & ((1 << k) - 1)
+        left, top = sub_x * tile_px, sub_y * tile_px
+        img = Image.open(io.BytesIO(ancestor)).convert('RGBA')
+        crop = img.resize((256, 256), Image.LANCZOS, box=(left, top, left + tile_px, top + tile_px))
+        buf = io.BytesIO()
+        crop.save(buf, format='PNG')
+        return Response(buf.getvalue(), mimetype='image/png')
+
+    return '', 404
 
 @app.route('/api/charts/cells')
 def chart_cells():

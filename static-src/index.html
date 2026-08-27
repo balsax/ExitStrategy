@@ -301,6 +301,14 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-map-wrap{position:relative;width:100%;height:600px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#dce8ee}
 .chart-map-wrap .leaflet-container{background:#dce8ee;font-family:inherit}
 .leaflet-container.chart-dark-base{background:#0a0e1a}
+/* Dark theme applies to whichever base SOURCE (Chart/Streets) is active --
+   see updateChartBase() -- rather than being its own tile source (Carto's
+   free dark_all tiles now watermark "API key required" on every tile, a
+   service-side change, not something to keep depending on). Fakes a dark
+   basemap by inverting just the tile imagery itself. Scoped to
+   .leaflet-tile-pane specifically, not the whole container, so markers/
+   vector overlays/popups drawn in their own panes on top aren't inverted too. */
+.leaflet-container.chart-dark-base .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)}
 .chart-sounding{color:#2c5770;font-size:9px;font-weight:600;text-align:center;line-height:12px;text-shadow:0 0 2px #fff,0 0 2px #fff}
 .leaflet-container.chart-dark-base .chart-sounding{color:#fff;text-shadow:0 0 2px #000,0 0 2px #000,0 0 2px #000}
 .leaflet-container.chart-hide-soundings .chart-sounding{display:none}
@@ -862,10 +870,13 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
-      <div class="chart-layer-toggles" id="chart-base-layers">
-        <label><input type="radio" name="chart-base" value="Chart" checked> Chart</label>
-        <label><input type="radio" name="chart-base" value="Streets"> Streets</label>
-        <label><input type="radio" name="chart-base" value="Dark"> Dark</label>
+      <div class="chart-layer-toggles" id="chart-base-source">
+        <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
+        <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
+      </div>
+      <div class="chart-layer-toggles" id="chart-base-theme">
+        <label><input type="radio" name="chart-base-theme" value="Light" checked> ☀️ Light</label>
+        <label><input type="radio" name="chart-base-theme" value="Dark"> 🌙 Dark</label>
       </div>
     </div>
   </div>
@@ -4812,8 +4823,7 @@ let chartOverlayGroups = {};         // toggle-group label -> persistent L.layer
 let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, same pattern
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
-let chartStreetsLayer = null;
-let chartDarkLayer = null;
+let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
 let chartActiveBaseLayer = null; // whichever of the three is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
@@ -4956,15 +4966,26 @@ function chartRecenter() {
   if (chartMap && chartAisOwnMarker) chartMap.setView(chartAisOwnMarker.getLatLng(), chartMap.getZoom());
 }
 
-function setChartBaseLayer(name) {
-  const layers = { Chart: chartNcdsLayer, Streets: chartStreetsLayer, Dark: chartDarkLayer };
-  const next = layers[name];
-  if (!next || next === chartActiveBaseLayer) return; // e.g. "Chart" picked before NCDS finished loading
-  if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
-  next.addTo(chartMap);
-  chartActiveBaseLayer = next;
-  chartMap.getContainer().classList.toggle('chart-dark-base', name === 'Dark');
-  localStorage.setItem('chartBaseLayer', name);
+// Base map is two independent choices -- which data SOURCE (Chart/Streets)
+// and whether it's shown Light or Dark -- rather than the old 3-way
+// Chart/Streets/Dark radio group, which couldn't express "dark chart" at
+// all. Dark isn't a separate tile source for either one: both reuse their
+// own normal tiles, inverted via the .chart-dark-base CSS filter, so this
+// only ever swaps the underlying LAYER when the source changes, and just
+// toggles a CSS class when the theme changes.
+function updateChartBase() {
+  const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
+  const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
+  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
+  if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
+  if (next !== chartActiveBaseLayer) {
+    if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
+    next.addTo(chartMap);
+    chartActiveBaseLayer = next;
+  }
+  chartMap.getContainer().classList.toggle('chart-dark-base', isDark);
+  localStorage.setItem('chartBaseSource', source);
+  localStorage.setItem('chartBaseTheme', isDark ? 'Dark' : 'Light');
 }
 
 async function initChartMap() {
@@ -4980,22 +5001,25 @@ async function initChartMap() {
 
   // Base layer options — same tile sources as the AIS tab. "Chart" (NCDS)
   // isn't ready to attach until loadNcdsBase() resolves below, so switching
-  // to it early just does nothing until then; Streets/Dark work immediately.
+  // to it early just does nothing until then; Streets works immediately,
+  // and the Light/Dark theme choice applies to whichever source is active.
   chartStreetsLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
   });
-  chartDarkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  const savedChartSource = localStorage.getItem('chartBaseSource') || 'Chart';
+  const savedChartTheme = localStorage.getItem('chartBaseTheme') || 'Light';
+  document.querySelectorAll('#chart-base-source input[type="radio"]').forEach(rb => {
+    rb.checked = (rb.value === savedChartSource);
+    rb.addEventListener('change', () => { if (rb.checked) updateChartBase(); });
   });
-  const savedChartBase = localStorage.getItem('chartBaseLayer') || 'Chart';
-  document.querySelectorAll('#chart-base-layers input[type="radio"]').forEach(rb => {
-    rb.checked = (rb.value === savedChartBase);
-    rb.addEventListener('change', () => { if (rb.checked) setChartBaseLayer(rb.value); });
+  document.querySelectorAll('#chart-base-theme input[type="radio"]').forEach(rb => {
+    rb.checked = (rb.value === savedChartTheme);
+    rb.addEventListener('change', () => { if (rb.checked) updateChartBase(); });
   });
-  // Setting .checked above only updates the radio's visual state, not the
-  // map — Streets/Dark can attach immediately; Chart depends on the async
-  // NCDS fetch below and is handled there once it resolves.
-  if (savedChartBase === 'Streets' || savedChartBase === 'Dark') setChartBaseLayer(savedChartBase);
+  // Setting .checked above only updates the radios' visual state, not the
+  // map — Streets can attach immediately; Chart depends on the async NCDS
+  // fetch below and is handled there once it resolves.
+  if (savedChartSource === 'Streets') updateChartBase();
 
   // Layers default OFF and are created but not attached to the map yet —
   // the checkbox row above the map (#chart-layer-toggles) is what actually
@@ -5787,10 +5811,10 @@ async function loadNcdsBase() {
     let loaded = 0, errored = 0;
     chartNcdsLayer.on('tileload', () => { loaded++; });
     chartNcdsLayer.on('tileerror', e => { errored++; console.error('NCDS tile failed:', e.coords, e.error); });
-    // Only auto-attach if the radio is still on "Chart" — the user may have
-    // already switched to Streets/Dark while this fetch was in flight.
-    const selectedBase = document.querySelector('#chart-base-layers input:checked');
-    if (!selectedBase || selectedBase.value === 'Chart') setChartBaseLayer('Chart');
+    // Only auto-attach if the source radio is still on "Chart" — the user
+    // may have already switched to Streets while this fetch was in flight.
+    const selectedSource = document.querySelector('#chart-base-source input:checked');
+    if (!selectedSource || selectedSource.value === 'Chart') updateChartBase();
   } catch (e) {
     console.error('NCDS base layer failed to load:', e);
   }
