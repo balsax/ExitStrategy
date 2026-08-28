@@ -181,6 +181,12 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .mqtt-leaf-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#e0e6f0;padding:1px 8px;background:#0d1628;border-radius:4px;border:.5px solid #1e2d4a}
 .mqtt-leaf-time{margin-left:auto;font-size:10px;color:#4a5f7a;white-space:nowrap}
 .mqtt-empty{padding:2rem;text-align:center;color:#6b82a0;font-size:13px}
+/* Diagnostics > Access Log */
+.access-log-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:12px}
+.access-log-row:last-child{border-bottom:none}
+.access-log-ip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#e0e6f0;white-space:nowrap}
+.access-log-device{color:#8fa3bd;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.access-log-time{color:#4a5f7a;white-space:nowrap;font-size:11px}
 
 /* Process icons (P&ID components — no card chrome, shape communicates function) */
 .picon{display:flex;align-items:center;justify-content:center;height:70px}
@@ -1128,8 +1134,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <!-- ══════════════════════════════ Diagnostics page ══════════════════════════════ -->
 <div class="page" id="page-mqtt">
   <div class="section">
-    <span>Diagnostics · Broker</span>
-    <span class="sys-badge" id="mqtt-state" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">--</span>
+    <span>Diagnostics</span>
   </div>
 
   <div class="flow-wrap">
@@ -1137,6 +1142,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <button class="diag-subtab-btn active" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
+      <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
     </div>
 
     <div class="diag-panel active" id="diag-panel-mqtt">
@@ -1147,6 +1153,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <span><b id="mqtt-msg-count">--</b> messages received</span>
           <span id="mqtt-last-update">--</span>
         </div>
+        <span class="sys-badge" id="mqtt-state" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">--</span>
       </div>
       <div class="mqtt-tree" id="mqtt-tree">
         <div class="mqtt-empty">Loading…</div>
@@ -1274,6 +1281,17 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div class="mlive-label">Bluetooth</div>
           <div class="mlive-val" id="sys-bt-val">--</div>
         </div>
+      </div>
+    </div>
+
+    <div class="diag-panel" id="diag-panel-access">
+      <div class="mqtt-toolbar">
+        <div class="mqtt-stats">
+          <span><b id="access-log-count">--</b> page loads logged</span>
+        </div>
+      </div>
+      <div class="access-log-table" id="access-log-table">
+        <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
   </div>
@@ -2784,10 +2802,65 @@ function showDiagSub(tab) {
   document.getElementById('diag-panel-mqtt').classList.toggle('active', tab === 'mqtt');
   document.getElementById('diag-panel-canbus').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-panel-system').classList.toggle('active', tab === 'system');
+  document.getElementById('diag-panel-access').classList.toggle('active', tab === 'access');
   document.getElementById('diag-sub-mqtt-btn').classList.toggle('active', tab === 'mqtt');
   document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
+  document.getElementById('diag-sub-access-btn').classList.toggle('active', tab === 'access');
   updateSysSparklinePolling(tab);
+  if (tab === 'access') fetchAccessLog();
+}
+
+// ─── Access log (Diagnostics tab) ──────────────────────────────────────────────
+// Page loads only (see record_access() in dashboard_api.py) -- fetched when
+// this sub-tab is opened, not kept polling in the background, since it's a
+// low-frequency "who's been opening the dashboard" list rather than a live
+// feed. Cloudflare's own CF-IPCountry header (present on any request that
+// actually came through the tunnel; absent for LAN-only access) gives
+// country-level location for free, no GeoIP database needed -- rendered as
+// a flag via the standard "two regional indicator symbols" Unicode trick.
+function countryFlag(code) {
+  if (!code || code.length !== 2) return '';
+  const points = [...code.toUpperCase()].map(c => 0x1F1E6 + (c.charCodeAt(0) - 65));
+  return String.fromCodePoint(...points);
+}
+
+// Deliberately not a full UA-parsing library -- just enough substring
+// sniffing to answer "was this me on my phone, or someone/something else",
+// which is all an access log on a personal boat dashboard needs.
+function deviceLabel(ua) {
+  if (!ua) return 'Unknown device';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android'
+    : /Windows/.test(ua) ? 'Windows' : /Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Unknown OS';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome'
+    : /CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'Unknown browser';
+  return `${os} · ${browser}`;
+}
+
+async function fetchAccessLog() {
+  const container = document.getElementById('access-log-table');
+  try {
+    const res = await fetch('/api/access_log');
+    const d = await res.json();
+    const entries = d.entries || [];
+    setText('access-log-count', String(entries.length));
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="mqtt-empty">No page loads logged yet</div>';
+      return;
+    }
+    container.innerHTML = entries.map(e => {
+      const dt = new Date(e.time);
+      const timeStr = dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const flag = countryFlag(e.country);
+      return `<div class="access-log-row">
+        <span class="access-log-ip">${flag ? flag + ' ' : ''}${escapeHtml(e.ip || 'unknown')}</span>
+        <span class="access-log-device">${escapeHtml(deviceLabel(e.user_agent))}</span>
+        <span class="access-log-time">${timeStr}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="mqtt-empty">Failed to load access log</div>';
+  }
 }
 
 // ─── CAN Bus diagnostics tree ──────────────────────────────────────────────────

@@ -18,8 +18,55 @@ from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 
+# ─── Access log (Diagnostics tab) ───────────────────────────────────────────
+# Page loads only, not every API poll -- the SPA hits a dozen+ endpoints
+# every few seconds once open, which would drown out "who's actually opened
+# the dashboard" in noise from a single already-open tab. In-memory only
+# (same tradeoff as the anchor trail / AIS trails above -- recent activity,
+# not indefinite history), capped so a long-uptime Pi doesn't grow this
+# without bound.
+ACCESS_LOG_MAX = 500
+_access_log = []
+_access_log_lock = threading.Lock()
+
+def _client_ip():
+    # Real traffic here comes through the Cloudflare Tunnel (cloudflared),
+    # which sets CF-Connecting-IP to the actual visitor's IP -- request.
+    # remote_addr would just be the tunnel's own local connection.
+    # X-Forwarded-For is the fallback for any other reverse-proxy path;
+    # remote_addr covers direct LAN access with neither header set.
+    return (request.headers.get('CF-Connecting-IP')
+            or (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+            or request.remote_addr)
+
+def record_access():
+    with _access_log_lock:
+        _access_log.append({
+            'time': datetime.now(timezone.utc).isoformat(),
+            'ip': _client_ip(),
+            # Only present when the request actually came through Cloudflare
+            # -- None for LAN access on the same WiFi, which is correct/
+            # expected rather than a missing-data bug.
+            'country': request.headers.get('CF-IPCountry'),
+            'user_agent': request.headers.get('User-Agent', ''),
+        })
+        if len(_access_log) > ACCESS_LOG_MAX:
+            del _access_log[:len(_access_log) - ACCESS_LOG_MAX]
+
+@app.route('/api/access_log')
+def access_log():
+    with _access_log_lock:
+        return jsonify({'entries': list(reversed(_access_log))})
+
+@app.route('/api/access_log/clear', methods=['POST'])
+def clear_access_log():
+    with _access_log_lock:
+        _access_log.clear()
+    return jsonify({'status': 'ok'})
+
 @app.route('/')
 def index():
+    record_access()
     return send_from_directory('static-src', 'index.html')
 
 @app.route('/assets/<path:filename>')
