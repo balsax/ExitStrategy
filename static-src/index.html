@@ -51,6 +51,8 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .relay-toggle-btn.state-on{color:#3db87a;border-color:#2a7a4a;background:#0d2b1a}
 .relay-toggle-btn.state-off{color:#8fa3bd;border-color:#334455;background:#0a0e1a}
 .relay-toggle-btn.state-unknown{color:#6b82a0;border-color:#334455;background:#0a0e1a;opacity:.6}
+.sim-row{padding:10px 0;border-bottom:.5px solid #1a2438}
+.sim-row:last-child{border-bottom:none}
 .fan-mode-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .fan-mode-row .relay-toggle-btn{flex:1;min-width:100px;padding:9px 8px;font-size:12px}
 .fan-setpoint-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
@@ -1143,6 +1145,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
       <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
+      <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')">Simulators</button>
     </div>
 
     <div class="diag-panel active" id="diag-panel-mqtt">
@@ -1294,6 +1297,18 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
+
+    <div class="diag-panel" id="diag-panel-sim">
+      <div class="notice" style="margin-bottom:1rem"><span>⚠️</span> Dev-only: starts/stops the *_simulator.py stand-ins in this dev copy. No effect on production or the real N2K/MQTT devices.</div>
+      <div class="mqtt-toolbar">
+        <div class="mqtt-stats">
+          <span><b id="sim-running-count">--</b> of <b id="sim-total-count">--</b> running</span>
+        </div>
+      </div>
+      <div class="card no-click" id="sim-list">
+        <div class="mqtt-empty">Loading…</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1323,7 +1338,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
     <!-- History chart -->
     <div class="chart-section-label" style="margin-top:.5rem">History</div>
-    <div class="dur-btns">
+    <div class="dur-btns" id="modal-dur-btns">
       <button class="dur-btn active" onclick="setDuration('1h',this)">1H</button>
       <button class="dur-btn" onclick="setDuration('6h',this)">6H</button>
       <button class="dur-btn" onclick="setDuration('24h',this)">24H</button>
@@ -1650,9 +1665,14 @@ const TANK_METRICS = {
   diesel:  { label: 'Diesel',      unit: '%', color: '#e8a030' },
   black:   { label: 'Black Water', unit: '%', color: '#8b5e34' },
 };
-let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker or system health)
+let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker, system health, tanks, or a VRM node)
 let penMetrics = WM_METRICS; // whichever metric registry the open modal is using
 let penEndpoint = '/api/watermaker/history';
+// 'db' pens fetch one request with metrics=a,b,c against penEndpoint (watermaker/
+// system/tanks, all backed by mqtt_readings). 'vrm' pens are VRM node series
+// (SOC/Voltage/Current/...) -- VRM's Graph widget only takes one attribute code
+// per request, so those fetch individually and get assembled client-side instead.
+let penSource = 'db';
 let activePens = new Set();
 let currentPage = 'overview';
 let lastFlowState = { shoreOn: false, charging: false, discharging: false };
@@ -2803,12 +2823,72 @@ function showDiagSub(tab) {
   document.getElementById('diag-panel-canbus').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-panel-system').classList.toggle('active', tab === 'system');
   document.getElementById('diag-panel-access').classList.toggle('active', tab === 'access');
+  document.getElementById('diag-panel-sim').classList.toggle('active', tab === 'sim');
   document.getElementById('diag-sub-mqtt-btn').classList.toggle('active', tab === 'mqtt');
   document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
   document.getElementById('diag-sub-access-btn').classList.toggle('active', tab === 'access');
+  document.getElementById('diag-sub-sim-btn').classList.toggle('active', tab === 'sim');
   updateSysSparklinePolling(tab);
   if (tab === 'access') fetchAccessLog();
+  updateSimPolling(tab);
+}
+
+// ─── Simulators (Diagnostics tab) ──────────────────────────────────────────────
+// Dev-only process control for the *_simulator.py stand-ins -- see
+// SIMULATORS in dashboard_api.py for the name->script registry. Status is
+// polled fresh from the backend (which shells out to pgrep) rather than
+// cached client-side, since another browser tab or a terminal could start/
+// stop these just as easily.
+let simPollInterval = null;
+let simBusy = {}; // name -> true while a start/stop request is in flight, to disable that row's button only
+
+function updateSimPolling(tab) {
+  if (tab === 'sim') {
+    fetchSimulators();
+    if (!simPollInterval) simPollInterval = setInterval(fetchSimulators, 3000);
+  } else if (simPollInterval) {
+    clearInterval(simPollInterval);
+    simPollInterval = null;
+  }
+}
+
+async function fetchSimulators() {
+  const list = document.getElementById('sim-list');
+  try {
+    const res = await fetch('/api/simulators/status');
+    const d = await res.json();
+    const sims = d.simulators || [];
+    setText('sim-total-count', String(sims.length));
+    setText('sim-running-count', String(sims.filter(s => s.running).length));
+    list.innerHTML = sims.map(s => `
+      <div class="relay-row sim-row">
+        <div class="relay-info">
+          <div class="relay-name">${escapeHtml(s.label)}</div>
+          <div class="relay-sub">${s.running ? `Running (pid ${s.pid})` : 'Stopped'}</div>
+        </div>
+        <button class="relay-toggle-btn ${s.running ? 'state-on' : 'state-off'}"
+                ${simBusy[s.name] ? 'disabled' : ''}
+                onclick="toggleSimulator('${s.name}', ${s.running})">${s.running ? 'ON' : 'OFF'}</button>
+      </div>`).join('') || '<div class="mqtt-empty">No simulators registered</div>';
+  } catch (e) {
+    list.innerHTML = '<div class="mqtt-empty">Failed to load simulator status</div>';
+  }
+}
+
+async function toggleSimulator(name, running) {
+  simBusy[name] = true;
+  fetchSimulators();
+  try {
+    const res = await fetch(`/api/simulators/${name}/${running ? 'stop' : 'start'}`, { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) alert(d.error || 'Failed to toggle simulator');
+  } catch (e) {
+    alert('Failed to toggle simulator');
+  } finally {
+    simBusy[name] = false;
+    fetchSimulators();
+  }
 }
 
 // ─── Access log (Diagnostics tab) ──────────────────────────────────────────────
@@ -3497,8 +3577,8 @@ function openNodeModal(nodeKey) {
   document.getElementById('modal').classList.add('open');
 
   // Duration buttons reset
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.dur-btn')[0].classList.add('active');
+  document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#modal-dur-btns .dur-btn')[0].classList.add('active');
 
   // Build live value grid
   refreshModalLive();
@@ -3521,34 +3601,26 @@ function openNodeModal(nodeKey) {
     socBarWrap.style.display = 'none';
   }
 
-  // Chart series buttons
-  const seriesContainer = document.getElementById('chart-series-btns');
-  seriesContainer.innerHTML = '';
+  // Chart series -- multiple can be active at once, same multi-pen picker as
+  // Watermaker/Tanks/Server Health (see loadPenHistory's 'vrm' branch, which
+  // fetches each active code as its own VRM history request and assembles
+  // them into the shape renderMultiPenChart already expects).
+  document.getElementById('chart-series-btns').innerHTML = '';
+  document.getElementById('chart-series-btns').style.display = 'none';
   if (def.chartSeries && def.chartSeries.length > 0) {
-    currentSeries = def.chartSeries[0];
-    def.chartSeries.forEach((s, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'dur-btn' + (i === 0 ? ' active' : '');
-      btn.style.borderColor = i === 0 ? s.color : '';
-      btn.style.color = i === 0 ? s.color : '';
-      btn.textContent = s.label;
-      btn.onclick = () => {
-        currentSeries = s;
-        document.querySelectorAll('#chart-series-btns .dur-btn').forEach(b => {
-          b.classList.remove('active');
-          b.style.borderColor = ''; b.style.color = '';
-        });
-        btn.classList.add('active');
-        btn.style.borderColor = s.color;
-        btn.style.color = s.color;
-        loadVRMHistory();
-      };
-      seriesContainer.appendChild(btn);
-    });
-    loadVRMHistory();
+    penModalOpen = true;
+    penSource = 'vrm';
+    penMetrics = {};
+    def.chartSeries.forEach(s => { penMetrics[s.code] = { label: s.label, unit: s.unit, color: s.color }; });
+    activePens = new Set([def.chartSeries[0].code]);
+    document.querySelector('.modal-stats').style.display = 'none';
+    document.getElementById('wm-pen-btns').style.display = 'flex';
+    document.getElementById('wm-pen-legend').style.display = 'flex';
+    renderPenBtns();
+    loadPenHistory();
   } else {
+    penModalOpen = false;
     currentSeries = null;
-    seriesContainer.style.display = 'none';
     document.getElementById('chart-loading').textContent = 'No history available for this device';
     document.getElementById('chart-loading').style.display = 'flex';
     document.getElementById('trend-chart').style.display = 'none';
@@ -3605,8 +3677,8 @@ function openInfluxModal(field, title, unit, color) {
   document.getElementById('modal-soc-bar').style.display = 'none';
   document.getElementById('chart-series-btns').innerHTML = '';
   document.getElementById('modal').classList.add('open');
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.dur-btn')[0].classList.add('active');
+  document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#modal-dur-btns .dur-btn')[0].classList.add('active');
   loadInfluxHistory(field, unit, color);
 }
 
@@ -3631,6 +3703,7 @@ function openPenModal(metrics, endpoint, icon, title, initialMetric) {
   currentSeries = null;
   currentDuration = '1h';
   penModalOpen = true;
+  penSource = 'db';
   penMetrics = metrics;
   penEndpoint = endpoint;
   activePens = new Set([initialMetric]);
@@ -3644,8 +3717,8 @@ function openPenModal(metrics, endpoint, icon, title, initialMetric) {
   document.getElementById('wm-pen-btns').style.display = 'flex';
   document.getElementById('wm-pen-legend').style.display = 'flex';
   document.getElementById('modal').classList.add('open');
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.dur-btn')[0].classList.add('active');
+  document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#modal-dur-btns .dur-btn')[0].classList.add('active');
   renderPenBtns();
   loadPenHistory();
 }
@@ -3691,14 +3764,14 @@ function renderPenBtns() {
 // ─── Modal: shared chart loading ──────────────────────────────────────────────
 function setDuration(dur, btn) {
   currentDuration = dur;
-  document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  if (currentNode) {
+  if (penModalOpen) {
+    loadPenHistory();
+  } else if (currentNode) {
     loadVRMHistory();
   } else if (currentSeries && currentSeries.source === 'influx') {
     loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
-  } else if (penModalOpen) {
-    loadPenHistory();
   }
 }
 
@@ -3706,9 +3779,19 @@ async function loadPenHistory() {
   showChartLoading('Loading...');
   try {
     const pens = [...activePens];
-    const res = await fetch(`${penEndpoint}?metrics=${pens.join(',')}&range=${currentDuration}`);
-    const d = await res.json();
-    renderMultiPenChart(pens, d.series || {});
+    let seriesMap;
+    if (penSource === 'vrm') {
+      const results = await Promise.all(pens.map(code =>
+        fetch(`/api/victron/history?code=${code}&range=${currentDuration}`).then(r => r.json())
+      ));
+      seriesMap = {};
+      pens.forEach((code, i) => { seriesMap[code] = results[i]; });
+    } else {
+      const res = await fetch(`${penEndpoint}?metrics=${pens.join(',')}&range=${currentDuration}`);
+      const d = await res.json();
+      seriesMap = d.series || {};
+    }
+    renderMultiPenChart(pens, seriesMap);
   } catch (e) {
     showChartLoading('Error loading history');
   }
