@@ -1628,6 +1628,14 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let trendChart = null;
+// Bumped by every loadPenHistory/loadVRMHistory/loadInfluxHistory call. A
+// slow request (VRM's cloud API in particular) can resolve after the modal's
+// moved on to a different node/pens/duration -- without this, that late
+// response still paints its stale chart+legend over whatever's current,
+// which is what was popping the scrollbar (old content briefly stacked with
+// the new "Loading..." placeholder). Each loader captures the value at call
+// time and only renders if nothing newer has started in the meantime.
+let chartRequestSeq = 0;
 let currentDuration = '1h';
 let currentNode = null;
 let currentSeries = null; // {code, label, unit, color}
@@ -3776,7 +3784,12 @@ function setDuration(dur, btn) {
 }
 
 async function loadPenHistory() {
+  const seq = ++chartRequestSeq;
   showChartLoading('Loading...');
+  // Clear stale rows from whatever was last rendered here (a previous node/
+  // pen selection, possibly taller than what's coming) so the modal doesn't
+  // briefly grow past max-height and pop a scrollbar for the loading beat.
+  document.getElementById('wm-pen-legend').innerHTML = '';
   try {
     const pens = [...activePens];
     let seriesMap;
@@ -3791,32 +3804,37 @@ async function loadPenHistory() {
       const d = await res.json();
       seriesMap = d.series || {};
     }
+    if (seq !== chartRequestSeq) return; // superseded by a newer load -- discard
     renderMultiPenChart(pens, seriesMap);
   } catch (e) {
-    showChartLoading('Error loading history');
+    if (seq === chartRequestSeq) showChartLoading('Error loading history');
   }
 }
 
 async function loadVRMHistory() {
   if (!currentSeries) return;
+  const seq = ++chartRequestSeq;
   showChartLoading('Loading...');
   try {
     const res = await fetch(`/api/victron/history?code=${currentSeries.code}&range=${currentDuration}`);
     const d = await res.json();
+    if (seq !== chartRequestSeq) return;
     renderChart(d.times, d.values, currentSeries.color, currentSeries.unit);
   } catch (e) {
-    showChartLoading('Error loading history');
+    if (seq === chartRequestSeq) showChartLoading('Error loading history');
   }
 }
 
 async function loadInfluxHistory(field, unit, color) {
+  const seq = ++chartRequestSeq;
   showChartLoading('Loading...');
   try {
     const res = await fetch(`/api/trend?field=${field}&range=${currentDuration}`);
     const d = await res.json();
+    if (seq !== chartRequestSeq) return;
     renderChart(d.times, d.values, color, unit);
   } catch (e) {
-    showChartLoading('Error loading data');
+    if (seq === chartRequestSeq) showChartLoading('Error loading data');
   }
 }
 
