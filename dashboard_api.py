@@ -312,6 +312,7 @@ def victron_history():
     range_val = request.args.get('range', '1h')
 
     range_seconds = {
+        '10m': 600,
         '1h':  3600,
         '6h':  21600,
         '24h': 86400,
@@ -387,7 +388,7 @@ def trend():
     s = get_secrets()
 
     window_map = {
-        '1h': '2m', '6h': '10m', '24h': '30m',
+        '10m': '15s', '1h': '2m', '6h': '10m', '24h': '30m',
         '7d': '3h', '30d': '12h'
     }
     window = window_map.get(range_val, '5m')
