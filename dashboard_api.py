@@ -615,6 +615,7 @@ WATERMAKER_METRIC_TOPICS = {
     'membrane':   'boat/watermaker/pressure/hp',
     'feed':       'boat/watermaker/pressure/postfilter',
     'flow':       'boat/watermaker/flow/rate',          # mL/min, converted to gph below
+    'feed_rate':  'boat/watermaker/flow/feed_rate',     # same units as flow/rate -- converted to gph below
     'cond':       'boat/watermaker/flow/conductivity_comp',
     'pump_speed': 'boat/watermaker/pump/speed_pct',  # pump/rpm has no sensor installed and always reads 0 -- speed_pct (commanded duty) is what's real
     'current':    'boat/watermaker/pump/current',
@@ -660,7 +661,7 @@ def query_watermaker_metric(cur, metric, start_dt, bucket):
         keys = sorted(series.keys())
         times = [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys]
         values = [round(series[k], 2) for k in keys]
-        if metric == 'flow':
+        if metric in ('flow', 'feed_rate'):
             values = [round(v * 60 / 3785.411784, 2) for v in values]  # mL/min -> gph
     return {'times': times, 'values': values}
 
