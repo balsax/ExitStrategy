@@ -615,7 +615,7 @@ WATERMAKER_METRIC_TOPICS = {
     'feed':       'boat/watermaker/pressure/postfilter',
     'flow':       'boat/watermaker/flow/rate',          # mL/min, converted to gph below
     'cond':       'boat/watermaker/flow/conductivity_comp',
-    'rpm':        'boat/watermaker/pump/rpm',
+    'pump_speed': 'boat/watermaker/pump/speed_pct',  # pump/rpm has no sensor installed and always reads 0 -- speed_pct (commanded duty) is what's real
     'current':    'boat/watermaker/pump/current',
     'efficiency': 'boat/watermaker/efficiency',
     'tank':       'boat/watermaker/tank/level',
