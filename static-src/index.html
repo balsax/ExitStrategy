@@ -393,6 +393,9 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .trip-item-btn.active{border-color:#4a9fd4;color:#4a9fd4}
 .trip-item-btn.danger:hover{border-color:#e05050;color:#e05050}
 .trip-empty{color:#6b82a0;font-size:11px;padding:4px 0;text-align:center}
+.trip-recording-dot{display:none;width:8px;height:8px;border-radius:50%;background:#e05050;animation:trip-rec-pulse 1.5s ease-in-out infinite}
+.trip-recording-dot.active{display:inline-block}
+@keyframes trip-rec-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .chart-rudder-indicator svg{width:100%;height:100%;display:block}
 .chart-me-ap-controls{display:flex;gap:3px;margin-top:6px}
 .chart-me-ap-controls .wm-btn{padding:4px 2px;font-size:11px;flex:1;min-width:0;text-align:center}
@@ -959,7 +962,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
-      <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks</label>
+      <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks<span class="trip-recording-dot" id="chart-trips-rec-dot" title="A trip is recording"></span></label>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
@@ -6188,6 +6191,7 @@ function fmtTripDuration(startIso, endIso) {
 function setTripRecordingUI(active, name) {
   document.getElementById('chart-trip-start-btn').style.display = active ? 'none' : '';
   document.getElementById('chart-trip-stop-btn').style.display = active ? '' : 'none';
+  document.getElementById('chart-trips-rec-dot').classList.toggle('active', active);
   const badge = document.getElementById('chart-trip-badge');
   if (active) {
     badge.textContent = `Recording: ${name}`;
