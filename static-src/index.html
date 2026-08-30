@@ -10,6 +10,18 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:1rem}
+/* Scrollbars -- dark-theme everywhere (page, modals, side panels, dropdowns)
+   instead of each browser's stark default light one. Track transparent so it
+   blends with whatever surface it's scrolling (page bg, modal, side panel)
+   rather than hardcoding one background color that would mismatch some of
+   them. Firefox uses the scrollbar-color shorthand; everything Chromium/
+   WebKit-based (including the boat's own browser) uses the ::-webkit- rules. */
+*{scrollbar-width:thin;scrollbar-color:#2a3a5a transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a3a5a;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#4a9fd4}
+::-webkit-scrollbar-corner{background:transparent}
 .header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;margin-bottom:1rem}
 .header-left{display:flex;align-items:center;gap:12px}
 .header-left img{height:52px;background:white;border-radius:6px;padding:4px 8px}
