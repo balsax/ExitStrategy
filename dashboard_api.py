@@ -1571,6 +1571,10 @@ def ais_trail_monitor_loop():
             record_ais_trails()
         except Exception:
             pass  # never let one bad reading kill the monitor thread
+        try:
+            record_active_trip_point()
+        except Exception:
+            pass  # ditto -- a trip-recording DB hiccup shouldn't take down AIS trails
 
 @app.route('/api/ais/own_trail')
 def ais_own_trail():
@@ -1581,6 +1585,146 @@ def ais_own_trail():
 def ais_trails():
     with AIS_TRAIL_LOCK:
         return jsonify({mmsi: list(trail) for mmsi, trail in _ais_target_trails.items()})
+
+# ─── Trip tracks ─────────────────────────────────────────────────────────────
+# Named GPS tracks a user starts/stops recording (e.g. at the start/end of a
+# passage), stored in their own trips/trip_points tables rather than derived
+# from mqtt_readings -- db_downsample.py collapses anything in mqtt_readings
+# older than 30 days to one averaged sample per minute, which would silently
+# degrade a *saved* track's resolution a month later. "Is a trip active" is
+# the trips row with ended_at IS NULL -- a DB fact, not a flag file, so it
+# can't drift and a backend restart just resumes sampling into the same row.
+#
+# Point recording piggybacks on the AIS-trail monitor's tick (above) rather
+# than running a second thread on the same ~5s cadence.
+def haversine_m(lat1, lon1, lat2, lon2):
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def _iso_utc(dt):
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z' if dt else None
+
+def record_active_trip_point():
+    pos = get_gps_position(max_age_s=GPS_STALE_THRESHOLD_S)
+    if pos is None:
+        return  # stale/missing fix -- skip this tick rather than logging a bad point
+    conn = get_boat_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM trips WHERE ended_at IS NULL LIMIT 1")
+        row = cur.fetchone()
+        if row:
+            cur.execute("INSERT INTO trip_points (trip_id, ts, lat, lon) VALUES (%s, %s, %s, %s)",
+                        (row[0], datetime.now(timezone.utc), pos[0], pos[1]))
+            conn.commit()
+    finally:
+        conn.close()
+
+@app.route('/api/trips')
+def trips_list():
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT t.id, t.name, t.started_at, t.ended_at, t.distance_m, COUNT(p.id)
+            FROM trips t LEFT JOIN trip_points p ON p.trip_id = t.id
+            GROUP BY t.id ORDER BY t.started_at DESC
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        trips = [{
+            'id': r[0], 'name': r[1],
+            'started_at': _iso_utc(r[2]), 'ended_at': _iso_utc(r[3]),
+            'distance_m': r[4], 'point_count': r[5], 'active': r[3] is None,
+        } for r in rows]
+        return jsonify({'trips': trips})
+    except Exception as e:
+        return jsonify({'trips': [], 'error': str(e)})
+
+@app.route('/api/trips/<int:trip_id>/points')
+def trip_points_route(trip_id):
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT ts, lat, lon FROM trip_points WHERE trip_id=%s ORDER BY ts", (trip_id,))
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({'points': [{'t': _iso_utc(r[0]), 'lat': r[1], 'lon': r[2]} for r in rows]})
+    except Exception as e:
+        return jsonify({'points': [], 'error': str(e)})
+
+@app.route('/api/trips/start', methods=['POST'])
+def trip_start():
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if len(name) > 120:
+        return jsonify({'error': 'name must be 120 characters or fewer'}), 400
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM trips WHERE ended_at IS NULL LIMIT 1")
+        if cur.fetchone():
+            conn.close()
+            return jsonify({'error': 'A trip is already recording -- stop it first'}), 409
+        started_at = datetime.now(timezone.utc)
+        cur.execute("INSERT INTO trips (name, started_at) VALUES (%s, %s)", (name, started_at))
+        conn.commit()
+        trip_id = cur.lastrowid
+        conn.close()
+        return jsonify({'id': trip_id, 'name': name, 'started_at': _iso_utc(started_at),
+                         'ended_at': None, 'active': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/trips/stop', methods=['POST'])
+def trip_stop():
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM trips WHERE ended_at IS NULL LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'No trip is currently recording'}), 404
+        trip_id = row[0]
+        cur.execute("SELECT lat, lon FROM trip_points WHERE trip_id=%s ORDER BY ts", (trip_id,))
+        pts = cur.fetchall()
+        distance_m = sum(haversine_m(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+                          for i in range(len(pts) - 1))
+        ended_at = datetime.now(timezone.utc)
+        cur.execute("UPDATE trips SET ended_at=%s, distance_m=%s WHERE id=%s",
+                    (ended_at, distance_m, trip_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'id': trip_id, 'ended_at': _iso_utc(ended_at), 'distance_m': distance_m, 'active': False})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/trips/<int:trip_id>', methods=['DELETE'])
+def trip_delete(trip_id):
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT ended_at FROM trips WHERE id=%s", (trip_id,))
+        row = cur.fetchone()
+        if row is None:
+            conn.close()
+            return jsonify({'error': 'Trip not found'}), 404
+        if row[0] is None:
+            conn.close()
+            return jsonify({'error': 'Cannot delete a trip that is currently recording -- stop it first'}), 409
+        cur.execute("DELETE FROM trips WHERE id=%s", (trip_id,))  # cascades to trip_points
+        conn.commit()
+        conn.close()
+        return jsonify({'deleted': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ─── Weather forecast (National Weather Service, api.weather.gov) ──────────────
 # Free, no API key, but wants a real User-Agent and shouldn't be hammered — cached

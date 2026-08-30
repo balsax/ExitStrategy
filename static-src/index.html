@@ -327,6 +327,8 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-layer-toggles label:has(input:checked){border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
 .chart-layer-toggles label:has(input:disabled){opacity:.4;cursor:not-allowed}
 .chart-layer-toggles input{accent-color:#4a9fd4;cursor:pointer}
+.chart-trip-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chart-trip-controls input[type="text"]{width:150px}
 .chart-map-wrap{position:relative;width:100%;height:600px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#dce8ee}
 .chart-map-wrap .leaflet-container{background:#dce8ee;font-family:inherit}
 .leaflet-container.chart-dark-base{background:#0a0e1a}
@@ -365,6 +367,17 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-me-divider{border-top:.5px solid #2a3a5a;margin:6px 0}
 .chart-me-section-label{text-align:center;color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em;padding:2px 0}
 .chart-rudder-indicator{flex:1;display:inline-block;height:16px}
+.chart-trips-panel{width:230px;max-height:280px;overflow-y:auto}
+.trip-item{padding:6px 0;border-bottom:.5px solid #1e2d4a}
+.trip-item:last-child{border-bottom:none}
+.trip-item-name{color:#c9d4e0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trip-item.recording .trip-item-name{color:#e05050}
+.trip-item-meta{color:#6b82a0;font-size:10px;margin-top:2px}
+.trip-item-actions{display:flex;gap:6px;margin-top:4px}
+.trip-item-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer}
+.trip-item-btn.active{border-color:#4a9fd4;color:#4a9fd4}
+.trip-item-btn.danger:hover{border-color:#e05050;color:#e05050}
+.trip-empty{color:#6b82a0;font-size:11px;padding:4px 0;text-align:center}
 .chart-rudder-indicator svg{width:100%;height:100%;display:block}
 .chart-me-ap-controls{display:flex;gap:3px;margin-top:6px}
 .chart-me-ap-controls .wm-btn{padding:4px 2px;font-size:11px;flex:1;min-width:0;text-align:center}
@@ -931,6 +944,13 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
+      <label><input type="checkbox" data-chart-layer="Saved Tracks"> Saved Tracks</label>
+    </div>
+    <div class="chart-trip-controls" id="chart-trip-controls">
+      <input type="text" class="mqtt-search" id="chart-trip-name" placeholder="Trip name" maxlength="120">
+      <button class="wm-btn wm-btn-start" id="chart-trip-start-btn" onclick="startTrip()">▶ Start Trip</button>
+      <button class="wm-btn wm-btn-stop" id="chart-trip-stop-btn" onclick="stopTrip()" style="display:none">■ Stop Trip</button>
+      <span class="sys-badge" id="chart-trip-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not recording</span>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
@@ -1002,6 +1022,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
             <button class="wm-btn wm-btn-start" id="chart-me-ap-engage-btn" onclick="wmSetAutopilotMode('engage', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Engage</button>
             <button class="wm-btn wm-btn-stop" id="chart-me-ap-standby-btn" onclick="wmSetAutopilotMode('standby', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Standby</button>
           </div>
+        </div>
+        <div class="chart-trips-panel chart-side-panel active" id="chart-trips-panel">
+          <div class="chart-me-section-label">Saved Trips</div>
+          <div id="chart-trips-list"></div>
         </div>
       </div>
     </div>
@@ -1707,7 +1731,7 @@ function showPage(page) {
   } else if (page === 'anchor') {
     fetchAnchorState().then(fetchAnchorLive);
   } else if (page === 'chart') {
-    initChartMap().then(fetchChartAisLive).then(chartRecenter);
+    initChartMap().then(fetchChartAisLive).then(chartRecenter).then(fetchTripsList);
   } else if (page === 'engine') {
     fetchEngineLive();
     fetchEngineFanConfig();
@@ -5451,9 +5475,10 @@ async function initChartMap() {
   chartAisGroup = L.layerGroup();
   chartMeGroup = L.layerGroup();
   chartDestGroup = L.layerGroup();
+  chartTripTrackGroup = L.layerGroup();
   // Destination isn't in this map -- it has no checkbox of its own anymore,
   // see updateDestPanelVisibility below.
-  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup };
+  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup, 'Saved Tracks': chartTripTrackGroup };
   document.querySelectorAll('#chart-layer-toggles input[type="checkbox"]').forEach(cb => {
     cb.checked = (cb.dataset.chartLayer === 'My Vessel'); // only this one defaults on
     cb.addEventListener('change', () => {
@@ -5524,6 +5549,11 @@ let chartDestGroup = null; // destination waypoint marker + rhumb line to it
 let chartDestMarker = null;
 let chartDestLine = null;
 let chartDestSyncSuppressUntil = 0; // Date.now()-comparable; see dragend handler below
+
+// ─── Trip tracks ──────────────────────────────────────────────────────────────
+let chartTripTrackGroup = null; // saved + in-progress trip polylines, toggled via "Saved Tracks"
+let chartTripPolylines = {}; // trip id -> L.polyline, cached so a shown trip isn't re-fetched every toggle
+let chartActiveTripId = null; // set while a trip is recording, from /api/trips
 
 // "My Vessel & Autopilot" panel — heading/COG/SOG are real (same MQTT topics
 // fetchChartAisLive already reads for the own-boat marker below).
@@ -6114,6 +6144,133 @@ async function fetchChartAisLive() {
   }
 }
 
+// ─── Trip tracks ──────────────────────────────────────────────────────────────
+// Recording itself is entirely server-side (see record_active_trip_point in
+// dashboard_api.py, piggybacked on the AIS-trail monitor thread) so it keeps
+// going whether or not this tab is open. fetchTripsList() is what lets a page
+// load/reload discover "oh, a trip is already recording" and restore the
+// Start/Stop UI to match, rather than assuming "not recording" by default.
+function fmtTripDuration(startIso, endIso) {
+  const start = new Date(startIso).getTime();
+  const end = endIso ? new Date(endIso).getTime() : Date.now();
+  const totalS = Math.max(0, Math.floor((end - start) / 1000));
+  const h = Math.floor(totalS / 3600), m = Math.floor((totalS % 3600) / 60), s = totalS % 60;
+  return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function setTripRecordingUI(active, name) {
+  document.getElementById('chart-trip-start-btn').style.display = active ? 'none' : '';
+  document.getElementById('chart-trip-stop-btn').style.display = active ? '' : 'none';
+  const badge = document.getElementById('chart-trip-badge');
+  if (active) {
+    badge.textContent = `Recording: ${name}`;
+    badge.style.color = '#e05050'; badge.style.borderColor = '#5a2a2a'; badge.style.background = '#2b0d0d';
+  } else {
+    badge.textContent = 'Not recording';
+    badge.style.color = '#6b82a0'; badge.style.borderColor = '#334455'; badge.style.background = '#0a0e1a';
+    document.getElementById('chart-trip-name').value = '';
+  }
+}
+
+async function fetchTripsList() {
+  let trips = [];
+  try { trips = (await (await fetch('/api/trips')).json()).trips || []; } catch (e) { return; }
+
+  const active = trips.find(t => t.active);
+  chartActiveTripId = active ? active.id : null;
+  setTripRecordingUI(!!active, active ? active.name : null);
+  if (active) fetchActiveTripPoints();
+
+  const list = document.getElementById('chart-trips-list');
+  if (trips.length === 0) { list.innerHTML = '<div class="trip-empty">No saved trips yet</div>'; return; }
+  list.innerHTML = trips.map(t => {
+    const shown = !!chartTripPolylines[t.id];
+    const distNm = t.distance_m !== null && t.distance_m !== undefined ? (t.distance_m / 1852).toFixed(1) + ' nm' : '';
+    const meta = t.active ? `Recording · ${fmtTripDuration(t.started_at)}` : `${fmtTripDuration(t.started_at, t.ended_at)}${distNm ? ' · ' + distNm : ''}`;
+    return `
+      <div class="trip-item${t.active ? ' recording' : ''}">
+        <div class="trip-item-name">${escapeHtml(t.name)}</div>
+        <div class="trip-item-meta">${meta}</div>
+        ${t.active ? '' : `
+        <div class="trip-item-actions">
+          <button class="trip-item-btn${shown ? ' active' : ''}" onclick="toggleTripVisibility(${t.id})">${shown ? 'Hide' : 'Show'}</button>
+          <button class="trip-item-btn danger" onclick="deleteTrip(${t.id})">Delete</button>
+        </div>`}
+      </div>`;
+  }).join('');
+}
+
+async function startTrip() {
+  const name = document.getElementById('chart-trip-name').value.trim();
+  if (!name) { alert('Enter a trip name first'); return; }
+  try {
+    const res = await fetch('/api/trips/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to start trip'); return; }
+    chartActiveTripId = d.id;
+    setTripRecordingUI(true, d.name);
+    fetchTripsList();
+  } catch (e) { alert('Failed to start trip'); }
+}
+
+async function stopTrip() {
+  try {
+    const res = await fetch('/api/trips/stop', { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to stop trip'); return; }
+    chartActiveTripId = null;
+    setTripRecordingUI(false, null);
+    fetchTripsList();
+  } catch (e) { alert('Failed to stop trip'); }
+}
+
+async function fetchActiveTripPoints() {
+  if (!chartActiveTripId) return;
+  try {
+    const d = await (await fetch(`/api/trips/${chartActiveTripId}/points`)).json();
+    const pts = (d.points || []).map(p => [p.lat, p.lon]);
+    if (!chartTripPolylines[chartActiveTripId]) {
+      chartTripPolylines[chartActiveTripId] = L.polyline(pts, { color: '#e05050', weight: 3, opacity: 0.8 });
+      chartTripTrackGroup.addLayer(chartTripPolylines[chartActiveTripId]);
+    } else {
+      chartTripPolylines[chartActiveTripId].setLatLngs(pts);
+    }
+  } catch (e) {
+    // transient fetch failure — keep last-known trail on screen
+  }
+}
+
+async function toggleTripVisibility(id) {
+  if (chartTripPolylines[id]) {
+    chartTripTrackGroup.removeLayer(chartTripPolylines[id]);
+    delete chartTripPolylines[id];
+  } else {
+    try {
+      const d = await (await fetch(`/api/trips/${id}/points`)).json();
+      const pts = (d.points || []).map(p => [p.lat, p.lon]);
+      chartTripPolylines[id] = L.polyline(pts, { color: '#2dd4bf', weight: 3, opacity: 0.8 });
+      chartTripTrackGroup.addLayer(chartTripPolylines[id]);
+    } catch (e) { return; }
+  }
+  fetchTripsList();
+}
+
+async function deleteTrip(id) {
+  if (!confirm('Delete this trip? This cannot be undone.')) return;
+  try {
+    const res = await fetch(`/api/trips/${id}`, { method: 'DELETE' });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to delete trip'); return; }
+    if (chartTripPolylines[id]) {
+      chartTripTrackGroup.removeLayer(chartTripPolylines[id]);
+      delete chartTripPolylines[id];
+    }
+    fetchTripsList();
+  } catch (e) { alert('Failed to delete trip'); }
+}
+
 function cellIntersectsBounds(cellBounds, mapBounds) {
   return !(cellBounds.west > mapBounds.getEast() || cellBounds.east < mapBounds.getWest() ||
            cellBounds.south > mapBounds.getNorth() || cellBounds.north < mapBounds.getSouth());
@@ -6257,6 +6414,7 @@ setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
 setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);
 setInterval(() => { if (currentPage === 'chart') fetchChartAisLive(); }, 3000);
+setInterval(() => { if (currentPage === 'chart' && chartActiveTripId) fetchActiveTripPoints(); }, 5000);
 setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000);
 setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
