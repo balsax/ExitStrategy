@@ -327,8 +327,9 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-layer-toggles label:has(input:checked){border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
 .chart-layer-toggles label:has(input:disabled){opacity:.4;cursor:not-allowed}
 .chart-layer-toggles input{accent-color:#4a9fd4;cursor:pointer}
-.chart-trip-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.chart-trip-controls input[type="text"]{width:150px}
+.chart-trip-controls{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.chart-trip-controls input[type="text"]{width:100%;box-sizing:border-box}
+#chart-trip-badge{display:block;text-align:center;margin-bottom:6px}
 .chart-map-wrap{position:relative;width:100%;height:600px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#dce8ee}
 .chart-map-wrap .leaflet-container{background:#dce8ee;font-family:inherit}
 .leaflet-container.chart-dark-base{background:#0a0e1a}
@@ -367,14 +368,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-me-divider{border-top:.5px solid #2a3a5a;margin:6px 0}
 .chart-me-section-label{text-align:center;color:#6b82a0;text-transform:uppercase;font-size:10px;letter-spacing:.04em;padding:2px 0}
 .chart-rudder-indicator{flex:1;display:inline-block;height:16px}
-.chart-trips-panel{width:230px;max-height:280px;overflow-y:auto}
-.trip-item{padding:6px 0;border-bottom:.5px solid #1e2d4a}
+.chart-trips-panel{width:230px;max-height:340px;overflow-y:auto}
+.trip-item{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:4px 0;border-bottom:.5px solid #1e2d4a}
 .trip-item:last-child{border-bottom:none}
+.trip-item-info{min-width:0;flex:1}
 .trip-item-name{color:#c9d4e0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trip-item.recording .trip-item-name{color:#e05050}
-.trip-item-meta{color:#6b82a0;font-size:10px;margin-top:2px}
-.trip-item-actions{display:flex;gap:6px;margin-top:4px}
-.trip-item-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer}
+.trip-item-meta{color:#6b82a0;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trip-item-actions{display:flex;gap:4px;flex-shrink:0}
+.trip-item-btn{background:#0a0e1a;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer}
 .trip-item-btn.active{border-color:#4a9fd4;color:#4a9fd4}
 .trip-item-btn.danger:hover{border-color:#e05050;color:#e05050}
 .trip-empty{color:#6b82a0;font-size:11px;padding:4px 0;text-align:center}
@@ -944,13 +946,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
-      <label><input type="checkbox" data-chart-layer="Saved Tracks"> Saved Tracks</label>
-    </div>
-    <div class="chart-trip-controls" id="chart-trip-controls">
-      <input type="text" class="mqtt-search" id="chart-trip-name" placeholder="Trip name" maxlength="120">
-      <button class="wm-btn wm-btn-start" id="chart-trip-start-btn" onclick="startTrip()">▶ Start Trip</button>
-      <button class="wm-btn wm-btn-stop" id="chart-trip-stop-btn" onclick="stopTrip()" style="display:none">■ Stop Trip</button>
-      <span class="sys-badge" id="chart-trip-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not recording</span>
+      <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks</label>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
@@ -1023,8 +1019,15 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
             <button class="wm-btn wm-btn-stop" id="chart-me-ap-standby-btn" onclick="wmSetAutopilotMode('standby', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Standby</button>
           </div>
         </div>
-        <div class="chart-trips-panel chart-side-panel active" id="chart-trips-panel">
-          <div class="chart-me-section-label">Saved Trips</div>
+        <div class="chart-trips-panel chart-side-panel" id="chart-trips-panel">
+          <div class="chart-me-section-label">Trip Tracks</div>
+          <div class="chart-trip-controls" id="chart-trip-controls">
+            <input type="text" class="mqtt-search" id="chart-trip-name" placeholder="Trip name" maxlength="120">
+            <button class="wm-btn wm-btn-start" id="chart-trip-start-btn" onclick="startTrip()">▶ Start Trip</button>
+            <button class="wm-btn wm-btn-stop" id="chart-trip-stop-btn" onclick="stopTrip()" style="display:none">■ Stop Trip</button>
+          </div>
+          <span class="sys-badge" id="chart-trip-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not recording</span>
+          <div class="chart-me-divider"></div>
           <div id="chart-trips-list"></div>
         </div>
       </div>
@@ -5508,6 +5511,17 @@ async function initChartMap() {
     });
   }
 
+  // Same pattern -- the "Saved Tracks" checkbox above already handles the map
+  // layer (chartTripTrackGroup) via the generic loop; this just handles the
+  // panel holding the Start/Stop controls and saved-trips list.
+  const chartTripsToggle = document.getElementById('chart-trips-toggle');
+  if (chartTripsToggle) {
+    document.getElementById('chart-trips-panel').classList.toggle('active', chartTripsToggle.checked);
+    chartTripsToggle.addEventListener('change', () => {
+      document.getElementById('chart-trips-panel').classList.toggle('active', chartTripsToggle.checked);
+    });
+  }
+
   chartMap.on('zoomend', () => {
     const zoomedIn = chartMap.getZoom() >= 14;
     chartMap.getContainer().classList.toggle('chart-hide-soundings', !zoomedIn);
@@ -6189,8 +6203,10 @@ async function fetchTripsList() {
     const meta = t.active ? `Recording · ${fmtTripDuration(t.started_at)}` : `${fmtTripDuration(t.started_at, t.ended_at)}${distNm ? ' · ' + distNm : ''}`;
     return `
       <div class="trip-item${t.active ? ' recording' : ''}">
-        <div class="trip-item-name">${escapeHtml(t.name)}</div>
-        <div class="trip-item-meta">${meta}</div>
+        <div class="trip-item-info">
+          <div class="trip-item-name">${escapeHtml(t.name)}</div>
+          <div class="trip-item-meta">${meta}</div>
+        </div>
         ${t.active ? '' : `
         <div class="trip-item-actions">
           <button class="trip-item-btn${shown ? ' active' : ''}" onclick="toggleTripVisibility(${t.id})">${shown ? 'Hide' : 'Show'}</button>
