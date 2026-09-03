@@ -140,6 +140,16 @@ PGN_MAP = {
         "Waypoint Closing Velocity":                 ("boat/nav/destination/vmg",       "slow", 2),
         "ETA Time":                                  ("boat/nav/destination/eta_time",  "slow", None),
         "ETA Date":                                  ("boat/nav/destination/eta_date",  "slow", None),
+        # YES_NO lookup -- canboat's analyzer resolves this to the literal
+        # string "Yes"/"No", not a number (confirmed against canboat.json's
+        # LookupEnumerations, same unverified-against-real-hardware caveat as
+        # the rest of this PGN). Firmware clears this back to "No" once a new
+        # leg starts, so watching for its lat/lon-keyed transitions back to
+        # "Yes" (see checkDestinationArrival() in static-src/index.html) is
+        # enough to catch every waypoint in a chartplotter-built route, not
+        # just a single Go To -- no need to also decode PGN 129285's full
+        # route/waypoint list just to know a leg was completed.
+        "Arrival Circle Entered":                    ("boat/nav/destination/arrived",   "slow", None),
     },
 }
 

@@ -7,6 +7,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Chart tab's "Wind" overlay -- renders NOAA GFS wind data (see wind_grid.py
+     + /api/wind/velocity in dashboard_api.py) as animated particles. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:1rem}
@@ -308,6 +312,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .anchor-alarm-banner.gps-alarm.active{animation:gps-pulse 1s infinite}
 @keyframes gps-pulse{0%,100%{background:#1a2a3a}50%{background:#25405a}}
 
+/* Waypoint-arrival banner — global, all tabs (see dest-arrived-banner in the
+   body and checkDestinationArrival() in the script). Green/celebratory,
+   deliberately not styled like the red/orange anchor-watch alarms above --
+   this isn't a danger condition. */
+.dest-arrived-banner{display:none;align-items:center;justify-content:space-between;gap:12px;background:#0d2b1a;border:1px solid #2a7a4a;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;color:#7ee8ab;font-weight:700;font-size:16px}
+.dest-arrived-banner.active{display:flex;animation:dest-arrived-pulse 1.4s ease-in-out 3}
+.dest-arrived-banner .wm-btn{padding:6px 16px;font-size:13px;white-space:nowrap}
+@keyframes dest-arrived-pulse{0%,100%{background:#0d2b1a}50%{background:#12401f}}
+
 /* Marine alerts (NWS Small Craft Advisory / Gale Warning / etc.) — global banner, all tabs */
 /* Compact header chip — sits between the boat title and the clock, all tabs */
 .marine-alert-chip{display:none;align-items:center;gap:7px;background:#3a0d0d;border:1px solid #a02020;color:#ff9b9b;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -333,6 +346,16 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
    tones, printed text), so this panel intentionally breaks from the app's
    dark theme rather than fighting it, same as the Windy embed. */
 .chart-controls-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:.75rem}
+/* left:190px clears the chart-left-panels stack (10px + 170px wide) that
+   shares this same bottom-left corner of the map, so the two never overlap. */
+.chart-wind-time-row{display:none;position:absolute;left:190px;right:10px;bottom:10px;z-index:500;align-items:center;gap:12px;background:#0f1628;border:.5px solid #1e2d4a;border-radius:8px;padding:8px 16px;font-size:12px;color:#a0b0c0;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.chart-wind-time-row.active{display:flex}
+.chart-wind-time-row .mc-slider{flex:1;width:auto}
+.chart-wind-time-row span:last-child{min-width:150px;text-align:right;color:#e0e6f0;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.chart-wind-play-btn{background:#0d1f38;border:.5px solid #1e3a5a;color:#4a9fd4;border-radius:6px;width:28px;height:28px;font-size:12px;cursor:pointer;flex-shrink:0}
+.chart-wind-play-btn:disabled{opacity:.4;cursor:default}
+.chart-wind-play-btn.playing{background:#0d2b1a;border-color:#2a7a4a;color:#7ee8ab}
+.chart-wind-tooltip{position:absolute;z-index:600;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;display:none;white-space:nowrap}
 .chart-controls-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .chart-layer-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .chart-layer-toggles label{display:flex;align-items:center;gap:6px;background:#0f1628;border:.5px solid #1e2d4a;color:#a0b0c0;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;user-select:none;transition:border-color .15s,color .15s}
@@ -361,10 +384,19 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-popup .leaflet-popup-tip{background:#0f1628}
 .chart-popup-title{font-size:13px;font-weight:700;color:#e0e6f0;margin-bottom:4px}
 .chart-popup-row{font-size:11px;color:#a0b0c0;line-height:1.5}
+.mob-popup-content .chart-popup-title{font-size:18px}
+.mob-popup-content .chart-popup-row{font-size:14px}
 .chart-popup-row b{color:#c9d4e0;font-weight:600}
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 .ais-recenter-btn{position:absolute;top:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-cursor-latlon{display:none;position:absolute;bottom:54px;left:50%;transform:translateX(-50%);z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;border-radius:8px;padding:6px 14px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none}
+.header-right{display:flex;align-items:center;gap:10px}
+.header-mob-btn{font-size:12px;font-weight:700;letter-spacing:.03em;color:#fff;background:#c81e1e;border:.5px solid #7a0f0f;border-radius:6px;padding:4px 12px;cursor:pointer}
+.header-mob-btn:hover{background:#e02525}
+.header-mob-btn:active{background:#a01414}
+.mob-marker-ring{width:34px;height:34px;border-radius:50%;border:3px solid #e02525;box-sizing:border-box;animation:mob-pulse 1.2s ease-out infinite}
+@keyframes mob-pulse{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.6);opacity:0}}
 .chart-crosshair-cursor,
 .chart-crosshair-cursor .leaflet-interactive{cursor:crosshair !important}
 .chart-measure-tooltip.leaflet-tooltip{background:#0f1628;border:.5px solid #4a9fd4;color:#e0e6f0;font-size:12px;font-weight:600;padding:3px 8px;border-radius:5px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
@@ -491,7 +523,18 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather')" title="">
     <span>⚠️</span><span id="marine-alert-banner-title"></span>
   </div>
-  <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
+  <div class="header-right">
+    <button class="header-mob-btn" onclick="markMOB()">🛟 MOB</button>
+    <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
+  </div>
+</div>
+
+<!-- Global, visible from every page (not nested in a .page div) -- see
+     checkDestinationArrival() below. Positive/celebratory styling on purpose,
+     distinct from the red/orange anchor-watch alarm banners. -->
+<div class="dest-arrived-banner" id="dest-arrived-banner">
+  <span>🏁 Waypoint reached — <span id="dest-arrived-text">--</span></span>
+  <button class="wm-btn wm-btn-start" onclick="dismissDestinationArrived()">Dismiss</button>
 </div>
 
 <!-- Navigation -->
@@ -962,12 +1005,14 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
+      <label><input type="checkbox" id="chart-wind-toggle" data-chart-layer="Wind"> Wind</label>
       <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks<span class="trip-recording-dot" id="chart-trips-rec-dot" title="A trip is recording"></span></label>
     </div>
     <div class="chart-controls-right">
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
+        <label><input type="radio" name="chart-base-source" value="OCharts"> O-Charts</label>
         <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
       </div>
       <div class="chart-layer-toggles" id="chart-base-theme">
@@ -981,6 +1026,16 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="chart-map-wrap">
       <div id="chart-map" style="width:100%;height:100%"></div>
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
+      <div class="chart-cursor-latlon" id="chart-cursor-latlon"></div>
+      <div class="chart-wind-tooltip" id="chart-wind-tooltip"></div>
+      <!-- Only shown while the Wind checkbox above is on -- see loadWindVelocity()/
+           chart-wind-toggle's change listener, which toggle .active on this. -->
+      <div class="chart-wind-time-row" id="chart-wind-time-row">
+        <span>Wind forecast</span>
+        <button class="chart-wind-play-btn" id="chart-wind-play-btn" onclick="toggleWindPlayback()" disabled>▶</button>
+        <input type="range" class="mc-slider" id="chart-wind-hour-slider" min="0" max="0" value="0" step="1" disabled oninput="onWindHourInput(this.value)">
+        <span id="chart-wind-hour-label">--</span>
+      </div>
       <div class="chart-left-panels">
         <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
              autopilot, Garmin's own PGN table confirms the 1243 transmits this,
@@ -1007,6 +1062,8 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           </div>
         </div>
         <div class="chart-me-panel chart-side-panel" id="chart-me-panel">
+          <div class="chart-me-row"><span>Lat</span><span id="chart-me-lat">--</span></div>
+          <div class="chart-me-row"><span>Lon</span><span id="chart-me-lon">--</span></div>
           <div class="chart-me-row"><span>SOG</span><span id="chart-me-sog">-- kn</span></div>
           <div class="chart-me-row"><span>Heading</span><span id="chart-me-heading">--°</span></div>
           <div class="chart-me-row"><span>COG</span><span id="chart-me-cog">--°</span></div>
@@ -5289,11 +5346,12 @@ let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, s
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
 let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
+let chartOChartsLayer = null;   // created once /api/charts/ocharts/meta resolves — see loadOChartsBase()
 let chartActiveBaseLayer = null; // whichever of the three is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
 // marks; a simple marker only needs the first for a representative tint.
-const S57_COLOUR = { '1': '#e8e4d8', '3': '#2e9b4f', '4': '#d13b2e', '6': '#e8c832', '11': '#e08a2e' };
+const S57_COLOUR = { '1': '#e8e4d8', '3': '#d13b2e', '4': '#2e9b4f', '6': '#e8c832', '11': '#e08a2e' };
 function chartMarkColor(colourAttr) {
   const first = String(colourAttr ?? '').split(',')[0].trim();
   return S57_COLOUR[first] || '#555';
@@ -5441,7 +5499,7 @@ function chartRecenter() {
 function updateChartBase() {
   const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
   const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
-  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
+  const next = { Chart: chartNcdsLayer, OCharts: chartOChartsLayer, Streets: chartStreetsLayer }[source];
   if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
   if (next !== chartActiveBaseLayer) {
     if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
@@ -5458,11 +5516,25 @@ async function initChartMap() {
     chartMap.invalidateSize();
     return; // already loaded once this session — the cell index doesn't change on the fly
   }
-  chartMap = L.map('chart-map', { zoomControl: false, minZoom: 5, maxZoom: 18 }).setView(AIS_DEFAULT_CENTER, 13);
+  // Center on the boat's actual live position from the first frame, rather
+  // than flashing to AIS_DEFAULT_CENTER (a Tampa Bay fallback) and only
+  // jumping to the real position later once fetchChartAisLive()/chartRecenter()
+  // run at the end of showPage('chart')'s init chain -- same GPS topics, just
+  // read early enough to seed the map's own initial view instead.
+  let chartInitialCenter = AIS_DEFAULT_CENTER;
+  try {
+    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const lat0 = t['boat/nav/gps/latitude'] ? parseFloat(t['boat/nav/gps/latitude'].value) : null;
+    const lon0 = t['boat/nav/gps/longitude'] ? parseFloat(t['boat/nav/gps/longitude'].value) : null;
+    if (lat0 !== null && lon0 !== null && !isNaN(lat0) && !isNaN(lon0)) chartInitialCenter = [lat0, lon0];
+  } catch (e) {}
+  chartMap = L.map('chart-map', { zoomControl: false, minZoom: 5, maxZoom: 18 }).setView(chartInitialCenter, 13);
   chartMap.attributionControl.setPrefix(false); // drops the "Leaflet" flag/link, keeps each layer's own required attribution
   chartMap.on('click', handleChartMapClick);
   chartMap.on('dblclick', handleChartMapDblClick);
   chartMap.on('contextmenu', handleChartMapContextMenu);
+  chartMap.on('mousemove', updateChartCursorReadouts);
+  chartMap.on('mouseout', hideChartCursorReadouts);
 
   // Base layer options — same tile sources as the AIS tab. "Chart" (NCDS)
   // isn't ready to attach until loadNcdsBase() resolves below, so switching
@@ -5538,6 +5610,20 @@ async function initChartMap() {
     });
   }
 
+  // Wind isn't in the generic chartToggleLayers loop above (see loadWindVelocity()
+  // for why) so it gets its own listener -- harmless no-op if the fetch hasn't
+  // resolved yet, since loadWindVelocity() itself attaches it if still checked.
+  const chartWindToggle = document.getElementById('chart-wind-toggle');
+  if (chartWindToggle) {
+    chartWindToggle.addEventListener('change', () => {
+      document.getElementById('chart-wind-time-row').classList.toggle('active', chartWindToggle.checked);
+      if (!chartWindToggle.checked) { stopWindPlayback(); document.getElementById('chart-wind-tooltip').style.display = 'none'; }
+      if (!chartWindLayer) return;
+      if (chartWindToggle.checked) { chartWindLayer.addTo(chartMap); checkWindRegionForViewport(); }
+      else chartMap.removeLayer(chartWindLayer);
+    });
+  }
+
   chartMap.on('zoomend', () => {
     const zoomedIn = chartMap.getZoom() >= 14;
     chartMap.getContainer().classList.toggle('chart-hide-soundings', !zoomedIn);
@@ -5550,9 +5636,14 @@ async function initChartMap() {
   chartMap.on('moveend', () => {
     clearTimeout(chartMoveTimer);
     chartMoveTimer = setTimeout(refreshChartViewport, 300);
+    clearTimeout(chartWindRegionTimer);
+    chartWindRegionTimer = setTimeout(checkWindRegionForViewport, 300);
   });
 
   await loadNcdsBase();
+  await loadOChartsBase();
+  loadMobMarks();
+  loadWindVelocity().then(checkWindRegionForViewport); // in case the chart opened outside WIND_HOME_BBOX
   try {
     const res = await fetch('/api/charts/cells');
     const d = await res.json();
@@ -5568,6 +5659,9 @@ async function initChartMap() {
 // aisTargetIcon, aisDistanceBearing, aisVectorEndpoint, aisTargetPopupHtml).
 let chartAisGroup = null;
 let chartMeGroup = null; // own boat marker + heading/COG lines — separate from chartAisGroup (other traffic)
+let chartWindLayer = null; // NOAA GFS wind particles -- see loadWindVelocity(); not in chartToggleLayers
+                            // since it's constructed async (leaflet-velocity needs the data up front,
+                            // unlike the other groups which are empty L.layerGroup()s populated over time)
 let chartAisOwnMarker = null;
 let chartAisOwnTrailLine = null;
 let chartAisOwnVectorLine = null; // COG/SOG vector, amber
@@ -5619,7 +5713,9 @@ function updateRudderIndicator(apRudder) {
   if (title) title.textContent = apRudder !== null ? `Rudder: ${deg.toFixed(1)}°` : 'Rudder: --';
 }
 
-function updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder) {
+function updateChartMePanel(lat, lon, heading, cog, sog, apMode, apHts, apRudder) {
+  setText('chart-me-lat', lat !== null ? parseFloat(lat).toFixed(5) : '--');
+  setText('chart-me-lon', lon !== null ? parseFloat(lon).toFixed(5) : '--');
   setText('chart-me-heading', heading !== null ? `${Math.round(parseFloat(heading))}°` : '--°');
   setText('chart-me-cog', cog !== null ? `${Math.round(parseFloat(cog))}°` : '--°');
   setText('chart-me-sog', sog !== null ? `${parseFloat(sog).toFixed(1)} kn` : '-- kn');
@@ -6050,7 +6146,7 @@ async function fetchChartAisLive() {
     const apMode = get('boat/nav/autopilot/mode');
     const apHts = get('boat/nav/autopilot/heading_to_steer');
     const apRudder = get('boat/nav/rudder');
-    updateChartMePanel(heading, cog, sog, apMode, apHts, apRudder);
+    updateChartMePanel(lat, lon, heading, cog, sog, apMode, apHts, apRudder);
     lastApMode = apMode;
     updateDestPanelVisibility(apMode);
 
@@ -6432,6 +6528,335 @@ async function loadNcdsBase() {
   }
 }
 
+// Siloed O-Charts base layer -- own tile source (/api/charts/ocharts/*, see the
+// "O-Charts (siloed addition)" block in dashboard_api.py), same load pattern as
+// loadNcdsBase() above. Only covers the USVI/BVI region this session's mosaic
+// was built for; outside chartOChartsLayer.options.bounds, tiles simply 404.
+async function loadOChartsBase() {
+  try {
+    const res = await fetch('/api/charts/ocharts/meta');
+    const d = await res.json();
+    if (!d.available) {
+      console.warn('O-Charts base chart: no regions built');
+      return;
+    }
+    chartOChartsLayer = L.tileLayer('/api/charts/ocharts/tiles/{z}/{x}/{y}.png', {
+      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxNativeZoom,
+      bounds: [[d.bounds.south, d.bounds.west], [d.bounds.north, d.bounds.east]],
+    });
+    let loaded = 0, errored = 0;
+    chartOChartsLayer.on('tileload', () => { loaded++; });
+    chartOChartsLayer.on('tileerror', e => { errored++; console.error('O-Charts tile failed:', e.coords, e.error); });
+    const selectedSource = document.querySelector('#chart-base-source input:checked');
+    if (selectedSource && selectedSource.value === 'OCharts') updateChartBase();
+  } catch (e) {
+    console.error('O-Charts base layer failed to load:', e);
+  }
+}
+
+// Wind overlay -- siloed addition, /api/wind/manifest + /api/wind/velocity in
+// dashboard_api.py (NOAA GFS, see wind_grid.py). Same "attach only if its
+// checkbox is still checked once the async fetch resolves" pattern as
+// loadOChartsBase() above -- not part of chartToggleLayers since
+// leaflet-velocity needs its data up front at construction time, unlike the
+// other groups which are empty L.layerGroup()s that get populated
+// incrementally.
+//
+// The time picker (#chart-wind-time-row) is index-based into
+// chartWindManifest.forecasts rather than using raw forecast-hour values as
+// the slider's own range, so it stays correct even if a hole ever opens up
+// in the sequence (wind_grid.py skips an hour it couldn't fetch rather than
+// failing the whole cycle).
+let chartWindManifest = null;
+function windHourLabel(validTimeIso) {
+  return new Date(validTimeIso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+// GFS itself is a global model -- WIND_HOME_BBOX (must match wind_grid.py's
+// own BBOX) is just the Gulf/Caribbean box wind_grid.py keeps pre-fetched
+// for all 5 forecast days so it loads instantly. Panning outside it switches
+// to /api/wind/velocity_region -- a live, single-hour, on-demand fetch (a
+// few seconds the first time a given area/hour is viewed, cached after) --
+// via chartWindRegion (null = using the fast pre-fetched home data).
+const WIND_HOME_BBOX = { west: -95, east: -55, north: 33, south: 5 };
+let chartWindRegion = null; // {west,east,north,south} of the currently-loaded on-demand region, or null
+let chartWindRegionTimer = null;
+function boundsWithinBbox(bounds, bbox) {
+  return bounds.getWest() >= bbox.west && bounds.getEast() <= bbox.east &&
+         bounds.getSouth() >= bbox.south && bounds.getNorth() <= bbox.north;
+}
+// Overlap, not containment -- a zoomed-out view can easily be wider than
+// WIND_HOME_BBOX itself (it's only 40 degrees across) while still being
+// centered on it, and that should still count as "the fast pre-fetched data
+// is good enough", not trigger a live region fetch just because the view's
+// edges spill past the box.
+function bboxesOverlap(bounds, bbox) {
+  return bounds.getWest() <= bbox.east && bounds.getEast() >= bbox.west &&
+         bounds.getSouth() <= bbox.north && bounds.getNorth() >= bbox.south;
+}
+function windHourIndex() {
+  return parseInt(document.getElementById('chart-wind-hour-slider').value, 10);
+}
+async function checkWindRegionForViewport() {
+  const windToggle = document.getElementById('chart-wind-toggle');
+  if (!windToggle || !windToggle.checked || !chartWindManifest || !chartWindLayer) return;
+  const b = chartMap.getBounds();
+  if (bboxesOverlap(b, WIND_HOME_BBOX)) {
+    if (chartWindRegion !== null) {
+      chartWindRegion = null;
+      await setWindHourByIndex(windHourIndex());
+    }
+    return;
+  }
+  if (chartWindRegion && boundsWithinBbox(b, chartWindRegion)) return; // already covered, no fetch needed
+  // Pad generously (a full viewport's worth each direction) so a modest pan
+  // afterward reuses this same region instead of re-fetching immediately.
+  const padLat = b.getNorth() - b.getSouth();
+  const padLng = b.getEast() - b.getWest();
+  chartWindRegion = {
+    west: Math.max(-179, b.getWest() - padLng), east: Math.min(179, b.getEast() + padLng),
+    south: Math.max(-85, b.getSouth() - padLat), north: Math.min(85, b.getNorth() + padLat),
+  };
+  await setWindHourByIndex(windHourIndex());
+}
+async function setWindHourByIndex(index) {
+  if (!chartWindManifest) return;
+  const f = chartWindManifest.forecasts[index];
+  if (!f) return;
+  setText('chart-wind-hour-label', windHourLabel(f.validTime));
+  try {
+    const url = chartWindRegion
+      ? `/api/wind/velocity_region?hour=${f.hour}&west=${chartWindRegion.west}&east=${chartWindRegion.east}&north=${chartWindRegion.north}&south=${chartWindRegion.south}`
+      : `/api/wind/velocity?hour=${f.hour}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (chartWindLayer) chartWindLayer.setData(data);
+  } catch (e) {
+    console.error('Wind hour fetch failed:', e);
+  }
+}
+let chartWindHourTimer = null;
+function onWindHourInput(index) {
+  setText('chart-wind-hour-label', windHourLabel(chartWindManifest.forecasts[index].validTime));
+  clearTimeout(chartWindHourTimer);
+  chartWindHourTimer = setTimeout(() => setWindHourByIndex(index), 200); // debounced -- oninput fires continuously while dragging
+}
+
+// Play/pause steps the slider forward on a timer, looping back to the start
+// at the end -- reads the slider's own current value each tick rather than
+// tracking a separate index, so a manual drag mid-playback just continues
+// advancing from wherever the user left it instead of jumping back.
+let chartWindPlayTimer = null;
+function stopWindPlayback() {
+  clearInterval(chartWindPlayTimer);
+  chartWindPlayTimer = null;
+  document.getElementById('chart-wind-play-btn').classList.remove('playing');
+  document.getElementById('chart-wind-play-btn').textContent = '▶';
+}
+function toggleWindPlayback() {
+  if (chartWindPlayTimer) {
+    stopWindPlayback();
+    return;
+  }
+  const slider = document.getElementById('chart-wind-hour-slider');
+  const btn = document.getElementById('chart-wind-play-btn');
+  btn.classList.add('playing');
+  btn.textContent = '⏸';
+  chartWindPlayTimer = setInterval(() => {
+    const next = (parseInt(slider.value, 10) + 1) % (parseInt(slider.max, 10) + 1);
+    slider.value = next;
+    onWindHourInput(next);
+  }, 1000);
+}
+async function loadWindVelocity() {
+  try {
+    const manifestRes = await fetch('/api/wind/manifest');
+    if (!manifestRes.ok) {
+      console.warn('Wind overlay: no data yet');
+      return;
+    }
+    chartWindManifest = await manifestRes.json();
+    const slider = document.getElementById('chart-wind-hour-slider');
+    slider.max = chartWindManifest.forecasts.length - 1;
+    slider.value = 0;
+    slider.disabled = false;
+    document.getElementById('chart-wind-play-btn').disabled = false;
+    setText('chart-wind-hour-label', windHourLabel(chartWindManifest.forecasts[0].validTime));
+
+    const res = await fetch(`/api/wind/velocity?hour=${chartWindManifest.forecasts[0].hour}`);
+    if (!res.ok) {
+      console.warn('Wind overlay: no data yet');
+      return;
+    }
+    const data = await res.json();
+    chartWindLayer = L.velocityLayer({
+      displayValues: false, // the library's own bottom-left legend -- redundant now that
+                             // updateChartCursorReadouts() shows a tooltip at the cursor itself
+      data, maxVelocity: 15,
+    });
+    const windToggle = document.getElementById('chart-wind-toggle');
+    if (windToggle && windToggle.checked) chartWindLayer.addTo(chartMap);
+  } catch (e) {
+    console.error('Wind overlay failed to load:', e);
+  }
+}
+
+// Cursor readouts -- the lat/lon half is unrelated to wind (chart-cursor-latlon
+// existed before this feature), but it's wired through the same mousemove/
+// mouseout pair as the wind speed tooltip below it, so both live here rather
+// than splitting one mouse gesture across two separate handlers.
+function windSpeedKt(u, v) {
+  return Math.sqrt(u * u + v * v) / 0.514; // matches L.Control.Velocity's own meterSec2Knots()
+}
+function updateChartCursorReadouts(e) {
+  const latlonEl = document.getElementById('chart-cursor-latlon');
+  setText('chart-cursor-latlon', `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`);
+  latlonEl.style.display = 'block';
+
+  const tooltip = document.getElementById('chart-wind-tooltip');
+  const windToggle = document.getElementById('chart-wind-toggle');
+  const active = chartWindLayer && chartWindLayer._windy && windToggle && windToggle.checked;
+  const gridValue = active ? chartWindLayer._windy.interpolatePoint(e.latlng.lng, e.latlng.lat) : null;
+  if (gridValue && !isNaN(gridValue[0]) && !isNaN(gridValue[1]) && gridValue[2]) {
+    tooltip.textContent = `${windSpeedKt(gridValue[0], gridValue[1]).toFixed(1)} kt`;
+    tooltip.style.left = `${e.containerPoint.x + 14}px`;
+    tooltip.style.top = `${e.containerPoint.y + 14}px`;
+    tooltip.style.display = 'block';
+  } else {
+    tooltip.style.display = 'none';
+  }
+}
+function hideChartCursorReadouts() {
+  document.getElementById('chart-cursor-latlon').style.display = 'none';
+  document.getElementById('chart-wind-tooltip').style.display = 'none';
+}
+
+// MOB (man overboard) marks -- siloed addition, own /api/mob/* routes in
+// dashboard_api.py. Always drawn straight on chartMap (not one of the
+// chartOverlayGroups toggle groups) so a mark can never be hidden by an
+// unrelated layer checkbox -- this is the one thing on the chart that must
+// always be visible once placed.
+const chartMobMarkers = {};
+function mobIcon() {
+  return L.divIcon({
+    className: 'mob-marker-icon',
+    html: `<div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center">
+      <div class="mob-marker-ring"></div>
+      <div style="position:absolute;width:14px;height:14px;border-radius:50%;background:#e02525;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.6)"></div>
+    </div>`,
+    iconSize: [34, 34], iconAnchor: [17, 17],
+  });
+}
+function addMobMarker(mark) {
+  if (chartMobMarkers[mark.id]) return;
+  const marker = L.marker([mark.lat, mark.lon], { icon: mobIcon(), zIndexOffset: 2000 }).addTo(chartMap);
+  marker.bindPopup(
+    `<div class="mob-popup-content" style="text-align:center">` +
+    `<div class="chart-popup-title">⚠ MAN OVERBOARD</div>` +
+    `<div class="chart-popup-row">${new Date(mark.t).toLocaleString()}</div>` +
+    `<div class="chart-popup-row">${mark.lat.toFixed(5)}, ${mark.lon.toFixed(5)}</div>` +
+    `<button class="wm-btn wm-btn-stop" style="padding:8px 18px;font-size:14px;margin-top:8px" onclick="clearMobMark('${mark.id}')">Clear mark</button>` +
+    `</div>`,
+    { className: 'chart-popup' }
+  );
+  chartMobMarkers[mark.id] = marker;
+}
+// Reachable from every page (header button, not just the Chart tab) -- marks
+// the position first (so the capture itself never waits on the map), then
+// jumps to Chart so the crew actually sees it plotted. initChartMap() is a
+// no-op if the chart's already loaded this session (just chartMap.invalidateSize()
+// and return -- see initChartMap()), so this is safe to call unconditionally.
+async function markMOB() {
+  try {
+    const res = await fetch('/api/mob/mark', { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || 'Failed to mark MOB position'); return; }
+    showPage('chart');
+    await initChartMap();
+    addMobMarker(d); // addMobMarker no-ops on an id already added by loadMobMarks() above
+    chartMap.panTo([d.lat, d.lon]);
+  } catch (e) {
+    alert('Failed to mark MOB position');
+  }
+}
+async function clearMobMark(id) {
+  try { await fetch(`/api/mob/marks/${id}`, { method: 'DELETE' }); } catch (e) {}
+  const marker = chartMobMarkers[id];
+  if (marker) { chartMap.removeLayer(marker); delete chartMobMarkers[id]; }
+}
+async function loadMobMarks() {
+  try {
+    const marks = await (await fetch('/api/mob/marks')).json();
+    marks.forEach(addMobMarker);
+  } catch (e) {
+    console.error('Failed to load MOB marks:', e);
+  }
+}
+
+// Waypoint-arrival alert -- global (works from any page, like the MOB button),
+// reading boat/nav/destination/arrived (n2k_mqtt_bridge.py's PGN 129284
+// "Arrival Circle Entered" -- see the PGN_MAP comment there for why this alone
+// is enough to catch every leg of a chartplotter-built route without also
+// decoding PGN 129285's full route/waypoint list: the chartplotter clears the
+// flag and republishes new destination lat/lon once it advances to the next
+// leg, so keying off (lat,lon) here naturally re-arms per waypoint).
+let destArrivedKey = null; // lat,lon of the arrival we've already alerted for, or null
+function playArrivalChime() {
+  try {
+    if (!anchorAudioCtx) anchorAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = anchorAudioCtx;
+    [660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.15;
+      osc.connect(gain); gain.connect(ctx.destination);
+      const start = ctx.currentTime + i * 0.22;
+      osc.start(start);
+      osc.stop(start + 0.2);
+    });
+  } catch (e) { /* audio blocked until user interacts with the page -- non-fatal */ }
+}
+function showDestinationArrived(lat, lon) {
+  setText('dest-arrived-text', `${parseFloat(lat).toFixed(5)}, ${parseFloat(lon).toFixed(5)}`);
+  const banner = document.getElementById('dest-arrived-banner');
+  banner.classList.add('active');
+  playArrivalChime();
+  // Best-effort only -- Chrome restricts the Notification API to secure
+  // contexts (HTTPS or localhost), and this dashboard is plain HTTP over the
+  // boat's LAN, so this will silently no-op on most phones/tablets. The
+  // banner + chime above are the reliable channel.
+  if (window.Notification && Notification.permission === 'granted') {
+    try { new Notification('Waypoint reached', { body: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }); } catch (e) {}
+  }
+}
+function dismissDestinationArrived() {
+  document.getElementById('dest-arrived-banner').classList.remove('active');
+}
+async function checkDestinationArrival() {
+  try {
+    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const get = k => t[k] ? t[k].value : null;
+    const arrived = get('boat/nav/destination/arrived') === 'Yes';
+    const lat = get('boat/nav/destination/latitude');
+    const lon = get('boat/nav/destination/longitude');
+    const key = (lat !== null && lon !== null) ? `${lat},${lon}` : null;
+    if (arrived && key && key !== destArrivedKey) {
+      destArrivedKey = key;
+      showDestinationArrived(parseFloat(lat), parseFloat(lon));
+    } else if (!arrived) {
+      destArrivedKey = null; // re-arm for the next leg/destination
+    }
+  } catch (e) {
+    // transient fetch failure -- try again next poll
+  }
+}
+if (window.Notification && Notification.permission === 'default') {
+  Notification.requestPermission(); // ask early so permission's resolved by the time an arrival happens
+}
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor', 'chart', 'weather', 'mqtt'].includes(location.hash.slice(1))
   ? location.hash.slice(1) : 'overview';
@@ -6443,6 +6868,7 @@ queryRelay1State();
 setInterval(fetchData, 60000);
 setInterval(fetchVictron, 30000);
 setInterval(fetchTanksAndBilge, 5000);
+setInterval(checkDestinationArrival, 5000);
 setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
 setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);

@@ -8,10 +8,12 @@ import json
 import math
 import shutil
 import subprocess
+import signal
 import sqlite3
 from PIL import Image
 from collections import Counter
 import threading
+import uuid
 import paho.mqtt.client as mqtt
 import mysql.connector
 from datetime import datetime, timedelta, timezone
@@ -62,6 +64,78 @@ def access_log():
 def clear_access_log():
     with _access_log_lock:
         _access_log.clear()
+    return jsonify({'status': 'ok'})
+
+# ─── Simulator scripts (Diagnostics tab) ────────────────────────────────────
+# Dev-only process control for the *_simulator.py stand-ins this dev copy
+# uses instead of the real N2K/MQTT devices. Status is read fresh via pgrep
+# each time rather than trusting our own Popen handles, since a Flask reload
+# during dev editing would otherwise orphan a tracked process and make the
+# UI lie about it being stopped.
+SIMULATOR_DIR = os.path.dirname(os.path.abspath(__file__))
+SIMULATORS = {
+    'gps':        {'label': 'GPS / Depth',   'script': 'gps_simulator.py'},
+    'wind':       {'label': 'Wind',          'script': 'wind_simulator.py'},
+    'tank':       {'label': 'Tanks / Bilge', 'script': 'tank_simulator.py'},
+    'ais':        {'label': 'AIS',           'script': 'ais_simulator.py'},
+    'autopilot':  {'label': 'Autopilot',     'script': 'autopilot_simulator.py'},
+    'watermaker': {'label': 'Watermaker',    'script': 'watermaker_simulator.py'},
+    'garmin1243': {'label': 'Garmin 1243 (NMEA2000)', 'script': 'garmin_1243_simulator.py'},
+}
+
+def _simulator_script_path(name):
+    return os.path.join(SIMULATOR_DIR, SIMULATORS[name]['script'])
+
+def _simulator_pids(name):
+    script_path = _simulator_script_path(name)
+    try:
+        result = subprocess.run(['pgrep', '-f', script_path], capture_output=True, text=True, timeout=3)
+        return [int(pid) for pid in result.stdout.split()]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+@app.route('/api/simulators/status')
+def simulators_status():
+    sims = []
+    for name, info in SIMULATORS.items():
+        pids = _simulator_pids(name)
+        sims.append({'name': name, 'label': info['label'], 'running': len(pids) > 0, 'pid': pids[0] if pids else None})
+    return jsonify({'simulators': sims})
+
+@app.route('/api/simulators/<name>/start', methods=['POST'])
+def simulator_start(name):
+    if name not in SIMULATORS:
+        return jsonify({'error': 'unknown simulator'}), 404
+    if _simulator_pids(name):
+        return jsonify({'status': 'ok', 'already_running': True})
+    try:
+        subprocess.Popen(['python3', _simulator_script_path(name)], cwd=SIMULATOR_DIR,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                          start_new_session=True)
+    except OSError as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/simulators/<name>/stop', methods=['POST'])
+def simulator_stop(name):
+    if name not in SIMULATORS:
+        return jsonify({'error': 'unknown simulator'}), 404
+    pids = _simulator_pids(name)
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGINT)  # simulators catch KeyboardInterrupt for a clean MQTT disconnect
+        except OSError:
+            pass
+    # Give each script a moment to unwind (disconnect its MQTT client, flush
+    # prints) before falling back to SIGKILL on anything still standing.
+    deadline = time.time() + 2.0
+    while time.time() < deadline and _simulator_pids(name):
+        time.sleep(0.1)
+    for pid in _simulator_pids(name):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
     return jsonify({'status': 'ok'})
 
 @app.route('/')
@@ -2068,6 +2142,265 @@ def chart_layer(cell, layer):
     if not os.path.isdir(cell_dir):
         return jsonify({'error': 'unknown cell'}), 404
     return send_from_directory(cell_dir, layer)
+
+# ─── O-Charts (siloed addition -- see plans/fancy-finding-reef.md) ─────────
+# Second raster base source, built from the user's own licensed/decrypted
+# O-charts Caribbean data via ochart_tools.py (BVI/USVI area, where NOAA's
+# NCDS coverage above thins out). Deliberately NOT sharing code with the
+# NCDS block above -- independent helpers/routes here so this can be
+# deleted cleanly without touching the working NOAA layer. Vector overlay
+# needs no separate route at all: ochart_tools.py writes into the same
+# CHART_DATA_DIR the NOAA ENC pipeline uses, so /api/charts/cells and
+# /api/charts/<cell>/<layer> above already serve O-chart cells unchanged.
+OCHARTS_DIR = '/home/mikemc/dashboard-dev/chart_data/ocharts'
+
+def _ocharts_files():
+    if not os.path.isdir(OCHARTS_DIR):
+        return []
+    return sorted(glob.glob(os.path.join(OCHARTS_DIR, '*.mbtiles')))
+
+@app.route('/api/charts/ocharts/meta')
+def ocharts_meta():
+    files = _ocharts_files()
+    if not files:
+        return jsonify({'available': False})
+    bounds = None
+    min_zoom = None
+    max_zoom_any = None
+    maxzoom_values = []
+    fmt = 'png'
+    for path in files:
+        conn = sqlite3.connect(path)
+        try:
+            meta = dict(conn.execute('SELECT name, value FROM metadata').fetchall())
+        except sqlite3.DatabaseError:
+            continue
+        finally:
+            conn.close()
+        fmt = meta.get('format', fmt)
+        if 'minzoom' in meta:
+            mz = int(meta['minzoom'])
+            min_zoom = mz if min_zoom is None else min(min_zoom, mz)
+        if 'maxzoom' in meta:
+            xz = int(meta['maxzoom'])
+            max_zoom_any = xz if max_zoom_any is None else max(max_zoom_any, xz)
+            maxzoom_values.append(xz)
+        if 'bounds' in meta:
+            west, south, east, north = (float(v) for v in meta['bounds'].split(','))
+            if bounds is None:
+                bounds = {'west': west, 'south': south, 'east': east, 'north': north}
+            else:
+                bounds['west'] = min(bounds['west'], west)
+                bounds['south'] = min(bounds['south'], south)
+                bounds['east'] = max(bounds['east'], east)
+                bounds['north'] = max(bounds['north'], north)
+    max_zoom_native = Counter(maxzoom_values).most_common(1)[0][0] if maxzoom_values else 16
+    return jsonify({
+        'available': True,
+        'format': fmt,
+        'minZoom': min_zoom if min_zoom is not None else 0,
+        'maxZoom': max_zoom_any if max_zoom_any is not None else 16,
+        'maxNativeZoom': max_zoom_native,
+        'bounds': bounds,
+        'regionCount': len(files),
+    })
+
+def _ocharts_lookup_tile(files, z, x, y):
+    tms_row = (2 ** z - 1) - y  # MBTiles stores rows TMS-style; Leaflet requests XYZ
+    best = None
+    for path in files:
+        conn = sqlite3.connect(path)
+        try:
+            row = conn.execute(
+                'SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?',
+                (z, x, tms_row)
+            ).fetchone()
+        except sqlite3.DatabaseError:
+            continue
+        finally:
+            conn.close()
+        if row is not None and (best is None or len(row[0]) > len(best)):
+            best = row[0]
+    return best
+
+OCHARTS_OVERZOOM_MAX_LEVELS = 8
+
+@app.route('/api/charts/ocharts/tiles/<int:z>/<int:x>/<int:y>.png')
+def ocharts_tile(z, x, y):
+    files = _ocharts_files()
+    if not files:
+        return '', 404
+
+    data = _ocharts_lookup_tile(files, z, x, y)
+    if data is not None:
+        return Response(data, mimetype='image/png')
+
+    for k in range(1, OCHARTS_OVERZOOM_MAX_LEVELS + 1):
+        pz = z - k
+        if pz < 0:
+            break
+        tile_px = 256 >> k
+        if tile_px < 1:
+            break
+        ancestor = _ocharts_lookup_tile(files, pz, x >> k, y >> k)
+        if ancestor is None:
+            continue
+        sub_x, sub_y = x & ((1 << k) - 1), y & ((1 << k) - 1)
+        left, top = sub_x * tile_px, sub_y * tile_px
+        img = Image.open(io.BytesIO(ancestor)).convert('RGBA')
+        crop = img.resize((256, 256), Image.LANCZOS, box=(left, top, left + tile_px, top + tile_px))
+        buf = io.BytesIO()
+        crop.save(buf, format='PNG')
+        return Response(buf.getvalue(), mimetype='image/png')
+
+    return '', 404
+# ─── end O-Charts siloed addition ──────────────────────────────────────────
+
+# ─── MOB / man overboard marks (siloed addition) ───────────────────────────
+MOB_MARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mob_marks.json')
+MOB_MARKS_LOCK = threading.Lock()
+
+def load_mob_marks():
+    with MOB_MARKS_LOCK:
+        if os.path.exists(MOB_MARKS_FILE):
+            with open(MOB_MARKS_FILE) as f:
+                return json.load(f)
+    return []
+
+def save_mob_marks(marks):
+    with MOB_MARKS_LOCK:
+        with open(MOB_MARKS_FILE, 'w') as f:
+            json.dump(marks, f)
+
+@app.route('/api/mob/marks')
+def mob_marks_route():
+    return jsonify(load_mob_marks())
+
+@app.route('/api/mob/mark', methods=['POST'])
+def mob_mark():
+    # Always the boat's own live GPS fix, not a client-supplied position --
+    # a MOB mark is only meaningful if it's the vessel's actual position at
+    # the moment of the button press, same reasoning as anchor_drop()'s
+    # default (dashboard_api.py's get_gps_position/GPS_STALE_THRESHOLD_S).
+    pos = get_gps_position(max_age_s=GPS_STALE_THRESHOLD_S)
+    if pos is None:
+        return jsonify({'error': 'No live GPS position available (missing or stale)'}), 503
+    lat, lon = pos
+    mark = {'id': uuid.uuid4().hex, 'lat': lat, 'lon': lon, 't': datetime.now(timezone.utc).isoformat()}
+    marks = load_mob_marks()
+    marks.append(mark)
+    save_mob_marks(marks)
+    return jsonify(mark)
+
+@app.route('/api/mob/marks/<mark_id>', methods=['DELETE'])
+def mob_clear(mark_id):
+    marks = [m for m in load_mob_marks() if m['id'] != mark_id]
+    save_mob_marks(marks)
+    return jsonify({'ok': True})
+# ─── end MOB siloed addition ────────────────────────────────────────────────
+
+# ─── Wind velocity overlay (siloed addition) ────────────────────────────────
+# Hardcoded to the dashboard-dev tree, same reasoning as CHART_DATA_DIR/
+# NCDS_DIR/OCHARTS_DIR above -- this file also runs as a deployed copy at
+# /home/mikemc/dashboard_api.py, where a path derived from __file__ would
+# resolve to the wrong directory (wind_grid.py only exists in dashboard-dev).
+# Both the dev and prod copies of this file end up sharing the same cache
+# file/script this way, so only one of them actually needs to do the fetch.
+WIND_DIR = '/home/mikemc/dashboard-dev'
+WIND_DATA_DIR = os.path.join(WIND_DIR, 'chart_data', 'wind')
+WIND_MANIFEST_PATH = os.path.join(WIND_DATA_DIR, 'manifest.json')
+WIND_SCRIPT_PATH = os.path.join(WIND_DIR, 'wind_grid.py')
+WIND_CHECK_INTERVAL_S = 1800  # GFS only updates every 6h -- this just polls for a new run
+
+def wind_monitor_loop():
+    while True:
+        try:
+            subprocess.run(['python3', WIND_SCRIPT_PATH, 'fetch-if-stale', WIND_DATA_DIR],
+                            capture_output=True, timeout=180, check=False)
+        except Exception:
+            pass
+        time.sleep(WIND_CHECK_INTERVAL_S)
+
+threading.Thread(target=wind_monitor_loop, daemon=True).start()
+
+def _load_wind_manifest():
+    if not os.path.exists(WIND_MANIFEST_PATH):
+        return None
+    with open(WIND_MANIFEST_PATH) as f:
+        return json.load(f)
+
+@app.route('/api/wind/manifest')
+def wind_manifest():
+    manifest = _load_wind_manifest()
+    if manifest is None:
+        return jsonify({'error': 'wind data not yet available'}), 503
+    return jsonify(manifest)
+
+@app.route('/api/wind/velocity')
+def wind_velocity():
+    manifest = _load_wind_manifest()
+    if manifest is None:
+        return jsonify({'error': 'wind data not yet available'}), 503
+    try:
+        hour = int(request.args.get('hour', 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'hour must be an integer'}), 400
+    if hour not in {f['hour'] for f in manifest['forecasts']}:
+        return jsonify({'error': f'hour {hour} not in this cycle -- see /api/wind/manifest'}), 404
+    filename = f"wind_{manifest['cycle']}_f{hour:03d}.json"
+    return send_from_directory(WIND_DATA_DIR, filename)
+
+# On-demand single-hour/single-region fetch for wherever the Chart tab is
+# panned to outside wind_grid.py's fixed BBOX (Gulf/Caribbean) -- GFS itself
+# is a global model, that box is just what's pre-fetched on a schedule for
+# instant loading. Live NOMADS round-trip + GDAL conversion in the request
+# path (a few seconds), so this is deliberately single-hour rather than the
+# full 5-day sweep fetch() does -- fetching 21 hours live every time someone
+# pans somewhere new would feel like a real stall; the frontend re-fetches
+# just the currently-selected hour again if the slider moves while away from
+# the home region (see setWindHourByIndex() in static-src/index.html).
+WIND_REGION_CACHE_DIR = os.path.join(WIND_DATA_DIR, 'regions')
+WIND_REGION_ROUND_DEG = 10  # snaps requested bboxes to a coarser grid so nearby pans reuse the same cache entry
+
+def _round_region_bbox(west, east, north, south):
+    r = lambda v: round(v / WIND_REGION_ROUND_DEG) * WIND_REGION_ROUND_DEG
+    return r(west), r(east), r(north), r(south)
+
+@app.route('/api/wind/velocity_region')
+def wind_velocity_region():
+    manifest = _load_wind_manifest()
+    if manifest is None:
+        return jsonify({'error': 'wind data not yet available'}), 503
+    try:
+        hour = int(request.args.get('hour', 0))
+        west = float(request.args.get('west'))
+        east = float(request.args.get('east'))
+        north = float(request.args.get('north'))
+        south = float(request.args.get('south'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'hour/west/east/north/south must be numbers'}), 400
+    if not (-179 <= west < east <= 179 and -85 <= south < north <= 85):
+        return jsonify({'error': 'bbox out of range or invalid'}), 400
+
+    west, east, north, south = _round_region_bbox(west, east, north, south)
+    os.makedirs(WIND_REGION_CACHE_DIR, exist_ok=True)
+    filename = f"wind_{manifest['cycle']}_f{hour:03d}_{west}_{east}_{north}_{south}.json"
+    out_path = os.path.join(WIND_REGION_CACHE_DIR, filename)
+    if not os.path.exists(out_path):
+        # Cheap self-cleaning -- drop any cached region from an older cycle
+        # whenever a new one gets requested, rather than growing forever.
+        for path in glob.glob(os.path.join(WIND_REGION_CACHE_DIR, 'wind_*.json')):
+            if not os.path.basename(path).startswith(f"wind_{manifest['cycle']}_"):
+                os.remove(path)
+        result = subprocess.run(
+            ['python3', WIND_SCRIPT_PATH, 'fetch-region', out_path, manifest['cycle'], str(hour),
+             str(west), str(east), str(north), str(south)],
+            capture_output=True, timeout=60, check=False,
+        )
+        if result.returncode != 0 or not os.path.exists(out_path):
+            return jsonify({'error': 'failed to fetch wind data for this region'}), 502
+    return send_from_directory(WIND_REGION_CACHE_DIR, filename)
+# ─── end wind velocity siloed addition ──────────────────────────────────────
 
 @app.route('/api/health')
 def health():

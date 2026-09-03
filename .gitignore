@@ -1,5 +1,6 @@
 node_modules/
 anchor_state.json
+mob_marks.json
 __pycache__/
 *.pyc
 chart_data/
