@@ -242,6 +242,33 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .wm-btn-stop{color:#e05050;border-color:#7a2a2a}
 .wm-btn-flush{color:#2dd4bf;border-color:#1a6a5a}
 .wm-btn-manual{color:#a78bfa;border-color:#5a3a8a}
+.reference-doc-note{color:#6b82a0;font-size:12px;margin:0 0 12px;max-width:640px}
+.reference-doc-grid{display:flex;flex-wrap:wrap;gap:10px}
+.reference-doc-grid a.wm-btn{text-decoration:none;text-align:center;line-height:1.4}
+.reference-doc-sub{font-size:11px;font-weight:400;opacity:.7}
+.celnav-form-grid{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap}
+.celnav-field{display:flex;flex-direction:column;gap:4px;min-width:140px}
+.celnav-field .mqtt-search{width:100%}
+.celnav-results{margin-top:16px;padding-top:14px;border-top:.5px solid #1e2d4a;max-width:420px;font-size:13px}
+.celnav-results .chart-me-row span:first-child{color:#6b82a0}
+.celnav-results .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#e0e6f0}
+.starchart-svg-wrap{width:100%;max-width:520px;cursor:pointer}
+.starchart-svg-wrap svg{width:100%;height:auto;display:block}
+.starchart-svg-wrap-modal{margin-top:10px;text-align:center;max-width:640px;margin-left:auto;margin-right:auto}
+.starchart-svg-wrap-modal svg{width:100%;height:auto;display:block}
+.celnav-two-col{display:flex;gap:28px;align-items:stretch;flex-wrap:wrap}
+.celnav-col{flex:1;min-width:340px}
+.celnav-col-chart{flex:1.1;min-width:360px;display:flex;align-items:flex-start;justify-content:center}
+.celnav-row-eq3{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap}
+.celnav-row-eq3 .celnav-field{flex:1}
+.celnav-row-center{display:flex;justify-content:center;margin-bottom:12px}
+.celnav-row-center .celnav-field{min-width:220px}
+.sextant-howto-diagram{width:100%;max-width:600px;height:auto;display:block;margin:8px auto 18px}
+.sextant-howto-caption{color:#6b82a0;font-size:11px;text-align:center;max-width:600px;margin:-10px auto 20px;font-style:italic}
+.sextant-howto-steps{margin:0;padding-left:22px;max-width:640px}
+.sextant-howto-steps li{margin-bottom:10px;line-height:1.5;font-size:13px}
+.sextant-howto-steps b{color:#e0e6f0}
+.sextant-howto-subhead{color:#8fa3bd;font-size:13px;font-weight:600;margin:18px 0 8px}
 
 /* Manual device control modal */
 .mc-mode-row{display:flex;align-items:center;gap:12px;margin-bottom:.75rem;padding-bottom:.75rem;border-bottom:.5px solid #1a2438;flex-wrap:wrap}
@@ -346,9 +373,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
    tones, printed text), so this panel intentionally breaks from the app's
    dark theme rather than fighting it, same as the Windy embed. */
 .chart-controls-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:.75rem}
-/* left:190px clears the chart-left-panels stack (10px + 170px wide) that
-   shares this same bottom-left corner of the map, so the two never overlap. */
-.chart-wind-time-row{display:none;position:absolute;left:190px;right:10px;bottom:10px;z-index:500;align-items:center;gap:12px;background:#0f1628;border:.5px solid #1e2d4a;border-radius:8px;padding:8px 16px;font-size:12px;color:#a0b0c0;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.chart-wind-time-row{display:none;align-items:center;gap:12px;background:#0f1628;border:.5px solid #1e2d4a;border-radius:8px;padding:8px 16px;margin-top:10px;font-size:12px;color:#a0b0c0}
 .chart-wind-time-row.active{display:flex}
 .chart-wind-time-row .mc-slider{flex:1;width:auto}
 .chart-wind-time-row span:last-child{min-width:150px;text-align:right;color:#e0e6f0;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -356,6 +381,13 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .chart-wind-play-btn:disabled{opacity:.4;cursor:default}
 .chart-wind-play-btn.playing{background:#0d2b1a;border-color:#2a7a4a;color:#7ee8ab}
 .chart-wind-tooltip{position:absolute;z-index:600;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:6px;padding:4px 10px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;display:none;white-space:nowrap}
+/* Distances in nm/ft to match the rest of the app (destination distance,
+   anchor swing radius, etc.) rather than Leaflet's stock km/mi scale --
+   see updateChartScale(). */
+/* bottom:28px clears Leaflet's own attribution control in this corner
+   (e.g. "(c) OpenStreetMap contributors" on the Streets base layer). */
+.chart-scale-bar{position:absolute;bottom:28px;right:10px;z-index:500;pointer-events:none;transition:width .2s linear}
+.chart-scale-bar span{display:block;border:2px solid #c9d4e0;border-top:none;padding:1px 6px 2px;color:#e0e6f0;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;white-space:nowrap;background:rgba(15,22,40,.7);border-radius:0 0 4px 4px}
 .chart-controls-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .chart-layer-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .chart-layer-toggles label{display:flex;align-items:center;gap:6px;background:#0f1628;border:.5px solid #1e2d4a;color:#a0b0c0;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;user-select:none;transition:border-color .15s,color .15s}
@@ -390,7 +422,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .ais-boat-icon{display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 .ais-recenter-btn{position:absolute;top:10px;right:10px;z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
-.chart-cursor-latlon{display:none;position:absolute;bottom:54px;left:50%;transform:translateX(-50%);z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;border-radius:8px;padding:6px 14px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none}
+.chart-cursor-latlon{display:none;position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;border-radius:8px;padding:6px 14px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none}
 .header-right{display:flex;align-items:center;gap:10px}
 .header-mob-btn{font-size:12px;font-weight:700;letter-spacing:.03em;color:#fff;background:#c81e1e;border:.5px solid #7a0f0f;border-radius:6px;padding:4px 12px;cursor:pointer}
 .header-mob-btn:hover{background:#e02525}
@@ -546,6 +578,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <button class="navbtn" id="nav-anchor" onclick="showPage('anchor')"><span>⚓</span>Anchor Watch</button>
   <button class="navbtn" id="nav-chart" onclick="showPage('chart')"><span>🗺️</span>Chart</button>
   <button class="navbtn" id="nav-weather" onclick="showPage('weather')"><span>🌤️</span>Weather</button>
+  <button class="navbtn" id="nav-reference" onclick="showPage('reference')"><span>📖</span>Reference</button>
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
 
@@ -1012,7 +1045,6 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
-        <label><input type="radio" name="chart-base-source" value="OCharts"> O-Charts</label>
         <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
       </div>
       <div class="chart-layer-toggles" id="chart-base-theme">
@@ -1028,14 +1060,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
       <div class="chart-cursor-latlon" id="chart-cursor-latlon"></div>
       <div class="chart-wind-tooltip" id="chart-wind-tooltip"></div>
-      <!-- Only shown while the Wind checkbox above is on -- see loadWindVelocity()/
-           chart-wind-toggle's change listener, which toggle .active on this. -->
-      <div class="chart-wind-time-row" id="chart-wind-time-row">
-        <span>Wind forecast</span>
-        <button class="chart-wind-play-btn" id="chart-wind-play-btn" onclick="toggleWindPlayback()" disabled>▶</button>
-        <input type="range" class="mc-slider" id="chart-wind-hour-slider" min="0" max="0" value="0" step="1" disabled oninput="onWindHourInput(this.value)">
-        <span id="chart-wind-hour-label">--</span>
-      </div>
+      <div class="chart-scale-bar" id="chart-scale-bar"><span id="chart-scale-label"></span></div>
       <div class="chart-left-panels">
         <!-- Destination/ETA: standard PGN 129284 (Navigation Data) -- unlike the
              autopilot, Garmin's own PGN table confirms the 1243 transmits this,
@@ -1104,6 +1129,14 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div id="chart-trips-list"></div>
         </div>
       </div>
+    </div>
+    <!-- Only shown while the Wind checkbox above is on -- see loadWindVelocity()/
+         chart-wind-toggle's change listener, which toggle .active on this. -->
+    <div class="chart-wind-time-row" id="chart-wind-time-row">
+      <span>Wind forecast</span>
+      <button class="chart-wind-play-btn" id="chart-wind-play-btn" onclick="toggleWindPlayback()" disabled>▶</button>
+      <input type="range" class="mc-slider" id="chart-wind-hour-slider" min="0" max="0" value="0" step="1" disabled oninput="onWindHourInput(this.value)">
+      <span id="chart-wind-hour-label">--</span>
     </div>
   </div>
 </div>
@@ -1228,6 +1261,331 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
         <iframe id="windy-embed" frameborder="0"
           src="https://embed.windy.com/embed2.html?lat=27.7000&lon=-82.6900&detailLat=27.7000&detailLon=-82.6900&zoom=9&level=surface&overlay=wind&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1"
           style="width:100%;height:100%"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ Reference page ══════════════════════════════ -->
+<div class="page" id="page-reference">
+  <div class="modal-overlay" id="starchart-modal" onclick="closeStarchartModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🌌</span>
+        <span>Star Chart</span>
+      </div>
+      <button class="modal-close" onclick="closeStarchartModal()">×</button>
+    </div>
+
+    <p class="reference-doc-note" id="starchart-note-modal">--</p>
+    <div class="starchart-svg-wrap-modal" id="starchart-svg-wrap-modal"></div>
+    <p class="reference-doc-note">Center = straight overhead (zenith); outer ring = the horizon. Distance from center = how high to look, compass position = which way to point. Auto-updates every minute from live GPS/time -- only the ~19 brightest catalog stars are named to keep it readable.</p>
+
+    <div class="celnav-row-eq3">
+      <div class="celnav-field">
+        <label class="wm-info-label">Date (UTC)</label>
+        <input type="date" class="mqtt-search" id="starchart-date">
+      </div>
+      <div class="celnav-field">
+        <label class="wm-info-label">Time (UTC)</label>
+        <input type="time" class="mqtt-search" id="starchart-time" step="1">
+      </div>
+      <div class="celnav-field">
+        <button class="wm-btn wm-btn-manual" onclick="starchartUseNow()">Use Now</button>
+      </div>
+    </div>
+
+    <div class="celnav-row-eq3">
+      <div class="celnav-field">
+        <label class="wm-info-label">DR Latitude (° + N / − S)</label>
+        <input type="number" class="mqtt-search" id="starchart-lat" step="0.0001" placeholder="e.g. 18.4300">
+      </div>
+      <div class="celnav-field">
+        <label class="wm-info-label">DR Longitude (° + E / − W)</label>
+        <input type="number" class="mqtt-search" id="starchart-lon" step="0.0001" placeholder="e.g. -64.6200">
+      </div>
+      <div class="celnav-field">
+        <button class="wm-btn wm-btn-manual" onclick="starchartUseGps()">Use Current GPS</button>
+      </div>
+    </div>
+
+    <div class="celnav-row-center">
+      <div class="celnav-field">
+        <button class="wm-btn wm-btn-start" onclick="starchartGenerate()">Preview This Moment</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="modal-overlay" id="sextant-howto-modal" onclick="closeSextantHowtoModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">📖</span>
+        <span>How to Use a Sextant</span>
+      </div>
+      <button class="modal-close" onclick="closeSextantHowtoModal()">×</button>
+    </div>
+
+    <div class="sextant-howto-subhead">Anatomy</div>
+    <svg class="sextant-howto-diagram" viewBox="-100 0 780 390" xmlns="http://www.w3.org/2000/svg">
+      <path d="M480,60 L140,190 L170,330 L470,330 L500,200 Z" fill="#0d1f38" stroke="#4a5f7a" stroke-width="2"/>
+      <path d="M170,330 Q320,345 470,330" fill="none" stroke="#8fa3bd" stroke-width="2"/>
+      <g stroke="#8fa3bd" stroke-width="1.5">
+        <line x1="170" y1="330" x2="170" y2="338"/>
+        <line x1="250" y1="339" x2="250" y2="347"/>
+        <line x1="320" y1="343" x2="320" y2="351"/>
+        <line x1="395" y1="339" x2="395" y2="347"/>
+        <line x1="470" y1="330" x2="470" y2="338"/>
+      </g>
+      <text x="170" y="352" font-size="10" fill="#6b82a0" text-anchor="middle">0°</text>
+      <text x="320" y="365" font-size="10" fill="#6b82a0" text-anchor="middle">60°</text>
+      <text x="470" y="352" font-size="10" fill="#6b82a0" text-anchor="middle">120°</text>
+      <rect x="495" y="205" width="45" height="90" rx="10" fill="#1a2438" stroke="#4a5f7a" stroke-width="2"/>
+      <rect x="60" y="183" width="90" height="16" rx="6" fill="#1a2438" stroke="#4a5f7a" stroke-width="2"/>
+      <circle cx="150" cy="191" r="9" fill="none" stroke="#8fa3bd" stroke-width="2"/>
+      <line x1="480" y1="60" x2="330" y2="322" stroke="#e0e6f0" stroke-width="2.5"/>
+      <circle cx="480" cy="60" r="6" fill="#8fa3bd"/>
+      <circle cx="330" cy="322" r="13" fill="#1a2438" stroke="#8fa3bd" stroke-width="2"/>
+      <g transform="rotate(-25 465 80)">
+        <rect x="460" y="63" width="10" height="34" fill="#4a9fd4" stroke="#2d6a94" stroke-width="1"/>
+      </g>
+      <g transform="rotate(-12 318 175)">
+        <rect x="313" y="155" width="10" height="20" fill="#4a9fd4" stroke="#2d6a94" stroke-width="1"/>
+        <rect x="313" y="175" width="10" height="20" fill="none" stroke="#8fa3bd" stroke-width="1.5"/>
+      </g>
+      <g fill="#c9a35a" stroke="#8a7238" stroke-width="1">
+        <rect x="424" y="38" width="24" height="6" rx="1"/>
+        <rect x="418" y="47" width="24" height="6" rx="1"/>
+        <rect x="412" y="56" width="24" height="6" rx="1"/>
+      </g>
+      <g stroke="#3a4a6a" stroke-width="1" fill="none">
+        <line x1="465" y1="80" x2="565" y2="55"/>
+        <line x1="430" y1="50" x2="565" y2="92"/>
+        <line x1="318" y1="175" x2="70" y2="135"/>
+        <line x1="150" y1="191" x2="35" y2="225"/>
+        <line x1="427" y1="152" x2="565" y2="150"/>
+        <line x1="330" y1="322" x2="430" y2="352"/>
+        <line x1="250" y1="339" x2="250" y2="355"/>
+        <line x1="517" y1="250" x2="565" y2="270"/>
+      </g>
+      <text x="570" y="52" font-size="12" font-weight="600" fill="#e0e6f0">Index Mirror</text>
+      <text x="570" y="65" font-size="10" fill="#6b82a0">rotates with index arm</text>
+      <text x="570" y="89" font-size="12" font-weight="600" fill="#e0e6f0">Shade Glasses</text>
+      <text x="570" y="102" font-size="10" fill="#6b82a0">swing in front of mirrors</text>
+      <text x="65" y="128" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="end">Horizon Mirror</text>
+      <text x="65" y="141" font-size="10" fill="#6b82a0" text-anchor="end">half-silvered, half clear glass</text>
+      <text x="30" y="220" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="end">Telescope</text>
+      <text x="570" y="147" font-size="12" font-weight="600" fill="#e0e6f0">Index Arm</text>
+      <text x="435" y="358" font-size="12" font-weight="600" fill="#e0e6f0">Micrometer Drum</text>
+      <text x="435" y="371" font-size="10" fill="#6b82a0">fine reading, arcminutes</text>
+      <text x="250" y="367" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="middle">Arc</text>
+      <text x="570" y="274" font-size="12" font-weight="600" fill="#e0e6f0">Handle</text>
+    </svg>
+    <p class="sextant-howto-caption">Simplified side-view schematic — proportions are illustrative, not to scale.</p>
+
+    <div class="sextant-howto-subhead">Why it works: double reflection</div>
+    <svg class="sextant-howto-diagram" viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg">
+      <line x1="40" y1="190" x2="560" y2="190" stroke="#3db87a" stroke-width="1.5" stroke-dasharray="1,0"/>
+      <g stroke="#3db87a" stroke-width="1.5">
+        <line x1="50" y1="196" x2="60" y2="188"/>
+        <line x1="75" y1="196" x2="85" y2="188"/>
+        <line x1="100" y1="196" x2="110" y2="188"/>
+      </g>
+      <line x1="100" y1="40" x2="170" y2="90" stroke="#e8a030" stroke-width="2"/>
+      <line x1="170" y1="90" x2="330" y2="183" stroke="#e8a030" stroke-width="2"/>
+      <line x1="330" y1="183" x2="560" y2="190" stroke="#e8a030" stroke-width="2"/>
+      <line x1="330" y1="197" x2="560" y2="190" stroke="#3db87a" stroke-width="1.5"/>
+      <circle cx="100" cy="40" r="5" fill="#e8a030"/>
+      <line x1="155" y1="75" x2="185" y2="105" stroke="#4a9fd4" stroke-width="5"/>
+      <line x1="330" y1="175" x2="330" y2="190" stroke="#4a9fd4" stroke-width="5"/>
+      <line x1="330" y1="190" x2="330" y2="205" stroke="#8fa3bd" stroke-width="2.5"/>
+      <circle cx="560" cy="190" r="6" fill="#e0e6f0"/>
+      <path d="M300,190 A30,30 0 0 0 313,167" fill="none" stroke="#e8a030" stroke-width="1.5"/>
+      <text x="295" y="163" font-size="13" font-weight="700" fill="#e8a030">Hs</text>
+      <text x="15" y="15" font-size="12" font-weight="600" fill="#e0e6f0">Celestial body</text>
+      <text x="15" y="28" font-size="10" fill="#6b82a0">(Sun / star)</text>
+      <text x="105" y="58" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="end">Index Mirror</text>
+      <text x="105" y="71" font-size="10" fill="#6b82a0" text-anchor="end">movable</text>
+      <text x="330" y="230" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="middle">Horizon Mirror</text>
+      <text x="330" y="243" font-size="10" fill="#6b82a0" text-anchor="middle">fixed — half-silvered</text>
+      <text x="90" y="212" font-size="11" fill="#3db87a" text-anchor="middle">Horizon (direct view)</text>
+      <text x="595" y="165" font-size="12" font-weight="600" fill="#e0e6f0" text-anchor="end">Eye</text>
+      <text x="595" y="178" font-size="10" fill="#6b82a0" text-anchor="end">(through telescope)</text>
+    </svg>
+    <p class="sextant-howto-caption">The body's image (amber path, reflected twice) and the horizon (green, seen straight through the clear half of the horizon mirror) arrive at the eye along the same line of sight — so you see them superimposed, and Hs is read directly off the arc when they touch. Rotating the index mirror by an angle θ shifts the reflected image by 2θ, which is why the arc only spans ~60–70° of actual metal but is graduated to read altitudes up to ~120°.</p>
+
+    <div class="sextant-howto-subhead">Taking a sight</div>
+    <ol class="sextant-howto-steps">
+      <li><b>Check the index correction (IC) first.</b> Set the micrometer drum to 0°00' and sight the horizon. If the direct and reflected horizon lines don't form one continuous line, turn the drum until they do, then read the arc — if that reading is on the arc (past zero), it's a positive correction; if it's off the arc (before zero), it's negative. Enter that signed value into the calculator's "Index Correction" field each session, since it can drift.</li>
+      <li><b>For a Sun sight, swing a shade glass in front of both mirrors</b> before looking through the telescope — never look at the Sun's direct or reflected image unshaded. Stars and planets need no shading.</li>
+      <li><b>Sight the horizon</b> directly below where the body will appear, then swing the index arm out along the arc until the body's reflection shows up in the horizon mirror.</li>
+      <li><b>Bring the image down to the horizon</b> with the micrometer drum: for the Sun or Moon, land the <i>lower limb</i> (bottom edge) just tangent to the horizon (upper limb if the lower is obscured — set "Limb" accordingly below); for a star or planet, bring its center exactly onto the horizon.</li>
+      <li><b>Rock the sextant</b> a few degrees side to side around the sighting axis — the reflected image will swing through a shallow arc. The correct reading is at the bottom of that swing, where the body just grazes the horizon; this confirms the sextant is truly vertical.</li>
+      <li><b>Freeze the moment.</b> The instant the body touches the horizon at the bottom of the rock, note the UTC time to the second (GHA moves ~15' per minute) and read Hs — whole degrees off the arc, minutes off the micrometer drum.</li>
+      <li><b>Feed it into the sextant calculator</b> — Hs (deg + min), limb, index correction, height of eye, the UTC date/time of the sight, and your DR position.</li>
+    </ol>
+
+    <div class="sextant-howto-subhead">Star sights</div>
+    <ol class="sextant-howto-steps">
+      <li><b>Work in nautical twilight</b> — the ~20–30 minute window (roughly 6–12° sun below the horizon) when the horizon is still lit enough to see clearly but the sky is dark enough for 2nd-magnitude stars to show. Evening twilight starts right after sunset; morning twilight ends right before sunrise. Outside that window you'll have one or the other, not both.</li>
+      <li><b>Pre-plan which stars you'll shoot</b> before the sky darkens — once it's dark enough to see faint stars, the horizon is often too dark to sight against. Use a star finder (e.g. Pub. 2102-D) or simply recognize bright, well-known stars/constellations, and note each one's rough compass bearing so you can find it quickly by swinging the sextant to that heading with the arm near 0°.</li>
+      <li><b>No shade glasses</b> are needed for stars or planets — swing them clear of the light path entirely.</li>
+      <li><b>Bring each star's point of light exactly onto the horizon</b> (there's no limb to choose, unlike the Sun or Moon), rock the sextant to confirm vertical as usual, and log Hs and the UTC time to the second for each one.</li>
+      <li><b>Shoot 3+ stars spread roughly 120° apart in azimuth</b> if you can — three well-spaced lines of position cross to give a small "cocked hat" fix instead of just one line, and errors in any single sight are much easier to spot. Work fast: twilight is short and each star's line is only good for the instant you took it.</li>
+      <li><b>Feed each sight into the calculator separately</b> — same Hs / limb ("none" for a star) / IC / height-of-eye / UTC time / DR fields as a Sun sight — and plot the resulting intercepts from the same DR position to build the fix.</li>
+    </ol>
+
+    <div class="sextant-howto-subhead">Sun sights</div>
+    <ol class="sextant-howto-steps">
+      <li><b>A single Sun sight gives one line of position (LOP)</b>, not a fixed point — it only tells you you're somewhere along a line perpendicular to the Sun's azimuth. Two Sun sights hours apart (e.g. mid-morning and mid-afternoon), advanced to a common time along your DR track, cross to form a running fix.</li>
+      <li><b>Use lower limb</b> (bottom edge tangent to the horizon) unless it's obscured by cloud, in which case use upper limb and set "Limb" to upper in the calculator — the semi-diameter correction flips sign accordingly.</li>
+      <li><b>For a noon sight (Local Apparent Noon), latitude falls out directly</b> — no sight reduction tables needed. Starting a few minutes before your estimated LAN (roughly when the Sun crosses your meridian, bearing due north or south of you), take repeated sights as the Sun climbs: Hs will keep increasing, pause at its peak, then start to fall. The highest reading, right at the pause, is Ho at meridian passage. Compute zenith distance <b>z = 90° − Ho</b>, and name it opposite the Sun's bearing at that instant (Sun bearing south of you ⇒ name z "north", and vice versa). Then: same name as Dec → <b>Lat = z + Dec</b>; contrary names → <b>Lat = z − Dec</b>, taking the name of whichever of z/Dec is larger.</li>
+      <li><b>Log the exact UTC time</b> for a regular (non-noon) Sun line just like a star — GHA moves fast enough (~15'/min) that a 30-second timing error shifts the LOP by about 7' (7nm).</li>
+    </ol>
+
+    <div class="sextant-howto-subhead">Reducing a sight by hand</div>
+    <p class="sextant-howto-caption">This is exactly what the calculator below automates — worth knowing so you can still get a fix with nothing but the Nautical Almanac, Pub. 249 (linked below), and a calculator/pencil if the boat's electronics ever fail.</p>
+    <ol class="sextant-howto-steps">
+      <li><b>Sextant altitude (Hs) → Apparent altitude (Ha):</b> apply index correction (sign as observed in the IC check) and subtract dip, since the horizon appears lower than true because you're standing above it: <b>Ha = Hs + IC − Dip</b>. Dip ≈ 0.97'×√(height of eye in feet), or read it straight from the dip table inside the Nautical Almanac's front cover.</li>
+      <li><b>Apparent altitude (Ha) → Observed altitude (Ho):</b> apply the altitude corrections for the body: <b>Ho = Ha − Refraction ± Semi-diameter + Parallax</b>. Refraction (always subtracted) comes from a refraction table indexed by Ha — largest near the horizon (~34' at 0°), negligible near the zenith. For the Sun, add semi-diameter for a lower-limb sight or subtract it for upper-limb (~16', tabulated daily in the Almanac since it varies slightly with Earth-Sun distance through the year), plus the small (&lt;0.2') horizontal parallax correction. Stars need neither SD nor parallax — they're effectively point sources at infinite distance.</li>
+      <li><b>Look up the body's position:</b> from the Nautical Almanac's daily pages, read GHA and Dec for the Sun (or GHA Aries plus the star's tabulated SHA, for a star) at the sight's UTC hour, then interpolate for the minutes/seconds past the hour using the back-of-book increments table.</li>
+      <li><b>GHA → Local Hour Angle (LHA):</b> <b>LHA = GHA + east longitude</b>, or <b>LHA = GHA − west longitude</b> (add 360° first if the result would be negative). LHA is how far the body has traveled west of your meridian.</li>
+      <li><b>Look up the computed altitude and azimuth (Hc/Zn)</b> in Pub. 249 using your DR latitude, the body's declination, and LHA as the three table arguments, interpolating for minutes of declination — this is exactly what the sight reduction tables linked below are for, so you don't have to solve the spherical triangle by trigonometry directly (though if you want to: <b>sin Hc = sin(Lat)·sin(Dec) + cos(Lat)·cos(Dec)·cos(LHA)</b>, with Zn from the matching four-quadrant azimuth formula).</li>
+      <li><b>Compare Ho to Hc — the intercept:</b> <b>Intercept = (Ho − Hc) × 60</b>, in nautical miles (1' of arc = 1nm). If Ho &gt; Hc you're closer to the body than the DR position, so plot the intercept <i>toward</i> Zn from the DR point; if Ho &lt; Hc, plot it <i>away</i> from Zn. Draw the line of position through that plotted point, perpendicular to the Zn bearing — your position is somewhere on it. Cross two or more LOPs (different bodies, or the same body re-shot later and advanced along your track) to get a fix.</li>
+    </ol>
+  </div>
+  </div>
+
+  <div class="flow-wrap">
+    <div class="section">Pilot Charts — Atlas of Pilot Charts, North Atlantic (NGA Pub. 106)</div>
+    <p class="reference-doc-note">Monthly climatological charts (wind, currents, wave heights, pressure, storm tracks) covering the Gulf of Mexico and Caribbean Sea. Opens the PDF in a new tab.</p>
+    <div class="reference-doc-grid">
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jan.pdf" target="_blank">January</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_feb.pdf" target="_blank">February</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_mar.pdf" target="_blank">March</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_apr.pdf" target="_blank">April</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_may.pdf" target="_blank">May</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jun.pdf" target="_blank">June</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jul.pdf" target="_blank">July</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_aug.pdf" target="_blank">August</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_sep.pdf" target="_blank">September</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_oct.pdf" target="_blank">October</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_nov.pdf" target="_blank">November</a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_dec.pdf" target="_blank">December</a>
+    </div>
+  </div>
+  <div class="flow-wrap">
+    <div class="section">Sight Reduction Tables — Pub. 249 (Sight Reduction Tables for Air Navigation)</div>
+    <p class="reference-doc-note">NGA's simplified sight reduction tables -- solve the celestial triangle by hand from a sextant altitude and DR position. Opens the PDF in a new tab.</p>
+    <div class="reference-doc-grid">
+      <a class="wm-btn wm-btn-manual" href="/api/reference/celestial_navigation/Pub249_Vol1.pdf" target="_blank">Vol. 1 — Selected Stars<br><span class="reference-doc-sub">All latitudes</span></a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/celestial_navigation/Pub249_Vol2.pdf" target="_blank">Vol. 2 — Sun, Moon, Planets<br><span class="reference-doc-sub">Latitude 0°–40°</span></a>
+      <a class="wm-btn wm-btn-manual" href="/api/reference/celestial_navigation/Pub249_Vol3.pdf" target="_blank">Vol. 3 — Sun, Moon, Planets<br><span class="reference-doc-sub">Latitude 39°–89°</span></a>
+    </div>
+  </div>
+
+  <div class="flow-wrap">
+    <div class="section">
+      <span>Sextant Sight Calculator</span>
+      <button class="wm-btn wm-btn-manual" onclick="openSextantHowtoModal()">📖 View Instructions</button>
+    </div>
+
+    <div class="celnav-two-col">
+      <div class="celnav-col">
+        <p class="reference-doc-note">Reduces a sextant sight to a line of position -- fully offline, no network connection needed. GHA/declination for the Sun and the 57 standard navigational stars, plus dip, refraction, parallax, and semi-diameter corrections, are all computed locally.</p>
+
+        <div class="celnav-form-grid">
+          <div class="celnav-field">
+            <label class="wm-info-label">Date (UTC)</label>
+            <input type="date" class="mqtt-search" id="celnav-date">
+          </div>
+          <div class="celnav-field">
+            <label class="wm-info-label">Time (UTC)</label>
+            <input type="time" class="mqtt-search" id="celnav-time" step="1">
+          </div>
+          <div class="celnav-field">
+            <button class="wm-btn wm-btn-manual" onclick="celnavUseNow()">Use Now</button>
+          </div>
+        </div>
+
+        <div class="celnav-form-grid">
+          <div class="celnav-field">
+            <label class="wm-info-label">DR Latitude (° + N / − S)</label>
+            <input type="number" class="mqtt-search" id="celnav-lat" step="0.0001" placeholder="e.g. 18.4300">
+          </div>
+          <div class="celnav-field">
+            <label class="wm-info-label">DR Longitude (° + E / − W)</label>
+            <input type="number" class="mqtt-search" id="celnav-lon" step="0.0001" placeholder="e.g. -64.6200">
+          </div>
+          <div class="celnav-field">
+            <button class="wm-btn wm-btn-manual" onclick="celnavUseGps()">Use Current GPS</button>
+          </div>
+        </div>
+
+        <div class="celnav-form-grid">
+          <div class="celnav-field" style="flex:2;min-width:220px">
+            <label class="wm-info-label">Celestial Body</label>
+            <select class="mqtt-search" id="celnav-body" disabled onchange="celnavOnBodyChange()">
+              <option>Fetch bodies first</option>
+            </select>
+          </div>
+          <div class="celnav-field">
+            <button class="wm-btn wm-btn-manual" onclick="celnavFetchBodies()">Fetch Bodies</button>
+          </div>
+        </div>
+
+        <div class="celnav-form-grid">
+          <div class="celnav-field">
+            <label class="wm-info-label">Sextant Altitude Hs (°)</label>
+            <input type="number" class="mqtt-search" id="celnav-hs-deg" step="1" placeholder="45">
+          </div>
+          <div class="celnav-field">
+            <label class="wm-info-label">Hs (')</label>
+            <input type="number" class="mqtt-search" id="celnav-hs-min" step="0.1" placeholder="30.0">
+          </div>
+          <div class="celnav-field">
+            <label class="wm-info-label">Limb</label>
+            <select class="mqtt-search" id="celnav-limb">
+              <option value="lower">Lower</option>
+              <option value="upper">Upper</option>
+              <option value="none">N/A (star/planet)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="celnav-form-grid">
+          <div class="celnav-field">
+            <label class="wm-info-label">Index Correction (')</label>
+            <input type="number" class="mqtt-search" id="celnav-ic" step="0.1" value="0">
+          </div>
+          <div class="celnav-field">
+            <label class="wm-info-label">Height of Eye (ft)</label>
+            <input type="number" class="mqtt-search" id="celnav-height" step="0.5" value="8">
+          </div>
+          <div class="celnav-field">
+            <button class="wm-btn wm-btn-start" onclick="celnavCalculate()">Calculate</button>
+          </div>
+        </div>
+
+        <div class="celnav-results" id="celnav-results" style="display:none">
+          <div class="chart-me-row"><span>Dip</span><span id="celnav-r-dip">--</span></div>
+          <div class="chart-me-row"><span>Apparent Altitude (Ha)</span><span id="celnav-r-ha">--</span></div>
+          <div class="chart-me-row"><span>Total Correction</span><span id="celnav-r-corr">--</span></div>
+          <div class="chart-me-row"><span>Observed Altitude (Ho)</span><span id="celnav-r-ho">--</span></div>
+          <div class="chart-me-divider"></div>
+          <div class="chart-me-row"><span>GHA</span><span id="celnav-r-gha">--</span></div>
+          <div class="chart-me-row"><span>Declination</span><span id="celnav-r-dec">--</span></div>
+          <div class="chart-me-row"><span>Computed Altitude (Hc)</span><span id="celnav-r-hc">--</span></div>
+          <div class="chart-me-divider"></div>
+          <div class="chart-me-row"><span>Intercept</span><span id="celnav-r-intercept">--</span></div>
+          <div class="chart-me-row"><span>Azimuth (Zn) to plot</span><span id="celnav-r-zn">--</span></div>
+        </div>
+      </div>
+
+      <div class="celnav-col-chart">
+        <div class="starchart-svg-wrap" id="starchart-svg-wrap" onclick="openStarchartModal()" title="Tap to enlarge"></div>
       </div>
     </div>
   </div>
@@ -3674,6 +4032,16 @@ function closeBilgeModalOutside(e) {
   if (e.target === document.getElementById('bilge-modal')) closeBilgeModal();
 }
 
+function openSextantHowtoModal() {
+  document.getElementById('sextant-howto-modal').classList.add('open');
+}
+function closeSextantHowtoModal() {
+  document.getElementById('sextant-howto-modal').classList.remove('open');
+}
+function closeSextantHowtoModalOutside(e) {
+  if (e.target === document.getElementById('sextant-howto-modal')) closeSextantHowtoModal();
+}
+
 // ─── Modal: node popups ───────────────────────────────────────────────────────
 function openNodeModal(nodeKey) {
   const def = NODE_DEFS[nodeKey];
@@ -5346,8 +5714,7 @@ let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, s
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
 let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
-let chartOChartsLayer = null;   // created once /api/charts/ocharts/meta resolves — see loadOChartsBase()
-let chartActiveBaseLayer = null; // whichever of the three is currently attached to the map
+let chartActiveBaseLayer = null; // whichever of the two is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
 // marks; a simple marker only needs the first for a representative tint.
@@ -5499,7 +5866,7 @@ function chartRecenter() {
 function updateChartBase() {
   const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
   const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
-  const next = { Chart: chartNcdsLayer, OCharts: chartOChartsLayer, Streets: chartStreetsLayer }[source];
+  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
   if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
   if (next !== chartActiveBaseLayer) {
     if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
@@ -5535,6 +5902,8 @@ async function initChartMap() {
   chartMap.on('contextmenu', handleChartMapContextMenu);
   chartMap.on('mousemove', updateChartCursorReadouts);
   chartMap.on('mouseout', hideChartCursorReadouts);
+  chartMap.on('move', updateChartScale);
+  updateChartScale();
 
   // Base layer options — same tile sources as the AIS tab. "Chart" (NCDS)
   // isn't ready to attach until loadNcdsBase() resolves below, so switching
@@ -5641,7 +6010,6 @@ async function initChartMap() {
   });
 
   await loadNcdsBase();
-  await loadOChartsBase();
   loadMobMarks();
   loadWindVelocity().then(checkWindRegionForViewport); // in case the chart opened outside WIND_HOME_BBOX
   try {
@@ -6528,36 +6896,10 @@ async function loadNcdsBase() {
   }
 }
 
-// Siloed O-Charts base layer -- own tile source (/api/charts/ocharts/*, see the
-// "O-Charts (siloed addition)" block in dashboard_api.py), same load pattern as
-// loadNcdsBase() above. Only covers the USVI/BVI region this session's mosaic
-// was built for; outside chartOChartsLayer.options.bounds, tiles simply 404.
-async function loadOChartsBase() {
-  try {
-    const res = await fetch('/api/charts/ocharts/meta');
-    const d = await res.json();
-    if (!d.available) {
-      console.warn('O-Charts base chart: no regions built');
-      return;
-    }
-    chartOChartsLayer = L.tileLayer('/api/charts/ocharts/tiles/{z}/{x}/{y}.png', {
-      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxNativeZoom,
-      bounds: [[d.bounds.south, d.bounds.west], [d.bounds.north, d.bounds.east]],
-    });
-    let loaded = 0, errored = 0;
-    chartOChartsLayer.on('tileload', () => { loaded++; });
-    chartOChartsLayer.on('tileerror', e => { errored++; console.error('O-Charts tile failed:', e.coords, e.error); });
-    const selectedSource = document.querySelector('#chart-base-source input:checked');
-    if (selectedSource && selectedSource.value === 'OCharts') updateChartBase();
-  } catch (e) {
-    console.error('O-Charts base layer failed to load:', e);
-  }
-}
-
 // Wind overlay -- siloed addition, /api/wind/manifest + /api/wind/velocity in
 // dashboard_api.py (NOAA GFS, see wind_grid.py). Same "attach only if its
 // checkbox is still checked once the async fetch resolves" pattern as
-// loadOChartsBase() above -- not part of chartToggleLayers since
+// loadNcdsBase() above -- not part of chartToggleLayers since
 // leaflet-velocity needs its data up front at construction time, unlike the
 // other groups which are empty L.layerGroup()s that get populated
 // incrementally.
@@ -6702,6 +7044,7 @@ async function loadWindVelocity() {
   }
 }
 
+
 // Cursor readouts -- the lat/lon half is unrelated to wind (chart-cursor-latlon
 // existed before this feature), but it's wired through the same mousemove/
 // mouseout pair as the wind speed tooltip below it, so both live here rather
@@ -6730,6 +7073,48 @@ function updateChartCursorReadouts(e) {
 function hideChartCursorReadouts() {
   document.getElementById('chart-cursor-latlon').style.display = 'none';
   document.getElementById('chart-wind-tooltip').style.display = 'none';
+}
+
+// Scale bar -- same ground-distance-per-pixel algorithm Leaflet's own
+// L.Control.Scale uses (measure the map's current width in meters at the
+// viewport's center latitude, then pick the largest "nice" round number that
+// fits within a max pixel width), just in nm/ft instead of km/mi to match
+// how the rest of the app already reports distance (destination distance,
+// anchor swing radius, etc.).
+const CHART_SCALE_MAX_WIDTH_PX = 100;
+function chartScaleRoundNum(num) {
+  const pow10 = Math.pow(10, (Math.floor(num) + '').length - 1);
+  const d = num / pow10;
+  const nice = d >= 10 ? 10 : d >= 5 ? 5 : d >= 3 ? 3 : d >= 2 ? 2 : 1;
+  return pow10 * nice;
+}
+function updateChartScale() {
+  if (!chartMap) return;
+  const bounds = chartMap.getBounds();
+  const centerLat = bounds.getCenter().lat;
+  const halfWorldMeters = 6378137 * Math.PI * Math.cos(centerLat * Math.PI / 180);
+  const meters = halfWorldMeters * (bounds.getEast() - bounds.getWest()) / 180;
+  const size = chartMap.getSize();
+  if (size.x <= 0 || !isFinite(meters) || meters <= 0) return;
+  const maxMeters = meters * (CHART_SCALE_MAX_WIDTH_PX / size.x);
+
+  const FEET_PER_METER = 3.2808399;
+  const FEET_PER_NM = 6076.12;
+  const maxFeet = maxMeters * FEET_PER_METER;
+  const bar = document.getElementById('chart-scale-bar');
+  const label = document.getElementById('chart-scale-label');
+  let text, ratio;
+  if (maxFeet > FEET_PER_NM) {
+    const nm = chartScaleRoundNum(maxFeet / FEET_PER_NM);
+    text = `${nm} nm`;
+    ratio = (nm * FEET_PER_NM) / maxFeet;
+  } else {
+    const feet = chartScaleRoundNum(maxFeet);
+    text = `${feet} ft`;
+    ratio = feet / maxFeet;
+  }
+  bar.style.width = `${Math.round(CHART_SCALE_MAX_WIDTH_PX * ratio)}px`;
+  label.textContent = text;
 }
 
 // MOB (man overboard) marks -- siloed addition, own /api/mob/* routes in
@@ -6857,8 +7242,424 @@ if (window.Notification && Notification.permission === 'default') {
   Notification.requestPermission(); // ask early so permission's resolved by the time an arrival happens
 }
 
+// ─── Sextant sight calculator (siloed addition) ─────────────────────────────
+// Fully offline -- no network call. GHA/Dec for the Sun and the 57 standard
+// navigational stars, plus the sight-reduction (Hc/Zn) and refraction math,
+// are all computed client-side from standard low-precision Astronomical
+// Almanac formulas (accurate to ~2050) and a fixed star catalog. Every
+// formula here was cross-checked against the US Naval Observatory's live
+// Celestial Navigation API across multiple dates/positions before being
+// wired in (Sun position/GMST within 0.3', sight reduction exact, Bennett
+// refraction within 0.15' even below 10° altitude, Sun SD/parallax within
+// 0.001'). Moon and planets are intentionally NOT included -- an offline
+// lunar position needs a noticeably more involved perturbation theory than
+// the Sun's, and getting that wrong in a tool whose entire point is "works
+// when nothing else does" is worse than just not offering it; Sun + stars
+// covers the overwhelming majority of real sights.
+//
+// SHA/Dec for the 57 stars below were themselves derived from the USNO API
+// (SHA is time-invariant to within precession, ~0.01°/year) by sampling 12
+// different date/time/position combinations and averaging -- not hand-typed
+// from a table -- to avoid transcription error.
+const NAV_STARS = [
+  {n:'ACHERNAR',sha:335.31,dec:-57.1},
+  {n:'ACRUX',sha:172.99,dec:-63.25},
+  {n:'ALDEBARAN',sha:290.63,dec:16.56},
+  {n:'ALTAIR',sha:61.97,dec:8.94},
+  {n:'ANTARES',sha:112.24,dec:-26.49},
+  {n:'ARCTURUS',sha:145.78,dec:19.05},
+  {n:'Acamar',sha:315.18,dec:-40.19},
+  {n:'Adhara',sha:255.08,dec:-29.0},
+  {n:'Alioth',sha:166.2,dec:55.82},
+  {n:'Alkaid',sha:152.85,dec:49.18},
+  {n:'Alnair',sha:27.51,dec:-46.83},
+  {n:'Alnilam',sha:275.61,dec:-1.18},
+  {n:'Alphard',sha:217.78,dec:-8.77},
+  {n:'Alphecca',sha:126.04,dec:26.63},
+  {n:'Alpheratz',sha:357.55,dec:29.24},
+  {n:'Ankaa',sha:353.09,dec:-42.16},
+  {n:'Atria',sha:107.12,dec:-69.08},
+  {n:'Avior',sha:234.24,dec:-59.59},
+  {n:'BETELGEUSE',sha:270.84,dec:7.41},
+  {n:'Bellatrix',sha:278.36,dec:6.38},
+  {n:'CANOPUS',sha:263.87,dec:-52.7},
+  {n:'CAPELLA',sha:280.33,dec:46.02},
+  {n:'DENEB',sha:49.41,dec:45.38},
+  {n:'Denebola',sha:182.4,dec:14.42},
+  {n:'Diphda',sha:348.76,dec:-17.84},
+  {n:'Dubhe',sha:193.67,dec:61.61},
+  {n:'Elnath',sha:278.0,dec:28.63},
+  {n:'Eltanin',sha:90.69,dec:51.49},
+  {n:'Enif',sha:33.62,dec:10.0},
+  {n:'FOMALHAUT',sha:15.21,dec:-29.48},
+  {n:'Gacrux',sha:171.84,dec:-57.26},
+  {n:'Gienah',sha:175.71,dec:-17.69},
+  {n:'HADAR',sha:148.57,dec:-60.5},
+  {n:'Hamal',sha:327.82,dec:23.59},
+  {n:'Kaus Australis',sha:83.51,dec:-34.37},
+  {n:'Kochab',sha:137.34,dec:74.05},
+  {n:'Markab',sha:13.47,dec:15.35},
+  {n:'Menkar',sha:314.08,dec:4.2},
+  {n:'Menkent',sha:147.94,dec:-36.5},
+  {n:'Miaplacidus',sha:221.65,dec:-69.82},
+  {n:'Mirfak',sha:308.44,dec:49.95},
+  {n:'Nunki',sha:75.76,dec:-26.26},
+  {n:'POLARIS',sha:313.13,dec:89.37},
+  {n:'POLLUX',sha:243.26,dec:27.96},
+  {n:'PROCYON',sha:244.83,dec:5.16},
+  {n:'Peacock',sha:53.05,dec:-56.65},
+  {n:'REGULUS',sha:207.56,dec:11.84},
+  {n:'RIGEL',sha:281.04,dec:-8.17},
+  {n:'RIGIL KENTAURUS',sha:139.65,dec:-60.95},
+  {n:'Rasalhague',sha:95.95,dec:12.54},
+  {n:'SIRIUS',sha:258.42,dec:-16.75},
+  {n:'SPICA',sha:158.35,dec:-11.3},
+  {n:'Sabik',sha:102.02,dec:-15.76},
+  {n:'Schedar',sha:349.48,dec:56.68},
+  {n:'Shaula',sha:96.14,dec:-37.12},
+  {n:'Suhail',sha:222.76,dec:-43.54},
+  {n:'VEGA',sha:80.54,dec:38.81},
+  {n:'Zubenelgenubi',sha:136.91,dec:-16.15},
+];
+
+function celnavNorm360(x) { return ((x % 360) + 360) % 360; }
+
+// Julian Date from a UTC date/time-of-day pair.
+function celnavJulianDate(dateStr, timeStr) {
+  const dt = new Date(`${dateStr}T${timeStr}Z`);
+  return dt.getTime() / 86400000 + 2440587.5;
+}
+
+// GMST in degrees == GHA of Aries (the sidereal reference all star SHAs are
+// measured from). Standard Astronomical Almanac formula.
+function celnavGmstDegrees(jd) {
+  const d = jd - 2451545.0;
+  const T = d / 36525.0;
+  return celnavNorm360(280.46061837 + 360.98564736629 * d + 0.000387933 * T * T - T * T * T / 38710000.0);
+}
+
+// Low-precision Sun position (Astronomical Almanac formula, ~0.01° through
+// 2050): apparent RA/Dec plus the Earth-Sun distance needed for semi-diameter
+// and parallax.
+function celnavSunPosition(jd) {
+  const d = jd - 2451545.0;
+  const g = celnavNorm360(357.529 + 0.98560028 * d) * Math.PI / 180;
+  const q = celnavNorm360(280.459 + 0.98564736 * d);
+  const L = celnavNorm360(q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
+  const e = (23.439 - 0.00000036 * d) * Math.PI / 180;
+  const ra = celnavNorm360(Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)) * 180 / Math.PI);
+  const dec = Math.asin(Math.sin(e) * Math.sin(L)) * 180 / Math.PI;
+  const R = 1.00014 - 0.01671 * Math.cos(g) - 0.00014 * Math.cos(2 * g); // AU
+  const sdMin = 15.9945 / R;       // semi-diameter, arcmin
+  const hpDeg = 0.002444 / R;      // horizontal parallax, degrees (8.794" at 1 AU)
+  return { gha: celnavNorm360(celnavGmstDegrees(jd) - ra), dec, sdMin, hpDeg };
+}
+
+// Bennett's refraction formula -- apparent altitude (deg) in, refraction
+// (arcmin, always positive) out. Standard atmosphere; accurate to ~0.07'
+// from 0-90° and within 0.15' of the USNO tables even below 10°.
+function celnavRefractionArcmin(haDeg) {
+  return 1 / Math.tan((haDeg + 7.31 / (haDeg + 4.4)) * Math.PI / 180);
+}
+
+// Standard spherical-trig sight reduction: DR Lat/Lon + body's GHA/Dec ->
+// computed altitude (Hc) and true azimuth (Zn), both in degrees.
+function celnavSightReduction(latDeg, lonDeg, ghaDeg, decDeg) {
+  const lat = latDeg * Math.PI / 180;
+  const dec = decDeg * Math.PI / 180;
+  const lha = celnavNorm360(ghaDeg + lonDeg) * Math.PI / 180; // lonDeg: west negative, east positive
+  const sinHc = Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(lha);
+  const hc = Math.asin(sinHc) * 180 / Math.PI;
+  const y = -Math.sin(lha);
+  const x = Math.cos(lat) * Math.tan(dec) - Math.sin(lat) * Math.cos(lha);
+  const zn = celnavNorm360(Math.atan2(y, x) * 180 / Math.PI);
+  return { hc, zn };
+}
+
+let celnavBodies = null; // locally-computed body list from the last celnavFetchBodies() call
+let celnavSelectedBody = null;
+
+function celnavDegMinToDecimal(deg, min) {
+  const sign = deg < 0 ? -1 : 1;
+  return deg + sign * (min / 60);
+}
+function celnavFormatDegMin(decDeg) {
+  const sign = decDeg < 0 ? '-' : '';
+  const a = Math.abs(decDeg);
+  const d = Math.floor(a);
+  const m = (a - d) * 60;
+  return `${sign}${d}° ${m.toFixed(1)}'`;
+}
+function celnavUseNow() {
+  const now = new Date();
+  document.getElementById('celnav-date').value = now.toISOString().slice(0, 10);
+  document.getElementById('celnav-time').value = now.toISOString().slice(11, 19);
+}
+async function celnavUseGps() {
+  try {
+    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
+    const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
+    if (lat === null || lon === null) { alert('No live GPS position available'); return; }
+    document.getElementById('celnav-lat').value = parseFloat(lat).toFixed(4);
+    document.getElementById('celnav-lon').value = parseFloat(lon).toFixed(4);
+  } catch (e) {
+    alert('Failed to fetch current GPS position');
+  }
+}
+function celnavFetchBodies() {
+  const date = document.getElementById('celnav-date').value;
+  const time = document.getElementById('celnav-time').value;
+  const lat = parseFloat(document.getElementById('celnav-lat').value);
+  const lon = parseFloat(document.getElementById('celnav-lon').value);
+  if (!date || !time || isNaN(lat) || isNaN(lon)) {
+    alert('Fill in date, time, and DR position first');
+    return;
+  }
+  const select = document.getElementById('celnav-body');
+  const jd = celnavJulianDate(date, time);
+  const bodies = [];
+
+  const sun = celnavSunPosition(jd);
+  const sunReduced = celnavSightReduction(lat, lon, sun.gha, sun.dec);
+  bodies.push({
+    object: 'Sun',
+    almanac_data: { gha: sun.gha, dec: sun.dec, hc: sunReduced.hc, zn: sunReduced.zn },
+    altitude_corrections: {
+      pa: sun.hpDeg * Math.cos(sunReduced.hc * Math.PI / 180),
+      refr: -celnavRefractionArcmin(sunReduced.hc) / 60,
+      sd: sun.sdMin / 60,
+    },
+  });
+
+  const ghaAries = celnavGmstDegrees(jd);
+  for (const star of NAV_STARS) {
+    const gha = celnavNorm360(ghaAries + star.sha);
+    const reduced = celnavSightReduction(lat, lon, gha, star.dec);
+    if (reduced.hc < 0) continue; // below the horizon at this DR position/time
+    bodies.push({
+      object: star.n,
+      almanac_data: { gha, dec: star.dec, hc: reduced.hc, zn: reduced.zn },
+      altitude_corrections: { pa: 0, refr: -celnavRefractionArcmin(reduced.hc) / 60, sd: 0 },
+    });
+  }
+
+  // Sun first, then stars highest-altitude-first (a sight near the zenith
+  // has more refraction/timing uncertainty and one very low on the horizon
+  // is often obstructed, but surfacing the highest first is still the most
+  // useful default ordering for picking a good one).
+  bodies.sort((a, b) => (a.object === 'Sun' ? -1 : b.object === 'Sun' ? 1 : b.almanac_data.hc - a.almanac_data.hc));
+
+  celnavBodies = bodies;
+  select.innerHTML = celnavBodies.map((o, i) => `<option value="${i}">${o.object}${o.object !== 'Sun' ? ` (Hc ${o.almanac_data.hc.toFixed(1)}°)` : ''}</option>`).join('');
+  select.disabled = false;
+  celnavOnBodyChange();
+}
+function celnavOnBodyChange() {
+  const select = document.getElementById('celnav-body');
+  if (!celnavBodies || select.disabled) { celnavSelectedBody = null; return; }
+  celnavSelectedBody = celnavBodies[parseInt(select.value, 10)];
+  const limbSelect = document.getElementById('celnav-limb');
+  const isSunMoon = celnavSelectedBody && (celnavSelectedBody.object === 'Sun' || celnavSelectedBody.object === 'Moon');
+  limbSelect.value = isSunMoon ? 'lower' : 'none';
+}
+function celnavCalculate() {
+  if (!celnavSelectedBody) {
+    alert('Fetch bodies and pick one first');
+    return;
+  }
+  const hsDeg = parseFloat(document.getElementById('celnav-hs-deg').value);
+  const hsMin = parseFloat(document.getElementById('celnav-hs-min').value) || 0;
+  if (isNaN(hsDeg)) {
+    alert('Enter the sextant altitude (Hs)');
+    return;
+  }
+  const hs = celnavDegMinToDecimal(hsDeg, hsMin);
+  const icMin = parseFloat(document.getElementById('celnav-ic').value) || 0;
+  const heightFt = Math.max(0, parseFloat(document.getElementById('celnav-height').value) || 0);
+  const limb = document.getElementById('celnav-limb').value;
+
+  const dipMin = 0.97 * Math.sqrt(heightFt); // standard dip formula, height of eye in feet
+  const ha = hs + icMin / 60 - dipMin / 60;
+
+  const { pa, refr, sd } = celnavSelectedBody.altitude_corrections;
+  // The API's own sd sign assumes a lower-limb sight (the more common
+  // convention) -- flip just that component for an upper-limb sight rather
+  // than the whole sum, since pa/refr don't depend on which limb was used.
+  const sdSigned = limb === 'upper' ? -Math.abs(sd) : (limb === 'lower' ? Math.abs(sd) : 0);
+  const totalCorrDeg = pa + refr + sdSigned;
+
+  const ho = ha + totalCorrDeg;
+  const hc = celnavSelectedBody.almanac_data.hc;
+  const interceptMin = (ho - hc) * 60; // 1 degree of arc = 60nm, so 1' = 1nm
+  const towardAway = interceptMin >= 0 ? 'Toward' : 'Away';
+
+  setText('celnav-r-dip', `-${dipMin.toFixed(1)}'`);
+  setText('celnav-r-ha', celnavFormatDegMin(ha));
+  setText('celnav-r-corr', `${totalCorrDeg * 60 >= 0 ? '+' : ''}${(totalCorrDeg * 60).toFixed(1)}'`);
+  setText('celnav-r-ho', celnavFormatDegMin(ho));
+  setText('celnav-r-gha', celnavFormatDegMin(celnavSelectedBody.almanac_data.gha));
+  setText('celnav-r-dec', celnavFormatDegMin(celnavSelectedBody.almanac_data.dec));
+  setText('celnav-r-hc', celnavFormatDegMin(hc));
+  setText('celnav-r-intercept', `${Math.abs(interceptMin).toFixed(1)} nm ${towardAway}`);
+  setText('celnav-r-zn', `${celnavSelectedBody.almanac_data.zn.toFixed(1)}°T`);
+  document.getElementById('celnav-results').style.display = 'block';
+}
+celnavUseNow(); // seed the date/time fields with the current UTC moment at page load
+
+// ─── Star chart (siloed addition) ──────────────────────────────────────────
+// Plots which of the 57 catalog stars (plus the Sun) are above the horizon
+// for a given date/time/DR position, and roughly where -- reuses the same
+// GHA/Dec/Hc/Zn math as the sight calculator above (celnavJulianDate,
+// celnavGmstDegrees, celnavSunPosition, celnavSightReduction, NAV_STARS)
+// rather than recomputing any of it, so it stays consistent with the
+// calculator by construction. Purely a visualization; nothing here feeds
+// back into the sight-reduction fields above.
+function starchartUseNow() {
+  const now = new Date();
+  document.getElementById('starchart-date').value = now.toISOString().slice(0, 10);
+  document.getElementById('starchart-time').value = now.toISOString().slice(11, 19);
+}
+async function starchartUseGps() {
+  try {
+    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
+    const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
+    if (lat === null || lon === null) { alert('No live GPS position available'); return; }
+    document.getElementById('starchart-lat').value = parseFloat(lat).toFixed(4);
+    document.getElementById('starchart-lon').value = parseFloat(lon).toFixed(4);
+  } catch (e) {
+    alert('Failed to fetch current GPS position');
+  }
+}
+// Silent variant for the auto-refresh below -- same as "Use Now" + "Use
+// Current GPS" + "Generate" but with no alert() on a failed/missing GPS fix,
+// since this runs unattended every minute rather than from a button click.
+async function starchartAutoRefresh() {
+  starchartUseNow();
+  try {
+    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
+    const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
+    if (lat !== null && lon !== null) {
+      document.getElementById('starchart-lat').value = parseFloat(lat).toFixed(4);
+      document.getElementById('starchart-lon').value = parseFloat(lon).toFixed(4);
+    }
+  } catch (e) {
+    // no live GPS/MQTT yet -- leave whatever's already in the fields (manual
+    // entry, or blank) and just try to draw with that below
+  }
+  const lat = parseFloat(document.getElementById('starchart-lat').value);
+  const lon = parseFloat(document.getElementById('starchart-lon').value);
+  if (!isNaN(lat) && !isNaN(lon)) {
+    starchartGenerate();
+  } else {
+    starchartSetNote('No live GPS position available yet -- tap the chart, then enter a DR position and tap Preview (this keeps retrying automatically once a GPS fix comes in).');
+  }
+}
+// The status line is shown both in the compact inline chart and in the
+// enlarged modal -- keep both in sync from one place.
+function starchartSetNote(html) {
+  setText('starchart-note', html);
+  setText('starchart-note-modal', html);
+}
+function openStarchartModal() {
+  document.getElementById('starchart-modal').classList.add('open');
+}
+function closeStarchartModal() {
+  document.getElementById('starchart-modal').classList.remove('open');
+}
+function closeStarchartModalOutside(e) {
+  if (e.target === document.getElementById('starchart-modal')) closeStarchartModal();
+}
+// Azimuth/altitude -> chart x,y. Plan view from directly overhead: zenith
+// (alt 90) at center, horizon (alt 0) at the outer radius, compass north up,
+// east to the right (matches holding a chart flat and looking down at it).
+function starchartAzAltToXY(azDeg, altDeg, cx, cy, outerR) {
+  const r = Math.max(0, (90 - altDeg) / 90) * outerR;
+  const a = azDeg * Math.PI / 180;
+  return { x: cx + r * Math.sin(a), y: cy - r * Math.cos(a) };
+}
+function starchartGenerate() {
+  const date = document.getElementById('starchart-date').value;
+  const time = document.getElementById('starchart-time').value;
+  const lat = parseFloat(document.getElementById('starchart-lat').value);
+  const lon = parseFloat(document.getElementById('starchart-lon').value);
+  if (!date || !time || isNaN(lat) || isNaN(lon)) {
+    alert('Fill in date, time, and DR position first');
+    return;
+  }
+
+  const jd = celnavJulianDate(date, time);
+  const cx = 300, cy = 300, outerR = 255;
+
+  const sun = celnavSunPosition(jd);
+  const sunReduced = celnavSightReduction(lat, lon, sun.gha, sun.dec);
+
+  const ghaAries = celnavGmstDegrees(jd);
+  const stars = [];
+  for (const star of NAV_STARS) {
+    const gha = celnavNorm360(ghaAries + star.sha);
+    const reduced = celnavSightReduction(lat, lon, gha, star.dec);
+    if (reduced.hc <= 0) continue; // below the horizon -- not worth plotting
+    // The 57-star catalog above uses ALL CAPS for the ~19 first-magnitude
+    // "selected stars" and Title Case for the rest -- reuse that existing
+    // distinction to decide which get a name label on the chart.
+    stars.push({ name: star.n, alt: reduced.hc, az: reduced.zn, bright: star.n === star.n.toUpperCase() });
+  }
+
+  let twilightNote;
+  if (sunReduced.hc >= 0) twilightNote = 'Daylight — Sun up, stars not visible';
+  else if (sunReduced.hc >= -6) twilightNote = 'Civil twilight — too bright yet for most stars';
+  else if (sunReduced.hc >= -12) twilightNote = 'Nautical twilight — good window for star sights';
+  else twilightNote = 'Full darkness — stars visible, but the horizon itself may be hard to see';
+  starchartSetNote(`Sun altitude ${sunReduced.hc.toFixed(1)}° — ${twilightNote}. ${stars.length} of 57 catalog stars above the horizon.`);
+
+  // Halo behind labels that sit inside the sky circle -- a stroke in the same
+  // color as the circle's own fill -- so a name stays legible even when it
+  // lands on a ring line or near another star (which one varies sight to
+  // sight, so dodging placement per-case isn't practical).
+  const HALO = `paint-order="stroke" stroke="#0d1f38" stroke-width="3" stroke-linejoin="round"`;
+  let svg = `<svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">`;
+  svg += `<circle cx="${cx}" cy="${cy}" r="${outerR}" fill="#0d1f38" stroke="#4a5f7a" stroke-width="2"/>`;
+  for (const alt of [30, 60]) {
+    const r = ((90 - alt) / 90) * outerR;
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#2a3a5a" stroke-width="1" stroke-dasharray="3,3"/>`;
+    svg += `<text x="${cx + 4}" y="${(cy - r + 12).toFixed(1)}" font-size="10" fill="#6b82a0" ${HALO}>${alt}°</text>`;
+  }
+  svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#6b82a0"/><text x="${cx}" y="${cy - 8}" font-size="9" fill="#6b82a0" text-anchor="middle" ${HALO}>zenith</text>`;
+  for (let az = 0; az < 360; az += 30) {
+    const a = az * Math.PI / 180;
+    const x1 = cx + outerR * Math.sin(a), y1 = cy - outerR * Math.cos(a);
+    const x2 = cx + (outerR + 10) * Math.sin(a), y2 = cy - (outerR + 10) * Math.cos(a);
+    svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#4a5f7a" stroke-width="1"/>`;
+    const lx = cx + (outerR + 22) * Math.sin(a), ly = cy - (outerR + 22) * Math.cos(a);
+    const cardinal = az % 90 === 0;
+    const label = az === 0 ? 'N' : az === 90 ? 'E' : az === 180 ? 'S' : az === 270 ? 'W' : `${az}°`;
+    svg += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="${cardinal ? 14 : 10}" font-weight="${cardinal ? 700 : 400}" fill="${cardinal ? '#e0e6f0' : '#6b82a0'}" text-anchor="middle" dominant-baseline="middle">${label}</text>`;
+  }
+  if (sunReduced.hc >= 0) {
+    const p = starchartAzAltToXY(sunReduced.zn, sunReduced.hc, cx, cy, outerR);
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="#e8a030" stroke="#a86f1a" stroke-width="1.5"/>`;
+    svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 14).toFixed(1)}" font-size="11" font-weight="700" fill="#e8a030" text-anchor="middle" ${HALO}>SUN</text>`;
+  }
+  for (const s of stars) {
+    const p = starchartAzAltToXY(s.az, s.alt, cx, cy, outerR);
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${s.bright ? 4 : 2.2}" fill="${s.bright ? '#fdf1cf' : '#8fa3bd'}"/>`;
+    if (s.bright) {
+      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" font-size="10" fill="#e0e6f0" text-anchor="middle" ${HALO}>${s.name}</text>`;
+      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y + 16).toFixed(1)}" font-size="8.5" fill="#6b82a0" text-anchor="middle" ${HALO}>${s.alt.toFixed(0)}° / ${s.az.toFixed(0)}°T</text>`;
+    }
+  }
+  svg += `</svg>`;
+  document.getElementById('starchart-svg-wrap').innerHTML = svg;
+  const modalWrap = document.getElementById('starchart-svg-wrap-modal');
+  if (modalWrap) modalWrap.innerHTML = svg;
+}
+starchartAutoRefresh(); // draw the chart for right now / current GPS immediately on page load
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor', 'chart', 'weather', 'mqtt'].includes(location.hash.slice(1))
+const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor', 'chart', 'weather', 'reference', 'mqtt'].includes(location.hash.slice(1))
   ? location.hash.slice(1) : 'overview';
 showPage(initialPage);
 fetchData();
@@ -6880,6 +7681,7 @@ setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 
 setInterval(() => { if (currentPage === 'weather') fetchWindLive(); }, 2000);
 setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
 setInterval(() => { if (currentPage === 'weather') fetchWxSparklines(); }, 60000);
+setInterval(() => { if (currentPage === 'reference') starchartAutoRefresh(); }, 60000);
 fetchMarineAlerts(); // global banner — runs on every tab, not gated to currentPage === 'weather'
 setInterval(fetchMarineAlerts, 5 * 60 * 1000);
 setTimeout(() => { if (currentPage === 'electrical') buildFlow(true, false, false); }, 300);
