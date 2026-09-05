@@ -246,16 +246,27 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .reference-doc-grid{display:flex;flex-wrap:wrap;gap:10px}
 .reference-doc-grid a.wm-btn{text-decoration:none;text-align:center;line-height:1.4}
 .reference-doc-sub{font-size:11px;font-weight:400;opacity:.7}
+.pilotchart-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.pilotchart-tab{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #5a3a8a;color:#a78bfa;background:#0a0e1a;transition:filter .15s}
+.pilotchart-tab:hover{filter:brightness(1.3)}
+.pilotchart-tab.active{background:#5a3a8a;color:#f0eaff}
+.pilotchart-region-sub{color:#6b82a0;font-size:12px;margin:0 0 12px}
+.reference-doc-grid a.wm-btn .reference-doc-sub{display:block;margin-top:2px}
 .celnav-form-grid{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap}
 .celnav-field{display:flex;flex-direction:column;gap:4px;min-width:140px}
 .celnav-field .mqtt-search{width:100%}
 .celnav-results{margin-top:16px;padding-top:14px;border-top:.5px solid #1e2d4a;max-width:420px;font-size:13px}
 .celnav-results .chart-me-row span:first-child{color:#6b82a0}
 .celnav-results .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#e0e6f0}
-.starchart-svg-wrap{width:100%;max-width:520px;cursor:pointer}
+.starchart-svg-wrap{width:100%;max-width:440px;cursor:pointer}
 .starchart-svg-wrap svg{width:100%;height:auto;display:block}
-.starchart-svg-wrap-modal{margin-top:10px;text-align:center;max-width:640px;margin-left:auto;margin-right:auto}
+.modal.modal-starchart{max-width:920px}
+.starchart-svg-wrap-modal{margin-top:10px;text-align:center;max-width:840px;margin-left:auto;margin-right:auto}
 .starchart-svg-wrap-modal svg{width:100%;height:auto;display:block}
+.starchart-svg-wrap svg circle[data-star], .starchart-svg-wrap-modal svg circle[data-star]{cursor:help}
+.starchart-tooltip{position:fixed;display:none;pointer-events:none;z-index:200;background:#0f1628;border:.5px solid #4a5f7a;border-radius:8px;padding:6px 10px;font-size:12px;color:#e0e6f0;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.starchart-tooltip.starchart-tooltip-lg{font-size:17px;padding:10px 16px}
+.starchart-tooltip b{color:#fdf1cf}
 .celnav-two-col{display:flex;gap:28px;align-items:stretch;flex-wrap:wrap}
 .celnav-col{flex:1;min-width:340px}
 .celnav-col-chart{flex:1.1;min-width:360px;display:flex;align-items:flex-start;justify-content:center}
@@ -1269,50 +1280,44 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <!-- ══════════════════════════════ Reference page ══════════════════════════════ -->
 <div class="page" id="page-reference">
   <div class="modal-overlay" id="starchart-modal" onclick="closeStarchartModalOutside(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">
-        <span class="modal-icon">🌌</span>
-        <span>Star Chart</span>
-      </div>
+  <div class="modal modal-starchart">
+    <div style="display:flex;justify-content:flex-end">
       <button class="modal-close" onclick="closeStarchartModal()">×</button>
     </div>
-
-    <p class="reference-doc-note" id="starchart-note-modal">--</p>
+    <p class="reference-doc-note" id="starchart-note-modal" style="display:none">--</p>
     <div class="starchart-svg-wrap-modal" id="starchart-svg-wrap-modal"></div>
-    <p class="reference-doc-note">Center = straight overhead (zenith); outer ring = the horizon. Distance from center = how high to look, compass position = which way to point. Auto-updates every minute from live GPS/time -- only the ~19 brightest catalog stars are named to keep it readable.</p>
 
     <div class="celnav-row-eq3">
       <div class="celnav-field">
         <label class="wm-info-label">Date (UTC)</label>
-        <input type="date" class="mqtt-search" id="starchart-date">
+        <input type="date" class="mqtt-search" id="starchart-date" oninput="starchartLive=false;starchartGenerateIfReady()">
       </div>
       <div class="celnav-field">
         <label class="wm-info-label">Time (UTC)</label>
-        <input type="time" class="mqtt-search" id="starchart-time" step="1">
+        <input type="time" class="mqtt-search" id="starchart-time" step="1" oninput="starchartLive=false;starchartGenerateIfReady()">
       </div>
       <div class="celnav-field">
-        <button class="wm-btn wm-btn-manual" onclick="starchartUseNow()">Use Now</button>
+        <button class="wm-btn wm-btn-manual" onclick="starchartUseNowClicked()">Use Now</button>
       </div>
     </div>
 
     <div class="celnav-row-eq3">
       <div class="celnav-field">
         <label class="wm-info-label">DR Latitude (° + N / − S)</label>
-        <input type="number" class="mqtt-search" id="starchart-lat" step="0.0001" placeholder="e.g. 18.4300">
+        <input type="number" class="mqtt-search" id="starchart-lat" step="0.0001" placeholder="e.g. 18.4300" oninput="starchartGenerateIfReady()">
       </div>
       <div class="celnav-field">
         <label class="wm-info-label">DR Longitude (° + E / − W)</label>
-        <input type="number" class="mqtt-search" id="starchart-lon" step="0.0001" placeholder="e.g. -64.6200">
+        <input type="number" class="mqtt-search" id="starchart-lon" step="0.0001" placeholder="e.g. -64.6200" oninput="starchartGenerateIfReady()">
       </div>
       <div class="celnav-field">
-        <button class="wm-btn wm-btn-manual" onclick="starchartUseGps()">Use Current GPS</button>
+        <button class="wm-btn wm-btn-manual" onclick="starchartUseGpsClicked()">Use Current GPS</button>
       </div>
     </div>
 
     <div class="celnav-row-center">
       <div class="celnav-field">
-        <button class="wm-btn wm-btn-start" onclick="starchartGenerate()">Preview This Moment</button>
+        <button class="wm-btn wm-btn-start" onclick="starchartPreviewClicked()">Preview This Moment</button>
       </div>
     </div>
   </div>
@@ -1459,22 +1464,11 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 
   <div class="flow-wrap">
-    <div class="section">Pilot Charts — Atlas of Pilot Charts, North Atlantic (NGA Pub. 106)</div>
-    <p class="reference-doc-note">Monthly climatological charts (wind, currents, wave heights, pressure, storm tracks) covering the Gulf of Mexico and Caribbean Sea. Opens the PDF in a new tab.</p>
-    <div class="reference-doc-grid">
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jan.pdf" target="_blank">January</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_feb.pdf" target="_blank">February</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_mar.pdf" target="_blank">March</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_apr.pdf" target="_blank">April</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_may.pdf" target="_blank">May</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jun.pdf" target="_blank">June</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_jul.pdf" target="_blank">July</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_aug.pdf" target="_blank">August</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_sep.pdf" target="_blank">September</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_oct.pdf" target="_blank">October</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_nov.pdf" target="_blank">November</a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/pilot_charts/106_dec.pdf" target="_blank">December</a>
-    </div>
+    <div class="section">Pilot Charts — NGA Atlas of Pilot Charts</div>
+    <p class="reference-doc-note">Monthly climatological charts (wind, currents, wave heights, pressure, storm tracks) by ocean region. Opens the PDF in a new tab.</p>
+    <div class="pilotchart-tabs" id="pilotchart-region-tabs"></div>
+    <p class="pilotchart-region-sub" id="pilotchart-region-sub"></p>
+    <div class="reference-doc-grid" id="pilotchart-month-grid"></div>
   </div>
   <div class="flow-wrap">
     <div class="section">Sight Reduction Tables — Pub. 249 (Sight Reduction Tables for Air Navigation)</div>
@@ -1487,16 +1481,11 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 
   <div class="flow-wrap">
-    <div class="section">
-      <span>Sextant Sight Calculator</span>
-      <button class="wm-btn wm-btn-manual" onclick="openSextantHowtoModal()">📖 View Instructions</button>
-    </div>
-
     <div class="celnav-two-col">
       <div class="celnav-col">
         <p class="reference-doc-note">Reduces a sextant sight to a line of position -- fully offline, no network connection needed. GHA/declination for the Sun and the 57 standard navigational stars, plus dip, refraction, parallax, and semi-diameter corrections, are all computed locally.</p>
 
-        <div class="celnav-form-grid">
+        <div class="celnav-row-eq3">
           <div class="celnav-field">
             <label class="wm-info-label">Date (UTC)</label>
             <input type="date" class="mqtt-search" id="celnav-date">
@@ -1510,7 +1499,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           </div>
         </div>
 
-        <div class="celnav-form-grid">
+        <div class="celnav-row-eq3">
           <div class="celnav-field">
             <label class="wm-info-label">DR Latitude (° + N / − S)</label>
             <input type="number" class="mqtt-search" id="celnav-lat" step="0.0001" placeholder="e.g. 18.4300">
@@ -1524,7 +1513,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           </div>
         </div>
 
-        <div class="celnav-form-grid">
+        <div class="celnav-row-eq3">
           <div class="celnav-field" style="flex:2;min-width:220px">
             <label class="wm-info-label">Celestial Body</label>
             <select class="mqtt-search" id="celnav-body" disabled onchange="celnavOnBodyChange()">
@@ -1536,7 +1525,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           </div>
         </div>
 
-        <div class="celnav-form-grid">
+        <div class="celnav-row-eq3">
           <div class="celnav-field">
             <label class="wm-info-label">Sextant Altitude Hs (°)</label>
             <input type="number" class="mqtt-search" id="celnav-hs-deg" step="1" placeholder="45">
@@ -1555,7 +1544,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           </div>
         </div>
 
-        <div class="celnav-form-grid">
+        <div class="celnav-row-eq3">
           <div class="celnav-field">
             <label class="wm-info-label">Index Correction (')</label>
             <input type="number" class="mqtt-search" id="celnav-ic" step="0.1" value="0">
@@ -1567,6 +1556,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
           <div class="celnav-field">
             <button class="wm-btn wm-btn-start" onclick="celnavCalculate()">Calculate</button>
           </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <button class="wm-btn wm-btn-manual" onclick="openSextantHowtoModal()">📖 View Instructions</button>
         </div>
 
         <div class="celnav-results" id="celnav-results" style="display:none">
@@ -1589,6 +1582,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
   </div>
+  <div class="starchart-tooltip" id="starchart-tooltip"></div>
 </div>
 
 <!-- ══════════════════════════════ Diagnostics page ══════════════════════════════ -->
@@ -7242,6 +7236,45 @@ if (window.Notification && Notification.permission === 'default') {
   Notification.requestPermission(); // ask early so permission's resolved by the time an arrival happens
 }
 
+// ─── Pilot charts: region tabs (siloed addition) ────────────────────────────
+// Each entry needs its 12 monthly PDFs actually present under
+// /home/mikemc/reference_docs/pilot_charts/<pub>_<month>.pdf -- only list a
+// region here once its files are downloaded, so a tab never links to a 404.
+const PILOT_CHART_REGIONS = [
+  { key: 'atl_north', label: 'North Atlantic', pub: '106', coverage: 'Gulf of Mexico, Caribbean Sea, and North Atlantic' },
+  { key: 'atl_south', label: 'South Atlantic', pub: '105', coverage: "South America's east coast, West Africa, and the South Atlantic" },
+  { key: 'pac_north', label: 'North Pacific', pub: '108', coverage: 'US/Canada west coast, Hawaii, and East Asia' },
+  { key: 'pac_south', label: 'South Pacific', pub: '107', coverage: "Australia, the South Pacific islands, and South America's west coast" },
+  { key: 'indian', label: 'Indian Ocean', pub: '109', coverage: 'East Africa, the Middle East, South Asia, and the Indian Ocean' },
+];
+const PILOT_CHART_MONTHS = [
+  ['jan', 'January'], ['feb', 'February'], ['mar', 'March'], ['apr', 'April'],
+  ['may', 'May'], ['jun', 'June'], ['jul', 'July'], ['aug', 'August'],
+  ['sep', 'September'], ['oct', 'October'], ['nov', 'November'], ['dec', 'December'],
+];
+let pilotChartActiveRegion = PILOT_CHART_REGIONS[0].key;
+function pilotChartRenderTabs() {
+  document.getElementById('pilotchart-region-tabs').innerHTML = PILOT_CHART_REGIONS.map(r =>
+    `<button class="pilotchart-tab${r.key === pilotChartActiveRegion ? ' active' : ''}" onclick="pilotChartSelectRegion('${r.key}')">${r.label}</button>`
+  ).join('');
+}
+function pilotChartSelectRegion(key) {
+  pilotChartActiveRegion = key;
+  pilotChartRenderTabs();
+  pilotChartRenderMonths();
+}
+function pilotChartRenderMonths() {
+  const region = PILOT_CHART_REGIONS.find(r => r.key === pilotChartActiveRegion);
+  document.getElementById('pilotchart-region-sub').textContent = `NGA Pub. ${region.pub} — covers ${region.coverage}`;
+  const curMonthIdx = new Date().getUTCMonth(); // highlight this month for a quick "what's relevant now" cue
+  document.getElementById('pilotchart-month-grid').innerHTML = PILOT_CHART_MONTHS.map(([abbr, name], i) => `
+    <a class="wm-btn ${i === curMonthIdx ? 'wm-btn-start' : 'wm-btn-manual'}" href="/api/reference/pilot_charts/${region.pub}_${abbr}.pdf" target="_blank">
+      ${name}${i === curMonthIdx ? '<span class="reference-doc-sub">This month</span>' : ''}
+    </a>`).join('');
+}
+pilotChartRenderTabs();
+pilotChartRenderMonths();
+
 // ─── Sextant sight calculator (siloed addition) ─────────────────────────────
 // Fully offline -- no network call. GHA/Dec for the Sun and the 57 standard
 // navigational stars, plus the sight-reduction (Hc/Zn) and refraction math,
@@ -7515,10 +7548,21 @@ celnavUseNow(); // seed the date/time fields with the current UTC moment at page
 // rather than recomputing any of it, so it stays consistent with the
 // calculator by construction. Purely a visualization; nothing here feeds
 // back into the sight-reduction fields above.
+// Whether the chart should keep tracking live time/GPS. Editing any of the
+// date/time/lat/lon fields (or hitting Preview) switches this off so the
+// 60s auto-refresh below stops clobbering a deliberately-previewed moment
+// out from under the user -- "Use Now" is what switches it back on.
+let starchartLive = true;
+
 function starchartUseNow() {
   const now = new Date();
   document.getElementById('starchart-date').value = now.toISOString().slice(0, 10);
   document.getElementById('starchart-time').value = now.toISOString().slice(11, 19);
+}
+function starchartUseNowClicked() {
+  starchartLive = true;
+  starchartUseNow();
+  starchartGenerateIfReady();
 }
 async function starchartUseGps() {
   try {
@@ -7532,10 +7576,29 @@ async function starchartUseGps() {
     alert('Failed to fetch current GPS position');
   }
 }
+async function starchartUseGpsClicked() {
+  await starchartUseGps();
+  starchartGenerateIfReady();
+}
+function starchartPreviewClicked() {
+  starchartLive = false;
+  starchartGenerate();
+}
+// Regenerate only if all four fields are actually filled in -- used by
+// handlers that fire on every keystroke/change, where an incomplete field
+// (e.g. lat typed but not lon yet) shouldn't pop the "fill in..." alert.
+function starchartGenerateIfReady() {
+  const date = document.getElementById('starchart-date').value;
+  const time = document.getElementById('starchart-time').value;
+  const lat = parseFloat(document.getElementById('starchart-lat').value);
+  const lon = parseFloat(document.getElementById('starchart-lon').value);
+  if (date && time && !isNaN(lat) && !isNaN(lon)) starchartGenerate();
+}
 // Silent variant for the auto-refresh below -- same as "Use Now" + "Use
 // Current GPS" + "Generate" but with no alert() on a failed/missing GPS fix,
 // since this runs unattended every minute rather than from a button click.
 async function starchartAutoRefresh() {
+  if (!starchartLive) return; // user is previewing a specific moment -- leave it alone
   starchartUseNow();
   try {
     const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
@@ -7620,7 +7683,17 @@ function starchartGenerate() {
   // lands on a ring line or near another star (which one varies sight to
   // sight, so dodging placement per-case isn't practical).
   const HALO = `paint-order="stroke" stroke="#0d1f38" stroke-width="3" stroke-linejoin="round"`;
-  let svg = `<svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">`;
+  // Explicit width/height (not just viewBox) so the intrinsic aspect ratio
+  // is unambiguous -- some WebKit versions otherwise default an SVG's
+  // intrinsic size to 300x150, which throws off width:100%/height:auto
+  // sizing and can leave unexpected blank space above or below the chart.
+  // The viewBox itself is cropped tightly to the drawn content's actual
+  // extent (circle + the compass labels just outside it) rather than a
+  // full 0..600 square, so there's no wasted margin baked into the box
+  // beyond what the outside labels genuinely need.
+  const vb = 10; // crop margin, in viewBox units, on each side
+  const vbSize = 600 - 2 * vb;
+  let svg = `<svg viewBox="${vb} ${vb} ${vbSize} ${vbSize}" width="${vbSize}" height="${vbSize}" xmlns="http://www.w3.org/2000/svg">`;
   svg += `<circle cx="${cx}" cy="${cy}" r="${outerR}" fill="#0d1f38" stroke="#4a5f7a" stroke-width="2"/>`;
   for (const alt of [30, 60]) {
     const r = ((90 - alt) / 90) * outerR;
@@ -7631,24 +7704,28 @@ function starchartGenerate() {
   for (let az = 0; az < 360; az += 30) {
     const a = az * Math.PI / 180;
     const x1 = cx + outerR * Math.sin(a), y1 = cy - outerR * Math.cos(a);
-    const x2 = cx + (outerR + 10) * Math.sin(a), y2 = cy - (outerR + 10) * Math.cos(a);
+    const x2 = cx + (outerR + 8) * Math.sin(a), y2 = cy - (outerR + 8) * Math.cos(a);
     svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#4a5f7a" stroke-width="1"/>`;
-    const lx = cx + (outerR + 22) * Math.sin(a), ly = cy - (outerR + 22) * Math.cos(a);
+    const lx = cx + (outerR + 18) * Math.sin(a), ly = cy - (outerR + 18) * Math.cos(a);
     const cardinal = az % 90 === 0;
     const label = az === 0 ? 'N' : az === 90 ? 'E' : az === 180 ? 'S' : az === 270 ? 'W' : `${az}°`;
     svg += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="${cardinal ? 14 : 10}" font-weight="${cardinal ? 700 : 400}" fill="${cardinal ? '#e0e6f0' : '#6b82a0'}" text-anchor="middle" dominant-baseline="middle">${label}</text>`;
   }
   if (sunReduced.hc >= 0) {
     const p = starchartAzAltToXY(sunReduced.zn, sunReduced.hc, cx, cy, outerR);
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="#e8a030" stroke="#a86f1a" stroke-width="1.5"/>`;
-    svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 14).toFixed(1)}" font-size="11" font-weight="700" fill="#e8a030" text-anchor="middle" ${HALO}>SUN</text>`;
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="#e8a030" stroke="#a86f1a" stroke-width="1.5" data-star="Sun" data-alt="${sunReduced.hc.toFixed(1)}" data-az="${sunReduced.zn.toFixed(1)}"/>`;
+    svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 14).toFixed(1)}" font-size="11" font-weight="700" fill="#e8a030" text-anchor="middle" ${HALO} pointer-events="none">SUN</text>`;
   }
   for (const s of stars) {
     const p = starchartAzAltToXY(s.az, s.alt, cx, cy, outerR);
-    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${s.bright ? 4 : 2.2}" fill="${s.bright ? '#fdf1cf' : '#8fa3bd'}"/>`;
+    // An invisible, larger hit-circle under the tiny visible dot -- a 2.2px
+    // dot is nearly impossible to hover precisely with a mouse, and every
+    // star (not just the ~19 labeled ones) should reveal its details.
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="transparent" data-star="${s.name}" data-alt="${s.alt.toFixed(1)}" data-az="${s.az.toFixed(1)}"/>`;
+    svg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${s.bright ? 4 : 2.2}" fill="${s.bright ? '#fdf1cf' : '#8fa3bd'}" pointer-events="none"/>`;
     if (s.bright) {
-      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" font-size="10" fill="#e0e6f0" text-anchor="middle" ${HALO}>${s.name}</text>`;
-      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y + 16).toFixed(1)}" font-size="8.5" fill="#6b82a0" text-anchor="middle" ${HALO}>${s.alt.toFixed(0)}° / ${s.az.toFixed(0)}°T</text>`;
+      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" font-size="10" fill="#e0e6f0" text-anchor="middle" ${HALO} pointer-events="none">${s.name}</text>`;
+      svg += `<text x="${p.x.toFixed(1)}" y="${(p.y + 16).toFixed(1)}" font-size="8.5" fill="#6b82a0" text-anchor="middle" ${HALO} pointer-events="none">${s.alt.toFixed(0)}° / ${s.az.toFixed(0)}°T</text>`;
     }
   }
   svg += `</svg>`;
@@ -7657,6 +7734,51 @@ function starchartGenerate() {
   if (modalWrap) modalWrap.innerHTML = svg;
 }
 starchartAutoRefresh(); // draw the chart for right now / current GPS immediately on page load
+
+// Hover tooltip for chart bodies -- attached once via event delegation on
+// the (static) wrap elements, so it keeps working across every re-render
+// from starchartGenerate() without needing to be re-bound each time.
+function starchartTooltipMove(e) {
+  const el = e.target.closest('[data-star]');
+  const tip = document.getElementById('starchart-tooltip');
+  // The compact chart's own "Tap to enlarge" title tooltip would otherwise
+  // fight with this one for the same cursor position -- suppress it while
+  // hovering a star/Sun, restore it once the cursor moves off.
+  const wrap = document.getElementById('starchart-svg-wrap');
+  if (wrap) {
+    if (el && wrap.hasAttribute('title')) {
+      wrap.dataset.savedTitle = wrap.getAttribute('title');
+      wrap.removeAttribute('title');
+    } else if (!el && !wrap.hasAttribute('title') && wrap.dataset.savedTitle) {
+      wrap.setAttribute('title', wrap.dataset.savedTitle);
+    }
+  }
+  if (!el) { tip.style.display = 'none'; return; }
+  // Bigger type in the enlarged popup, where there's room for it -- the
+  // compact chart keeps the smaller default so the tooltip doesn't dwarf it.
+  tip.classList.toggle('starchart-tooltip-lg', e.currentTarget.id === 'starchart-svg-wrap-modal');
+  tip.innerHTML = `<b>${el.dataset.star}</b><br>Alt ${el.dataset.alt}&deg; &nbsp; Az ${el.dataset.az}&deg;T`;
+  tip.style.display = 'block';
+  const pad = 16;
+  const tipRect = tip.getBoundingClientRect();
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + tipRect.width > window.innerWidth) x = e.clientX - pad - tipRect.width;
+  if (y + tipRect.height > window.innerHeight) y = e.clientY - pad - tipRect.height;
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+function starchartTooltipLeave() {
+  document.getElementById('starchart-tooltip').style.display = 'none';
+  const wrap = document.getElementById('starchart-svg-wrap');
+  if (wrap && !wrap.hasAttribute('title') && wrap.dataset.savedTitle) {
+    wrap.setAttribute('title', wrap.dataset.savedTitle);
+  }
+}
+for (const id of ['starchart-svg-wrap', 'starchart-svg-wrap-modal']) {
+  const el = document.getElementById(id);
+  el.addEventListener('mousemove', starchartTooltipMove);
+  el.addEventListener('mouseleave', starchartTooltipLeave);
+}
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 const initialPage = ['overview', 'electrical', 'watermaker', 'engine', 'anchor', 'chart', 'weather', 'reference', 'mqtt'].includes(location.hash.slice(1))
