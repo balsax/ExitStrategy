@@ -1471,6 +1471,13 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="reference-doc-grid" id="pilotchart-month-grid"></div>
   </div>
   <div class="flow-wrap">
+    <div class="section">Sailing Directions — Detailed Coastal &amp; Passage Guidance</div>
+    <p class="reference-doc-note">Text-based port, hazard, and routing detail that pilot charts don't cover -- a level down from the ocean-basin climatology above. Opens the PDF in a new tab.</p>
+    <div class="pilotchart-tabs" id="sailingdir-tabs"></div>
+    <p class="pilotchart-region-sub" id="sailingdir-sub"></p>
+    <div class="reference-doc-grid" id="sailingdir-grid"></div>
+  </div>
+  <div class="flow-wrap">
     <div class="section">Sight Reduction Tables — Pub. 249 (Sight Reduction Tables for Air Navigation)</div>
     <p class="reference-doc-note">NGA's simplified sight reduction tables -- solve the celestial triangle by hand from a sextant altitude and DR position. Opens the PDF in a new tab.</p>
     <div class="reference-doc-grid">
@@ -7274,6 +7281,64 @@ function pilotChartRenderMonths() {
 }
 pilotChartRenderTabs();
 pilotChartRenderMonths();
+
+// ─── Sailing directions: chapter/volume picker (siloed addition) ───────────
+// One level more detailed than the pilot charts above -- text-based port,
+// hazard, and routing info rather than monthly ocean-basin climatology.
+// Coast Pilot 5 ships as one file per chapter already, so it gets a real
+// chapter picker; the NGA Caribbean volumes are each a single combined PDF.
+const SAILING_DIRECTIONS_DOCS = [
+  {
+    key: 'cp5', label: 'Gulf of Mexico & Keys', source: 'NOAA Coast Pilot 5',
+    coverage: 'Gulf of Mexico, the Keys, Puerto Rico, and the US Virgin Islands',
+    chapters: [
+      ['cp5_ch01', 'Ch 1: General Information'],
+      ['cp5_ch02', 'Ch 2: Navigation Regulations'],
+      ['cp5_ch03', 'Ch 3: Gulf Coast'],
+      ['cp5_ch04', 'Ch 4: Key West to Tampa Bay'],
+      ['cp5_ch05', 'Ch 5: Tampa Bay to Apalachee Bay'],
+      ['cp5_ch06', 'Ch 6: Apalachee Bay to Mobile Bay'],
+      ['cp5_ch07', 'Ch 7: Mobile Bay to Mississippi River'],
+      ['cp5_ch08', 'Ch 8: Mississippi River'],
+      ['cp5_ch09', 'Ch 9: Mississippi River to Sabine Pass'],
+      ['cp5_ch10', 'Ch 10: Sabine Pass to San Luis Pass'],
+      ['cp5_ch11', 'Ch 11: San Luis Pass to the Rio Grande'],
+      ['cp5_ch12', 'Ch 12: Intracoastal Waterway'],
+      ['cp5_ch13', 'Ch 13: Puerto Rico'],
+      ['cp5_ch14', 'Ch 14: Virgin Islands'],
+    ],
+  },
+  {
+    key: 'pub147', label: 'Caribbean Vol. I', source: 'NGA Pub. 147',
+    coverage: 'Bahamas, Cuba, Jamaica, Hispaniola, and the Turks & Caicos',
+    chapters: [['pub147', 'Open Pub. 147']],
+  },
+  {
+    key: 'pub148', label: 'Caribbean Vol. II', source: 'NGA Pub. 148',
+    coverage: "Central America's coast, the Lesser Antilles, and South America's Caribbean coast",
+    chapters: [['pub148', 'Open Pub. 148']],
+  },
+];
+let sailingDirActiveDoc = SAILING_DIRECTIONS_DOCS[0].key;
+function sailingDirRenderTabs() {
+  document.getElementById('sailingdir-tabs').innerHTML = SAILING_DIRECTIONS_DOCS.map(d =>
+    `<button class="pilotchart-tab${d.key === sailingDirActiveDoc ? ' active' : ''}" onclick="sailingDirSelect('${d.key}')">${d.label}</button>`
+  ).join('');
+}
+function sailingDirSelect(key) {
+  sailingDirActiveDoc = key;
+  sailingDirRenderTabs();
+  sailingDirRenderChapters();
+}
+function sailingDirRenderChapters() {
+  const doc = SAILING_DIRECTIONS_DOCS.find(d => d.key === sailingDirActiveDoc);
+  document.getElementById('sailingdir-sub').textContent = `${doc.source} — covers ${doc.coverage}`;
+  document.getElementById('sailingdir-grid').innerHTML = doc.chapters.map(([file, label]) =>
+    `<a class="wm-btn wm-btn-manual" href="/api/reference/sailing_directions/${file}.pdf" target="_blank">${label}</a>`
+  ).join('');
+}
+sailingDirRenderTabs();
+sailingDirRenderChapters();
 
 // ─── Sextant sight calculator (siloed addition) ─────────────────────────────
 // Fully offline -- no network call. GHA/Dec for the Sun and the 57 standard
