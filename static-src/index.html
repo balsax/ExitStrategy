@@ -1478,6 +1478,27 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="reference-doc-grid" id="sailingdir-grid"></div>
   </div>
   <div class="flow-wrap">
+    <div class="section">List of Lights — Lighthouses, Buoys &amp; Fog Signals</div>
+    <p class="reference-doc-note">Identifies navigational lights by characteristic, range, and structure -- for night approaches and confirming a position fix. Opens the PDF in a new tab.</p>
+    <div class="pilotchart-tabs" id="lol-tabs"></div>
+    <p class="pilotchart-region-sub" id="lol-sub"></p>
+    <div class="reference-doc-grid" id="lol-grid"></div>
+  </div>
+  <div class="flow-wrap">
+    <div class="section">Navigation Rules — COLREGs &amp; Inland (USCG)</div>
+    <p class="reference-doc-note">Combined International (COLREGs) and Inland Navigation Rules handbook. Opens the PDF in a new tab.</p>
+    <div class="reference-doc-grid">
+      <a class="wm-btn wm-btn-manual" href="/api/reference/navigation_rules/nav_rules.pdf" target="_blank">Open Navigation Rules Handbook</a>
+    </div>
+  </div>
+  <div class="flow-wrap">
+    <div class="section">Chart No. 1 — Symbols, Abbreviations &amp; Terms</div>
+    <p class="reference-doc-note">The legend for reading paper and electronic nautical charts. Opens the PDF in a new tab.</p>
+    <div class="reference-doc-grid">
+      <a class="wm-btn wm-btn-manual" href="/api/reference/chart_no1/chart_no1.pdf" target="_blank">Open Chart No. 1</a>
+    </div>
+  </div>
+  <div class="flow-wrap">
     <div class="section">Sight Reduction Tables — Pub. 249 (Sight Reduction Tables for Air Navigation)</div>
     <p class="reference-doc-note">NGA's simplified sight reduction tables -- solve the celestial triangle by hand from a sextant altitude and DR position. Opens the PDF in a new tab.</p>
     <div class="reference-doc-grid">
@@ -7339,6 +7360,33 @@ function sailingDirRenderChapters() {
 }
 sailingDirRenderTabs();
 sailingDirRenderChapters();
+
+// ─── List of Lights: region picker (siloed addition) ────────────────────────
+// Same split as Sailing Directions -- US domestic waters (USCG Light List)
+// vs. international (NGA Pub.) -- each ships as one combined PDF per region.
+const LIST_OF_LIGHTS_REGIONS = [
+  { key: 'gulf', label: 'Gulf of Mexico', source: 'USCG Light List, Vol. IV', file: 'gulf', coverage: 'Econfina River, FL to the Rio Grande, TX' },
+  { key: 'caribbean', label: 'Caribbean & West Indies', source: 'NGA Pub. 110', file: 'caribbean', coverage: 'Greenland, the East Coasts of North and South America (excluding continental USA except the east coast of Florida), and the West Indies' },
+];
+let lolActiveRegion = LIST_OF_LIGHTS_REGIONS[0].key;
+function lolRenderTabs() {
+  document.getElementById('lol-tabs').innerHTML = LIST_OF_LIGHTS_REGIONS.map(r =>
+    `<button class="pilotchart-tab${r.key === lolActiveRegion ? ' active' : ''}" onclick="lolSelectRegion('${r.key}')">${r.label}</button>`
+  ).join('');
+}
+function lolSelectRegion(key) {
+  lolActiveRegion = key;
+  lolRenderTabs();
+  lolRenderGrid();
+}
+function lolRenderGrid() {
+  const region = LIST_OF_LIGHTS_REGIONS.find(r => r.key === lolActiveRegion);
+  document.getElementById('lol-sub').textContent = `${region.source} — covers ${region.coverage}`;
+  document.getElementById('lol-grid').innerHTML =
+    `<a class="wm-btn wm-btn-manual" href="/api/reference/list_of_lights/${region.file}.pdf" target="_blank">Open ${region.label}</a>`;
+}
+lolRenderTabs();
+lolRenderGrid();
 
 // ─── Sextant sight calculator (siloed addition) ─────────────────────────────
 // Fully offline -- no network call. GHA/Dec for the Sun and the 57 standard
