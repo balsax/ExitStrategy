@@ -139,14 +139,24 @@ def fetch(out_dir, only_if_stale=False):
     os.makedirs(out_dir, exist_ok=True)
     manifest_path = os.path.join(out_dir, 'manifest.json')
     have_cycle = None
+    have_count = 0
     if os.path.exists(manifest_path):
         with open(manifest_path) as f:
-            have_cycle = json.load(f).get('cycle')
+            existing = json.load(f)
+        have_cycle = existing.get('cycle')
+        have_count = len(existing.get('forecasts', []))
+    have_complete = have_count >= len(FORECAST_HOURS)
 
     for date_str, cycle, run_time in _candidate_cycles():
         tag = f'{date_str}{cycle:02d}'
-        if only_if_stale and have_cycle is not None and have_cycle >= tag:
-            print(f'Already have {have_cycle} (>= {tag}) -- nothing newer to fetch')
+        # A cycle we already "have" but didn't fully fetch (e.g. NOMADS --
+        # documented elsewhere in this project as intermittently flaky --
+        # dropped requests for some hours mid-run) must NOT be treated as
+        # up to date, or fetch-if-stale gets stuck serving a near-empty
+        # manifest for the full 6h until the next cycle, exactly what
+        # happened here (a manifest with only f000 sat unnoticed).
+        if only_if_stale and have_cycle is not None and have_cycle >= tag and have_complete:
+            print(f'Already have a complete {have_cycle} (>= {tag}) -- nothing newer to fetch')
             return False
 
         # Probe f000 first -- cheap way to know whether this cycle exists at

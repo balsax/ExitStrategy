@@ -1049,6 +1049,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" data-chart-layer="Hazards"> Hazards</label>
       <label><input type="checkbox" data-chart-layer="Fairways / Areas"> Fairways / Areas</label>
       <label><input type="checkbox" data-chart-layer="Soundings"> Soundings</label>
+      <label><input type="checkbox" data-chart-layer="Tides & Currents"> Tides &amp; Currents</label>
       <label><input type="checkbox" id="chart-wind-toggle" data-chart-layer="Wind"> Wind</label>
       <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks<span class="trip-recording-dot" id="chart-trips-rec-dot" title="A trip is recording"></span></label>
     </div>
@@ -2134,6 +2135,7 @@ const WM_METRICS = {
   pump_speed: { label: 'HP Pump Speed',     unit: '%',     color: '#a05ad4' },
   current:    { label: 'Pump Current',      unit: 'A',     color: '#d4527a' },
   efficiency: { label: 'Efficiency',        unit: '%',     color: '#c9d454' },
+  product_temp: { label: 'Product Temperature', unit: '°C', color: '#f97316' },
 };
 const SYS_METRICS = {
   cpu:       { label: 'CPU Usage',       unit: '%',    color: '#4a9fd4' },
@@ -5745,6 +5747,196 @@ function chartMarkColor(colourAttr) {
   const first = String(colourAttr ?? '').split(',')[0].trim();
   return S57_COLOUR[first] || '#555';
 }
+// S-57 enumerated-attribute code -> name lookups (IHO Object Catalogue Appendix
+// A, values straight from GDAL's own s57attributes.csv/s57expectedinput.csv
+// reference tables) — used to show human-readable text in feature popups
+// instead of the raw numeric codes. Add more acronyms here as they come up;
+// chartPopupHTML below picks up any key present in this map automatically.
+const S57_ENUM_NAMES = {
+  COLOUR: {
+    '1': 'White', '2': 'Black', '3': 'Red', '4': 'Green', '5': 'Blue', '6': 'Yellow',
+    '7': 'Grey', '8': 'Brown', '9': 'Amber', '10': 'Violet', '11': 'Orange', '12': 'Magenta', '13': 'Pink',
+  },
+  CATOBS: {
+    '1': 'Snag/stump', '2': 'Wellhead', '3': 'Diffuser', '4': 'Crib', '5': 'Fish haven',
+    '6': 'Foul area', '7': 'Foul ground', '8': 'Ice boom', '9': 'Ground tackle',
+  },
+  EXPSOU: {
+    '1': 'Within the range of depth of the surrounding depth area',
+    '2': 'Shoaler than the surrounding depth area',
+    '3': 'Deeper than the surrounding depth area',
+  },
+  QUASOU: {
+    '1': 'Depth known', '2': 'Depth unknown', '3': 'Doubtful sounding', '4': 'Unreliable sounding',
+    '5': 'No bottom found at value shown', '6': 'Least depth known',
+    '7': 'Least depth unknown, safe clearance at value shown', '8': 'Value reported (not surveyed)',
+    '9': 'Value reported (not confirmed)', '10': 'Maintained depth', '11': 'Not regularly maintained',
+  },
+  WATLEV: {
+    '1': 'Partly submerged at high water', '2': 'Always dry', '3': 'Always under water/submerged',
+    '4': 'Covers and uncovers', '5': 'Awash', '6': 'Subject to inundation or flooding',
+  },
+  BOYSHP: {
+    '1': 'Conical (nun, ogival)', '2': 'Can (cylindrical)', '3': 'Spherical', '4': 'Pillar',
+    '5': 'Spar (spindle)', '6': 'Barrel (tun)', '7': 'Super-buoy', '8': 'Ice buoy',
+  },
+  CATLIT: {
+    '1': 'Directional function', '4': 'Leading light', '5': 'Aero light', '6': 'Air obstruction light',
+    '7': 'Fog detector light', '8': 'Flood light', '9': 'Strip light', '10': 'Subsidiary light',
+    '11': 'Spotlight', '12': 'Front', '13': 'Rear', '14': 'Lower', '15': 'Upper', '16': 'Moiré effect',
+    '17': 'Emergency', '18': 'Bearing light', '19': 'Horizontally disposed', '20': 'Vertically disposed',
+  },
+  TRAFIC: {
+    '1': 'Inbound', '2': 'Outbound', '3': 'One-way', '4': 'Two-way',
+  },
+  EXCLIT: {
+    '1': 'Light shown without change of character', '2': 'Daytime light', '3': 'Fog light', '4': 'Night light',
+  },
+  LITCHR: {
+    '1': 'Fixed', '2': 'Flashing', '3': 'Long-flashing', '4': 'Quick-flashing', '5': 'Very quick-flashing',
+    '6': 'Ultra quick-flashing', '7': 'Isophased', '8': 'Occulting', '9': 'Interrupted quick-flashing',
+    '10': 'Interrupted very quick-flashing', '11': 'Interrupted ultra quick-flashing', '12': 'Morse',
+    '13': 'Fixed/flash', '14': 'Flash/long-flash', '15': 'Occulting/flash', '16': 'Fixed/long-flash',
+    '17': 'Occulting alternating', '18': 'Long-flash alternating', '19': 'Flash alternating',
+    '20': 'Group alternating', '25': 'Quick-flash plus long-flash', '26': 'Very quick-flash plus long-flash',
+    '27': 'Ultra quick-flash plus long-flash', '28': 'Alternating', '29': 'Fixed and alternating flashing',
+  },
+  BCNSHP: {
+    '1': 'Stake/pole/perch/post', '2': 'Withy', '3': 'Beacon tower', '4': 'Lattice beacon',
+    '5': 'Pile beacon', '6': 'Cairn', '7': 'Buoyant beacon',
+  },
+  CATBRG: {
+    '1': 'Fixed bridge', '2': 'Opening bridge', '3': 'Swing bridge', '4': 'Lifting bridge',
+    '5': 'Bascule bridge', '6': 'Pontoon bridge', '7': 'Draw bridge', '8': 'Transporter bridge',
+    '9': 'Footbridge', '10': 'Viaduct', '11': 'Aqueduct', '12': 'Suspension bridge',
+  },
+  CATCAM: {
+    '1': 'North cardinal mark', '2': 'East cardinal mark', '3': 'South cardinal mark', '4': 'West cardinal mark',
+  },
+  CATLAM: {
+    '1': 'Port-hand lateral mark', '2': 'Starboard-hand lateral mark',
+    '3': 'Preferred channel to starboard', '4': 'Preferred channel to port',
+  },
+  CATREA: {
+    '1': 'Offshore safety zone', '4': 'Nature reserve', '5': 'Bird sanctuary', '6': 'Game preserve',
+    '7': 'Seal sanctuary', '8': 'Degaussing range', '9': 'Military area', '10': 'Historic wreck area',
+    '12': 'Navigational aid safety zone', '14': 'Minefield', '18': 'Swimming area', '19': 'Waiting area',
+    '20': 'Research area', '21': 'Dredging area', '22': 'Fish sanctuary', '23': 'Ecological reserve',
+    '24': 'No wake area', '25': 'Swinging area',
+  },
+  CATSPM: {
+    '1': 'Firing danger area mark', '2': 'Target mark', '3': 'Marker ship mark', '4': 'Degaussing range mark',
+    '5': 'Barge mark', '6': 'Cable mark', '7': 'Spoil ground mark', '8': 'Outfall mark',
+    '9': 'ODAS mark (Ocean Data Acquisition System)', '10': 'Recording mark', '11': 'Seaplane anchorage mark',
+    '12': 'Recreation zone mark', '13': 'Private mark', '14': 'Mooring mark',
+    '15': 'LANBY mark (Large Automatic Navigational Buoy)', '16': 'Leading mark', '17': 'Measured distance mark',
+    '18': 'Notice mark', '19': 'TSS mark (Traffic Separation Scheme)', '20': 'Anchoring prohibited mark',
+    '21': 'Berthing prohibited mark', '22': 'Overtaking prohibited mark', '23': 'Two-way traffic prohibited mark',
+    '24': 'Reduced wake mark', '25': 'Speed limit mark', '26': 'Stop mark', '27': 'General warning mark',
+    '28': "Sound ship's siren mark", '29': 'Restricted vertical clearance mark',
+    '30': "Maximum vessel's draught mark", '31': 'Restricted horizontal clearance mark',
+    '32': 'Strong current warning mark', '33': 'Berthing permitted mark', '34': 'Overhead power cable mark',
+    '35': 'Channel edge gradient mark', '36': 'Telephone mark', '37': 'Ferry crossing mark',
+    '39': 'Pipeline mark', '40': 'Anchorage mark', '41': 'Clearing mark', '42': 'Control mark',
+    '43': 'Diving mark', '44': 'Refuge beacon', '45': 'Foul ground mark', '46': 'Yachting mark',
+    '47': 'Heliport mark', '48': 'GPS mark', '49': 'Seaplane landing mark', '50': 'Entry prohibited mark',
+    '51': 'Work in progress mark', '52': 'Mark with unknown purpose',
+  },
+  CATWRK: {
+    '1': 'Non-dangerous wreck', '2': 'Dangerous wreck', '3': 'Distributed remains of wreck',
+    '4': 'Wreck showing mast(s)', '5': 'Wreck showing any portion of hull or superstructure',
+  },
+  COLPAT: {
+    '1': 'Horizontal stripes', '2': 'Vertical stripes', '3': 'Diagonal stripes', '4': 'Squared',
+    '5': 'Stripes (direction unknown)', '6': 'Border stripes',
+  },
+  CONDTN: {
+    '1': 'Under construction', '2': 'Ruined', '3': 'Under reclamation', '4': 'Wingless', '5': 'Planned construction',
+  },
+  CONRAD: {
+    '1': 'Radar conspicuous', '2': 'Not radar conspicuous', '3': 'Radar conspicuous (has radar reflector)',
+  },
+  CONVIS: {
+    '1': 'Visually conspicuous', '2': 'Not visually conspicuous',
+  },
+  LITVIS: {
+    '1': 'High intensity', '2': 'Low intensity', '3': 'Faint', '4': 'Intensified', '5': 'Unintensified',
+    '6': 'Visibility deliberately restricted', '7': 'Obscured', '8': 'Partially obscured',
+  },
+  MARSYS: {
+    '1': 'IALA A', '2': 'IALA B', '9': 'No system', '10': 'Other system',
+  },
+  NATCON: {
+    '1': 'Masonry', '2': 'Concreted', '3': 'Loose boulders', '4': 'Hard surfaced', '5': 'Unsurfaced',
+    '6': 'Wooden', '7': 'Metal', '8': 'Glass reinforced plastic (GRP)', '9': 'Painted',
+  },
+  NATSUR: {
+    '1': 'Mud', '2': 'Clay', '3': 'Silt', '4': 'Sand', '5': 'Stone', '6': 'Gravel', '7': 'Pebbles',
+    '8': 'Cobbles', '9': 'Rock', '11': 'Lava', '14': 'Coral', '17': 'Shells', '18': 'Boulder',
+  },
+  PRODCT: {
+    '1': 'Oil', '2': 'Gas', '3': 'Water', '4': 'Stone', '5': 'Coal', '6': 'Ore', '7': 'Chemicals',
+    '8': 'Drinking water', '9': 'Milk', '10': 'Bauxite', '11': 'Coke', '12': 'Iron ingots', '13': 'Salt',
+    '14': 'Sand', '15': 'Timber', '16': 'Sawdust/wood chips', '17': 'Scrap metal',
+    '18': 'Liquified natural gas (LNG)', '19': 'Liquified petroleum gas (LPG)', '20': 'Wine',
+    '21': 'Cement', '22': 'Grain',
+  },
+  RESTRN: {
+    '1': 'Anchoring prohibited', '2': 'Anchoring restricted', '3': 'Fishing prohibited', '4': 'Fishing restricted',
+    '5': 'Trawling prohibited', '6': 'Trawling restricted', '7': 'Entry prohibited', '8': 'Entry restricted',
+    '9': 'Dredging prohibited', '10': 'Dredging restricted', '11': 'Diving prohibited', '12': 'Diving restricted',
+    '13': 'No wake', '14': 'Area to be avoided', '15': 'Construction prohibited',
+  },
+  TECSOU: {
+    '1': 'Found by echo-sounder', '2': 'Found by side-scan sonar', '3': 'Found by multi-beam',
+    '4': 'Found by diver', '5': 'Found by lead-line', '6': 'Swept by wire-drag', '7': 'Found by laser',
+    '8': 'Swept by vertical acoustic system', '9': 'Found by electromagnetic sensor', '10': 'Photogrammetry',
+    '11': 'Satellite imagery', '12': 'Found by levelling', '13': 'Swept by side-scan sonar',
+    '14': 'Computer generated',
+  },
+  VERDAT: {
+    '1': 'Mean low water springs', '2': 'Mean lower low water springs', '3': 'Mean sea level',
+    '4': 'Lowest low water', '5': 'Mean low water', '6': 'Lowest low water springs',
+    '7': 'Approximate mean low water springs', '8': 'Indian spring low water', '9': 'Low water springs',
+    '10': 'Approximate lowest astronomical tide', '11': 'Nearly lowest low water', '12': 'Mean lower low water',
+    '13': 'Low water', '14': 'Approximate mean low water', '15': 'Approximate mean lower low water',
+    '16': 'Mean high water', '17': 'Mean high water springs', '18': 'High water',
+    '19': 'Approximate mean sea level', '20': 'High water springs', '21': 'Mean higher high water',
+    '22': 'Equinoctial spring low water', '23': 'Lowest astronomical tide', '24': 'Local datum',
+    '25': 'International Great Lakes Datum 1985', '26': 'Mean water level', '27': 'Lower low water large tide',
+    '28': 'Higher high water large tide', '29': 'Nearly highest high water',
+  },
+};
+
+// S-57 attribute acronym -> plain-English field name (source: GDAL's
+// s57attributes.csv "Attribute" column, same reference used for S57_ENUM_NAMES
+// above, with a few reworded for readability e.g. CONRAD/CONVIS/MARSYS). Covers
+// every acronym actually present in this project's downloaded ENC data
+// (chart_data/processed/*/*.geojson) — an unlisted one just falls back to
+// showing its raw acronym rather than erroring.
+const S57_ATTR_LABELS = {
+  BCNSHP: 'Beacon shape', BOYSHP: 'Buoy shape', CATBRG: 'Category of bridge',
+  CATCAM: 'Category of cardinal mark', CATLAM: 'Category of lateral mark', CATLIT: 'Category of light',
+  CATOBS: 'Category of obstruction', CATREA: 'Category of restricted area',
+  CATSPM: 'Category of special purpose mark', CATWRK: 'Category of wreck',
+  COLOUR: 'Colour', COLPAT: 'Colour pattern', CONDTN: 'Condition',
+  CONRAD: 'Radar conspicuous', CONVIS: 'Visually conspicuous',
+  DATEND: 'End date', DATSTA: 'Start date', DEPTH: 'Depth', DRVAL1: 'Depth range (min)',
+  ELEVAT: 'Elevation', EXCLIT: 'Light exhibition condition', EXPSOU: 'Exposition of sounding',
+  HEIGHT: 'Height', HORCLR: 'Horizontal clearance', INFORM: 'Information',
+  LITCHR: 'Light characteristic', LITVIS: 'Light visibility', MARSYS: 'Navigation mark system',
+  MLTYLT: 'Number of lights', NATCON: 'Construction material', NATSUR: 'Surface material',
+  NINFOM: 'Information (national language)', NOBJNM: 'Object name (national language)',
+  ORIENT: 'Orientation', PEREND: 'Periodic end date', PERSTA: 'Periodic start date',
+  PICREP: 'Pictorial representation', PRODCT: 'Product', QUASOU: 'Sounding quality',
+  RESTRN: 'Restriction', SECTR1: 'Sector limit 1', SECTR2: 'Sector limit 2',
+  SIGGRP: 'Signal group', SIGPER: 'Signal period', SIGSEQ: 'Signal sequence',
+  SOUACC: 'Sounding accuracy', TECSOU: 'Sounding technique', TRAFIC: 'Traffic flow',
+  TXTDSC: 'Textual description', VALNMR: 'Nominal range', VALSOU: 'Sounding value',
+  VERACC: 'Vertical accuracy', VERCCL: 'Vertical clearance (closed)', VERCLR: 'Vertical clearance',
+  VERCOP: 'Vertical clearance (open)', VERDAT: 'Vertical datum', VERLEN: 'Vertical length',
+  WATLEV: 'Water level effect',
+};
 
 // Internal S-57 record-keeping fields nobody wants to see in a popup, plus a
 // friendly fallback title per layer when a feature has no OBJNAM of its own.
@@ -5760,14 +5952,19 @@ const CHART_LAYER_LABELS = {
 // in the source .000 files, confirmed via ogrinfo) regardless of the rest of
 // this app using feet throughout — these get converted for display rather
 // than shown raw, same as anchor-watch depth already does via metersToFeet().
-const CHART_METER_FIELDS = new Set(['DEPTH', 'VALSOU', 'HEIGHT', 'VERCLR', 'HORCLR']);
+const CHART_METER_FIELDS = new Set(['DEPTH', 'VALSOU', 'HEIGHT', 'VERCLR', 'HORCLR', 'VERACC']);
 function chartPopupHTML(layerKey, props) {
   const title = props.OBJNAM || CHART_LAYER_LABELS[layerKey] || layerKey;
   const rows = Object.entries(props)
     .filter(([k, v]) => k !== 'OBJNAM' && !CHART_INTERNAL_FIELDS.has(k) && v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0))
     .map(([k, v]) => {
-      if (CHART_METER_FIELDS.has(k)) return `<div class="chart-popup-row"><b>${k} (ft):</b> ${metersToFeet(parseFloat(v)).toFixed(1)}</div>`;
-      return `<div class="chart-popup-row"><b>${k}:</b> ${Array.isArray(v) ? v.join(', ') : v}</div>`;
+      const label = S57_ATTR_LABELS[k] || k;
+      if (CHART_METER_FIELDS.has(k)) return `<div class="chart-popup-row"><b>${label} (ft):</b> ${metersToFeet(parseFloat(v)).toFixed(1)}</div>`;
+      if (S57_ENUM_NAMES[k]) {
+        const names = (Array.isArray(v) ? v : String(v).split(',')).map(c => S57_ENUM_NAMES[k][String(c).trim()] || c).join(', ');
+        return `<div class="chart-popup-row"><b>${label}:</b> ${names}</div>`;
+      }
+      return `<div class="chart-popup-row"><b>${label}:</b> ${Array.isArray(v) ? v.join(', ') : v}</div>`;
     })
     .join('');
   return `<div class="chart-popup-title">${title}</div>${rows || '<div class="chart-popup-row">No additional attributes</div>'}`;
@@ -5838,12 +6035,29 @@ const CHART_LAYER_MIN_ZOOM = {
   'Hazards': CHART_CELL_MIN_ZOOM,
   'Fairways / Areas': CHART_CELL_MIN_ZOOM,
   'Soundings': 14,
+  // Not cell-scale data like the above, but station count is the same problem
+  // at cruising-area scale (thousands of markers across the whole synced
+  // area) -- same threshold as the ENC vector layers it's grouped next to.
+  'Tides & Currents': CHART_CELL_MIN_ZOOM,
 };
+// Populated once in initChartMap(); updateChartLayerAvailability() needs it
+// too (to actually remove a layer, not just greyed-out-but-still-checked), so
+// this is a shared top-level variable rather than a local const of just the
+// one function that builds it.
+let chartToggleLayers = {};
 function updateChartLayerAvailability() {
   const zoom = chartMap.getZoom();
   document.querySelectorAll('#chart-layer-toggles input[type="checkbox"]').forEach(cb => {
     const minZoom = CHART_LAYER_MIN_ZOOM[cb.dataset.chartLayer];
-    cb.disabled = (minZoom !== undefined && zoom < minZoom);
+    const shouldDisable = (minZoom !== undefined && zoom < minZoom);
+    cb.disabled = shouldDisable;
+    // Zoomed out past usefulness -- actually turn it off, not just grey out
+    // the checkbox while the (now off-screen-scale) layer stays on the map.
+    if (shouldDisable && cb.checked) {
+      cb.checked = false;
+      const group = chartToggleLayers[cb.dataset.chartLayer];
+      if (group) chartMap.removeLayer(group);
+    }
   });
 }
 const CHART_LAYER_STYLERS = {
@@ -5898,6 +6112,225 @@ function updateChartBase() {
   chartMap.getContainer().classList.toggle('chart-dark-base', isDark);
   localStorage.setItem('chartBaseSource', source);
   localStorage.setItem('chartBaseTheme', isDark ? 'Dark' : 'Light');
+}
+
+// ─── Tides & Currents markers/popups (siloed addition) ─────────────────────
+function chartTideIcon() {
+  return L.divIcon({
+    className: 'chart-aid-icon',
+    html: `<svg width="18" height="18" viewBox="-9 -9 18 18">
+      <circle r="8" fill="#0d1f38" stroke="#2dd4bf" stroke-width="1.5"/>
+      <path d="M-5,0.5 Q-2.5,-2.5 0,0.5 T5,0.5" fill="none" stroke="#2dd4bf" stroke-width="1.4"/>
+      <path d="M-5,3.5 Q-2.5,0.5 0,3.5 T5,3.5" fill="none" stroke="#2dd4bf" stroke-width="1.4"/>
+    </svg>`,
+    iconSize: [18, 18], iconAnchor: [9, 9],
+  });
+}
+// floodDir is NOAA's meanFloodDir for this station (compass bearing, 0=N) --
+// the arrow itself is drawn pointing north (tip at 0,-5) and rotated to match,
+// same convention as a compass bearing rotate(deg) being clockwise from north.
+// Ebb runs close to the reverse of this, not always exactly 180° opposite
+// (real channels curve/shoal unevenly), so this shows flood specifically
+// rather than splitting the difference -- the popup's Flood/Ebb rows already
+// give the precise numbers for both.
+function chartCurrentIcon(floodDir) {
+  const rot = (typeof floodDir === 'number') ? floodDir : null;
+  return L.divIcon({
+    className: 'chart-aid-icon',
+    html: `<svg width="18" height="18" viewBox="-9 -9 18 18">
+      <circle r="8" fill="#0d1f38" stroke="#a05ad4" stroke-width="1.5"/>
+      <path d="M0,-5 L3,-1 L1,-1 L1,5 L-1,5 L-1,-1 L-3,-1 Z" fill="#a05ad4"${rot !== null ? ` transform="rotate(${rot} 0 0)"` : ''}/>
+    </svg>`,
+    iconSize: [18, 18], iconAnchor: [9, 9],
+  });
+}
+
+// NOAA timestamps here are boat-local ("YYYY-MM-DD HH:MM", per time_zone=
+// lst_ldt in tide_tools.py/dashboard_api.py) -- parsed with a 'T' swap so
+// Date treats them as local rather than UTC, same reasoning as
+// formatBoatLocalHour elsewhere for NWS timestamps.
+function tideParseLocal(t) { return new Date(t.replace(' ', 'T')); }
+function tideFmtTime(t) {
+  const d = tideParseLocal(t);
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function tideStationPopupHtml(pred) {
+  const row = (label, val) => `<div class="ais-popup-row"><span>${label}</span><span>${val}</span></div>`;
+  const now = Date.now();
+  if (pred.type === 'tide') {
+    const upcoming = (pred.events || []).filter(e => tideParseLocal(e.t).getTime() > now).slice(0, 3);
+    const rows = upcoming.map(e => row(e.type === 'H' ? 'High' : 'Low', `${parseFloat(e.v).toFixed(1)} ft @ ${tideFmtTime(e.t)}`)).join('');
+    return `<div class="ais-popup-body">
+      <div class="ais-popup-name">🌊 ${pred.name}</div>
+      ${rows || row('Predictions', 'none upcoming')}
+      <canvas id="tide-mini-chart" width="220" height="80" style="margin-top:6px"></canvas>
+      <div id="tide-live-row"></div>
+    </div>`;
+  }
+  const upcoming = (pred.events || []).filter(e => tideParseLocal(e.Time).getTime() > now).slice(0, 3);
+  const rows = upcoming.map(e => row(e.Type.charAt(0).toUpperCase() + e.Type.slice(1), `${Math.abs(e.Velocity_Major).toFixed(1)} kn @ ${tideFmtTime(e.Time)}`)).join('');
+  return `<div class="ais-popup-body">
+    <div class="ais-popup-name">↕ ${pred.name}</div>
+    ${rows || row('Predictions', 'none upcoming')}
+    <div id="tide-live-row"></div>
+  </div>`;
+}
+
+// Height curve for tide stations only -- current predictions are inherently
+// event-based (flood/ebb/slack), not a continuous value, so there's nothing
+// equivalent to plot for those (see tide_tools.py's sync docstring note).
+//
+// The bare curve alone doesn't say where "now" is on it, which is exactly
+// what a first-time viewer can't tell at a glance -- so this also draws a
+// dashed "now" line + dot at the current interpolated height. Hovering
+// anywhere on the curve shows the exact time + height via the tooltip below,
+// rather than a fixed "now" caption -- that covers every point on the curve,
+// not just the current one.
+function renderTideMiniChart(pred) {
+  const canvas = document.getElementById('tide-mini-chart');
+  if (tideMiniChart) { tideMiniChart.destroy(); tideMiniChart = null; }
+  if (!canvas || !pred.hourly || !pred.hourly.length) return;
+  const now = Date.now();
+  const windowed = pred.hourly.filter(p => {
+    const t = tideParseLocal(p.t).getTime();
+    return t >= now - 6 * 3600e3 && t <= now + 30 * 3600e3;
+  });
+  if (!windowed.length) return;
+
+  // windowed is hourly, so "now" almost always falls between two points, not
+  // on one -- interpolate both the height and its fractional position on the
+  // (category, not true time-scale) x axis so the marker lands in the right
+  // place rather than snapping to the nearest hour.
+  const times = windowed.map(p => tideParseLocal(p.t).getTime());
+  const nextIdx = times.findIndex(t => t >= now);
+  let nowIndexFrac = windowed.length - 1;
+  let nowValue = parseFloat(windowed[windowed.length - 1].v);
+  if (nextIdx > 0) {
+    const t0 = times[nextIdx - 1], t1 = times[nextIdx];
+    const v0 = parseFloat(windowed[nextIdx - 1].v), v1 = parseFloat(windowed[nextIdx].v);
+    const frac = (now - t0) / (t1 - t0);
+    nowIndexFrac = (nextIdx - 1) + frac;
+    nowValue = v0 + (v1 - v0) * frac;
+  }
+
+  const nowMarkerPlugin = {
+    id: 'tideNowMarker',
+    afterDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const i0 = Math.max(0, Math.min(Math.floor(nowIndexFrac), windowed.length - 1));
+      const i1 = Math.min(i0 + 1, windowed.length - 1);
+      const px0 = scales.x.getPixelForValue(i0), px1 = scales.x.getPixelForValue(i1);
+      const x = i1 === i0 ? px0 : px0 + (px1 - px0) * (nowIndexFrac - i0);
+      const y = scales.y.getPixelForValue(nowValue);
+      ctx.save();
+      ctx.strokeStyle = '#e0e6f0';
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#e0e6f0';
+      ctx.fill();
+      ctx.restore();
+    },
+  };
+
+  tideMiniChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: windowed.map(p => tideFmtTime(p.t)),
+      datasets: [{
+        data: windowed.map(p => parseFloat(p.v)),
+        borderColor: '#2dd4bf', backgroundColor: '#2dd4bf22', borderWidth: 1.5,
+        pointRadius: 0, pointHoverRadius: 3, fill: true, tension: .3,
+      }],
+    },
+    options: {
+      responsive: false, maintainAspectRatio: false,
+      // pointRadius is 0 (a clean curve, no dots at every hour) -- intersect:
+      // false + mode: 'index' is what still lets a hover anywhere along the
+      // curve pick up the nearest hour's tooltip, not just an exact pixel
+      // hit on a point that isn't actually drawn.
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(1)} ft` } },
+      },
+      scales: { x: { display: false }, y: { display: false } },
+    },
+    plugins: [nowMarkerPlugin],
+  });
+}
+
+// Fetches the live reading only after predictions have already rendered, and
+// only ever adds the row on success -- on any failure (offline, or this
+// station simply has no real-time sensor) #tide-live-row is just left empty,
+// no error text, per the "hide rather than show stale/broken" requirement.
+async function tideAppendLiveRow(stationId, stationType) {
+  try {
+    const live = await (await fetch(`/api/tides/live?station=${stationId}`)).json();
+    if (live.error) return;
+    const el = document.getElementById('tide-live-row');
+    if (!el) return; // popup already closed/replaced
+    const t = tideFmtTime(live.time);
+    el.innerHTML = stationType === 'tide'
+      ? `<div class="ais-popup-row"><span>Live</span><span>${parseFloat(live.value).toFixed(2)} ft @ ${t}</span></div>`
+      : `<div class="ais-popup-row"><span>Live</span><span>${parseFloat(live.speed).toFixed(1)} kn @ ${live.direction}° (${t})</span></div>`;
+  } catch (e) { /* offline or timed out -- leave the row empty */ }
+}
+
+async function tideLoadPopup(marker, station) {
+  try {
+    const pred = await (await fetch(`/api/tides/predictions?station=${station.id}`)).json();
+    if (pred.error) throw new Error(pred.error);
+    marker.setPopupContent(tideStationPopupHtml(pred));
+    if (pred.type === 'tide') renderTideMiniChart(pred);
+    tideAppendLiveRow(station.id, station.type);
+  } catch (e) {
+    marker.setPopupContent(`<div class="ais-popup-body">Unable to load predictions for this station.</div>`);
+  }
+}
+
+async function ensureTideStations() {
+  if (chartTidesLoaded) return;
+  chartTidesLoaded = true;
+  try {
+    const stations = await (await fetch('/api/tides/stations')).json();
+    stations.forEach(st => {
+      // st.flood_dir is only a same-direction-every-time placeholder until
+      // updateCurrentDirections() below overrides it with the actual current
+      // flood/ebb phase -- keeps the icon pointing somewhere sane for the
+      // instant between marker creation and that fetch resolving.
+      const marker = L.marker([st.lat, st.lon], { icon: st.type === 'tide' ? chartTideIcon() : chartCurrentIcon(st.flood_dir) });
+      marker.bindPopup('<div class="ais-popup-body">Loading…</div>', { className: 'ais-popup' });
+      marker.on('popupopen', () => tideLoadPopup(marker, st));
+      chartTidesGroup.addLayer(marker);
+      if (st.type === 'current') chartCurrentMarkersById[st.id] = marker;
+    });
+    updateCurrentDirections();
+  } catch (e) {
+    chartTidesLoaded = false; // allow retrying next time the checkbox is toggled on
+  }
+}
+
+// Real flood/ebb direction, not just the station's fixed flood_dir -- current
+// direction physically reverses roughly every 6 hours, so a static arrow
+// would be right half the time and backwards the other half. Cheap to poll:
+// /api/tides/current_directions is 100% local (cached predictions, not a
+// NOAA call), and direction only changes on the scale of hours, not seconds.
+async function updateCurrentDirections() {
+  try {
+    const dirs = await (await fetch('/api/tides/current_directions')).json();
+    Object.entries(dirs).forEach(([id, deg]) => {
+      const marker = chartCurrentMarkersById[id];
+      if (marker) marker.setIcon(chartCurrentIcon(deg));
+    });
+  } catch (e) { /* offline -- markers just keep showing their last-known direction */ }
 }
 
 async function initChartMap() {
@@ -5958,15 +6391,17 @@ async function initChartMap() {
   chartMeGroup = L.layerGroup();
   chartDestGroup = L.layerGroup();
   chartTripTrackGroup = L.layerGroup();
+  chartTidesGroup = L.layerGroup();
   // Destination isn't in this map -- it has no checkbox of its own anymore,
   // see updateDestPanelVisibility below.
-  const chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup, 'Saved Tracks': chartTripTrackGroup };
+  chartToggleLayers = { ...chartOverlayGroups, 'Soundings': chartSoundingsGroup, 'AIS Traffic': chartAisGroup, 'My Vessel': chartMeGroup, 'Saved Tracks': chartTripTrackGroup, 'Tides & Currents': chartTidesGroup };
   document.querySelectorAll('#chart-layer-toggles input[type="checkbox"]').forEach(cb => {
     cb.checked = (cb.dataset.chartLayer === 'My Vessel'); // only this one defaults on
     cb.addEventListener('change', () => {
       const group = chartToggleLayers[cb.dataset.chartLayer];
       if (!group) return;
       if (cb.checked) group.addTo(chartMap); else chartMap.removeLayer(group);
+      if (cb.checked && cb.dataset.chartLayer === 'Tides & Currents') ensureTideStations();
     });
     if (cb.checked) {
       const group = chartToggleLayers[cb.dataset.chartLayer];
@@ -6067,6 +6502,23 @@ let chartDestSyncSuppressUntil = 0; // Date.now()-comparable; see dragend handle
 // ─── Trip tracks ──────────────────────────────────────────────────────────────
 let chartTripTrackGroup = null; // saved + in-progress trip polylines, toggled via "Saved Tracks"
 let chartTripPolylines = {}; // trip id -> L.polyline, cached so a shown trip isn't re-fetched every toggle
+
+// ─── Tides & Currents (siloed addition) ────────────────────────────────────
+// Markers are loaded once, lazily, the first time the checkbox is actually
+// turned on (chartTidesLoaded below) -- unlike AIS/soundings this data barely
+// changes minute to minute, so there's no ongoing poll, just a one-time fetch
+// of /api/tides/stations (itself fully local -- see tide_tools.py). Per-marker
+// predictions + the optional live reading are fetched lazily too, only when
+// that station's popup is actually opened, to avoid firing 80+ requests the
+// moment the layer is enabled.
+let chartTidesGroup = null;
+let chartTidesLoaded = false;
+let tideMiniChart = null; // single shared Chart.js instance -- only one popup open at a time
+// Current-station markers keyed by station id, so updateCurrentDirections()
+// (real flood/ebb rotation, unlike the one-time static flood_dir the marker
+// is first created with) can re-point an already-placed marker without
+// tearing down and re-fetching the whole station list.
+let chartCurrentMarkersById = {};
 let chartActiveTripId = null; // set while a trip is recording, from /api/trips
 
 // "My Vessel & Autopilot" panel — heading/COG/SOG are real (same MQTT topics
@@ -7907,8 +8359,16 @@ setInterval(fetchTanksAndBilge, 5000);
 setInterval(checkDestinationArrival, 5000);
 setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
 setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
+// Auto-refresh the watermaker trend modal while it's open and on-screen, so
+// gauges keep moving with the real system without needing a manual re-open.
+// Gated to penEndpoint (not just penModalOpen) since the same modal is reused
+// for System Health / Tank Levels trends, which this isn't meant to refresh.
+setInterval(() => { if (penModalOpen && penEndpoint === '/api/watermaker/history') loadPenHistory(); }, 10000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);
 setInterval(() => { if (currentPage === 'chart') fetchChartAisLive(); }, 3000);
+// Current direction physically reverses on the scale of hours, not seconds --
+// no need to poll anywhere near as often as AIS/live position above.
+setInterval(() => { if (currentPage === 'chart' && chartTidesLoaded) updateCurrentDirections(); }, 10 * 60 * 1000);
 setInterval(() => { if (currentPage === 'chart' && chartActiveTripId) fetchActiveTripPoints(); }, 5000);
 setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000);
 setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);

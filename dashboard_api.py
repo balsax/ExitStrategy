@@ -695,6 +695,7 @@ WATERMAKER_METRIC_TOPICS = {
     'current':    'boat/watermaker/pump/current',
     'efficiency': 'boat/watermaker/efficiency',
     'tank':       'boat/watermaker/tank/level',
+    'product_temp': 'boat/watermaker/flow/temperature',  # same Digmesa flow sensor as flow/rate, reports product water temp
 }
 TREND_RANGE_SECONDS = {'10m': 600, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}
 TREND_RANGE_BUCKET = {'10m': 5, '1h': 30, '6h': 120, '24h': 600, '7d': 3600, '30d': 14400}
@@ -2143,119 +2144,6 @@ def chart_layer(cell, layer):
         return jsonify({'error': 'unknown cell'}), 404
     return send_from_directory(cell_dir, layer)
 
-# ─── O-Charts (siloed addition -- see plans/fancy-finding-reef.md) ─────────
-# Second raster base source, built from the user's own licensed/decrypted
-# O-charts Caribbean data via ochart_tools.py (BVI/USVI area, where NOAA's
-# NCDS coverage above thins out). Deliberately NOT sharing code with the
-# NCDS block above -- independent helpers/routes here so this can be
-# deleted cleanly without touching the working NOAA layer. Vector overlay
-# needs no separate route at all: ochart_tools.py writes into the same
-# CHART_DATA_DIR the NOAA ENC pipeline uses, so /api/charts/cells and
-# /api/charts/<cell>/<layer> above already serve O-chart cells unchanged.
-OCHARTS_DIR = '/home/mikemc/dashboard-dev/chart_data/ocharts'
-
-def _ocharts_files():
-    if not os.path.isdir(OCHARTS_DIR):
-        return []
-    return sorted(glob.glob(os.path.join(OCHARTS_DIR, '*.mbtiles')))
-
-@app.route('/api/charts/ocharts/meta')
-def ocharts_meta():
-    files = _ocharts_files()
-    if not files:
-        return jsonify({'available': False})
-    bounds = None
-    min_zoom = None
-    max_zoom_any = None
-    maxzoom_values = []
-    fmt = 'png'
-    for path in files:
-        conn = sqlite3.connect(path)
-        try:
-            meta = dict(conn.execute('SELECT name, value FROM metadata').fetchall())
-        except sqlite3.DatabaseError:
-            continue
-        finally:
-            conn.close()
-        fmt = meta.get('format', fmt)
-        if 'minzoom' in meta:
-            mz = int(meta['minzoom'])
-            min_zoom = mz if min_zoom is None else min(min_zoom, mz)
-        if 'maxzoom' in meta:
-            xz = int(meta['maxzoom'])
-            max_zoom_any = xz if max_zoom_any is None else max(max_zoom_any, xz)
-            maxzoom_values.append(xz)
-        if 'bounds' in meta:
-            west, south, east, north = (float(v) for v in meta['bounds'].split(','))
-            if bounds is None:
-                bounds = {'west': west, 'south': south, 'east': east, 'north': north}
-            else:
-                bounds['west'] = min(bounds['west'], west)
-                bounds['south'] = min(bounds['south'], south)
-                bounds['east'] = max(bounds['east'], east)
-                bounds['north'] = max(bounds['north'], north)
-    max_zoom_native = Counter(maxzoom_values).most_common(1)[0][0] if maxzoom_values else 16
-    return jsonify({
-        'available': True,
-        'format': fmt,
-        'minZoom': min_zoom if min_zoom is not None else 0,
-        'maxZoom': max_zoom_any if max_zoom_any is not None else 16,
-        'maxNativeZoom': max_zoom_native,
-        'bounds': bounds,
-        'regionCount': len(files),
-    })
-
-def _ocharts_lookup_tile(files, z, x, y):
-    tms_row = (2 ** z - 1) - y  # MBTiles stores rows TMS-style; Leaflet requests XYZ
-    best = None
-    for path in files:
-        conn = sqlite3.connect(path)
-        try:
-            row = conn.execute(
-                'SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?',
-                (z, x, tms_row)
-            ).fetchone()
-        except sqlite3.DatabaseError:
-            continue
-        finally:
-            conn.close()
-        if row is not None and (best is None or len(row[0]) > len(best)):
-            best = row[0]
-    return best
-
-OCHARTS_OVERZOOM_MAX_LEVELS = 8
-
-@app.route('/api/charts/ocharts/tiles/<int:z>/<int:x>/<int:y>.png')
-def ocharts_tile(z, x, y):
-    files = _ocharts_files()
-    if not files:
-        return '', 404
-
-    data = _ocharts_lookup_tile(files, z, x, y)
-    if data is not None:
-        return Response(data, mimetype='image/png')
-
-    for k in range(1, OCHARTS_OVERZOOM_MAX_LEVELS + 1):
-        pz = z - k
-        if pz < 0:
-            break
-        tile_px = 256 >> k
-        if tile_px < 1:
-            break
-        ancestor = _ocharts_lookup_tile(files, pz, x >> k, y >> k)
-        if ancestor is None:
-            continue
-        sub_x, sub_y = x & ((1 << k) - 1), y & ((1 << k) - 1)
-        left, top = sub_x * tile_px, sub_y * tile_px
-        img = Image.open(io.BytesIO(ancestor)).convert('RGBA')
-        crop = img.resize((256, 256), Image.LANCZOS, box=(left, top, left + tile_px, top + tile_px))
-        buf = io.BytesIO()
-        crop.save(buf, format='PNG')
-        return Response(buf.getvalue(), mimetype='image/png')
-
-    return '', 404
-# ─── end O-Charts siloed addition ──────────────────────────────────────────
-
 # ─── MOB / man overboard marks (siloed addition) ───────────────────────────
 MOB_MARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mob_marks.json')
 MOB_MARKS_LOCK = threading.Lock()
@@ -2301,7 +2189,7 @@ def mob_clear(mark_id):
 
 # ─── Wind velocity overlay (siloed addition) ────────────────────────────────
 # Hardcoded to the dashboard-dev tree, same reasoning as CHART_DATA_DIR/
-# NCDS_DIR/OCHARTS_DIR above -- this file also runs as a deployed copy at
+# NCDS_DIR above -- this file also runs as a deployed copy at
 # /home/mikemc/dashboard_api.py, where a path derived from __file__ would
 # resolve to the wrong directory (wind_grid.py only exists in dashboard-dev).
 # Both the dev and prod copies of this file end up sharing the same cache
@@ -2401,6 +2289,162 @@ def wind_velocity_region():
             return jsonify({'error': 'failed to fetch wind data for this region'}), 502
     return send_from_directory(WIND_REGION_CACHE_DIR, filename)
 # ─── end wind velocity siloed addition ──────────────────────────────────────
+
+# ─── Reference library (siloed addition) ────────────────────────────────────
+# Static reference PDFs (NGA Atlas of Pilot Charts, Pub. 249 Sight Reduction
+# Tables) for the Reference tab. Fetched once by hand into ~/reference_docs
+# (outside dashboard-dev/chart_data -- these aren't generated/gitignored data,
+# just a small fixed set of downloaded documents), not periodically refreshed
+# the way live weather data is.
+REFERENCE_DOCS_DIR = '/home/mikemc/reference_docs'
+REFERENCE_CATEGORIES = {'pilot_charts', 'celestial_navigation', 'sailing_directions', 'navigation_rules', 'list_of_lights', 'chart_no1'}
+
+@app.route('/api/reference/<category>/<filename>')
+def reference_file(category, filename):
+    if category not in REFERENCE_CATEGORIES or not filename.lower().endswith('.pdf') or '/' in filename or '..' in filename:
+        return jsonify({'error': 'not found'}), 404
+    category_dir = os.path.join(REFERENCE_DOCS_DIR, category)
+    if not os.path.isfile(os.path.join(category_dir, filename)):
+        return jsonify({'error': 'not found'}), 404
+    return send_from_directory(category_dir, filename)
+# ─── end reference library siloed addition ──────────────────────────────────
+
+# ─── Tides & Currents (siloed addition) ─────────────────────────────────────
+# Station list + predictions are pre-downloaded by tide_tools.py (harmonic,
+# computed in advance -- same "cache once, read locally forever" reasoning as
+# the NCDS/ENC chart data above), so /stations and /predictions never touch
+# the network themselves. /live is the one exception: a direct proxy to NOAA
+# CO-OPS's real-time observation endpoint, deliberately with no stale-data
+# fallback (unlike _weather_cache above) -- on any failure (no connection, or
+# this particular station just has no real-time sensor) it 502s, and the
+# frontend takes that as "hide this," not "show old data."
+TIDES_DATA_DIR = '/home/mikemc/dashboard-dev/chart_data/tides'
+TIDES_PRED_DIR = os.path.join(TIDES_DATA_DIR, 'predictions')
+NOAA_DATAGETTER = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter'
+TIDES_LIVE_CACHE_TTL_S = 300
+_tides_live_cache = {}  # station id -> {'data': {...}, 'fetched_at': epoch seconds}
+
+@app.route('/api/tides/stations')
+def tides_stations():
+    # Only ever the subset tide_tools.py sync has actually cached predictions
+    # for -- a station in NOAA's full index with nothing synced would just be
+    # a marker that 404s the moment it's clicked.
+    if not os.path.isdir(TIDES_PRED_DIR):
+        return jsonify([])
+    stations = []
+    for name in os.listdir(TIDES_PRED_DIR):
+        if not name.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(TIDES_PRED_DIR, name)) as f:
+                d = json.load(f)
+            station = {'id': d['id'], 'name': d['name'], 'lat': d['lat'], 'lon': d['lon'], 'type': d['type']}
+            if d['type'] == 'current' and d.get('events'):
+                # Every event in a station's cp list carries the same
+                # meanFloodDir/meanEbbDir (it's a property of the station, not
+                # the individual event) -- the first one is as good as any.
+                station['flood_dir'] = d['events'][0].get('meanFloodDir')
+            stations.append(station)
+        except (json.JSONDecodeError, KeyError, OSError):
+            continue
+    return jsonify(stations)
+
+@app.route('/api/tides/predictions')
+def tides_predictions():
+    station = request.args.get('station', '')
+    if not station.isalnum():
+        return jsonify({'error': 'invalid station id'}), 400
+    path = os.path.join(TIDES_PRED_DIR, f'{station}.json')
+    if not os.path.isfile(path):
+        return jsonify({'error': 'no cached predictions for this station -- run tide_tools.py sync'}), 404
+    with open(path) as f:
+        return jsonify(json.load(f))
+
+@app.route('/api/tides/live')
+def tides_live():
+    station = request.args.get('station', '')
+    if not station.isalnum():
+        return jsonify({'error': 'invalid station id'}), 400
+    cached = _tides_live_cache.get(station)
+    if cached and (time.time() - cached['fetched_at'] < TIDES_LIVE_CACHE_TTL_S):
+        return jsonify(cached['data'])
+
+    station_type = 'tide'
+    pred_path = os.path.join(TIDES_PRED_DIR, f'{station}.json')
+    if os.path.isfile(pred_path):
+        with open(pred_path) as f:
+            station_type = json.load(f).get('type', 'tide')
+
+    params = dict(station=station, application='exit-strategy-dashboard', date='latest',
+                  units='english', time_zone='lst_ldt', format='json')
+    params.update({'product': 'water_level', 'datum': 'MLLW'} if station_type == 'tide' else {'product': 'currents'})
+    try:
+        d = requests.get(NOAA_DATAGETTER, params=params, timeout=6).json()
+        if 'error' in d or not d.get('data'):
+            raise RuntimeError((d.get('error') or {}).get('message', 'no live data'))
+        latest = d['data'][-1]
+        data = ({'time': latest['t'], 'value': latest.get('v')} if station_type == 'tide'
+                else {'time': latest['t'], 'speed': latest.get('s'), 'direction': latest.get('d')})
+        _tides_live_cache[station] = {'data': data, 'fetched_at': time.time()}
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+def _current_phase_direction(events, now_str):
+    """Which way a current station is running right now, derived from its
+    cached flood/ebb/slack event list -- NOAA only gives event TIMES (not a
+    continuous direction feed), so "now" always falls between two events.
+    The direction is whichever of flood/ebb the *most recent past* event
+    started, since the current keeps running that way (just decelerating)
+    until the next slack; if the most recent event was itself a slack, the
+    current has already begun turning into whatever direction comes *next*.
+    Timestamps are plain 'YYYY-MM-DD HH:MM' strings (zero-padded, same
+    time_zone=lst_ldt convention as everywhere else in this feature), so
+    lexical comparison is chronological comparison -- no datetime parsing
+    needed."""
+    if not events:
+        return None
+    evs = sorted(events, key=lambda e: e['Time'])
+    prev, nxt = None, None
+    for e in evs:
+        if e['Time'] <= now_str:
+            prev = e
+        elif nxt is None:
+            nxt = e
+    phase = prev['Type'] if prev and prev['Type'] in ('flood', 'ebb') else \
+        (nxt['Type'] if nxt and nxt['Type'] in ('flood', 'ebb') else None)
+    if phase == 'flood':
+        return evs[0].get('meanFloodDir')
+    if phase == 'ebb':
+        return evs[0].get('meanEbbDir')
+    return None
+
+@app.route('/api/tides/current_directions')
+def tides_current_directions():
+    # Deliberately not the same lazy-per-popup pattern as predictions/live --
+    # a marker's rotation has to be right without opening its popup, so this
+    # computes phase for every synced current station in one request. All
+    # from cached files already on disk (see _current_phase_direction above),
+    # so this never touches the network either.
+    if not os.path.isdir(TIDES_PRED_DIR):
+        return jsonify({})
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+    directions = {}
+    for name in os.listdir(TIDES_PRED_DIR):
+        if not name.endswith('.json'):
+            continue
+        try:
+            with open(os.path.join(TIDES_PRED_DIR, name)) as f:
+                d = json.load(f)
+            if d.get('type') != 'current':
+                continue
+            direction = _current_phase_direction(d.get('events') or [], now_str)
+            if direction is not None:
+                directions[d['id']] = direction
+        except (json.JSONDecodeError, KeyError, OSError):
+            continue
+    return jsonify(directions)
+# ─── end tides & currents siloed addition ───────────────────────────────────
 
 @app.route('/api/health')
 def health():
