@@ -160,7 +160,17 @@ def _sync_one(station, days):
                 out['hourly'] = []
         else:
             cp = _get_json_retrying({**common, 'product': 'currents_predictions', 'bin': station.get('bin', 1), 'interval': 'MAX_SLACK'})
-            out['events'] = cp.get('current_predictions', {}).get('cp', [])
+            # For some stations 'cp' is a plain string ("Currents are weak
+            # and variable") instead of a list of event objects -- NOAA's
+            # documented behavior for weak/variable stations, not an error
+            # shape (no 'error' key, so _get_json_retrying's checks don't
+            # catch it). A string is still truthy, so without this it
+            # silently cached bad data that crashed every consumer expecting
+            # events to be a list of dicts (confirmed: exactly this shape hit
+            # dashboard_api.py's /api/tides/stations and /current_directions
+            # in production). Treat it the same as "no usable events".
+            raw_events = cp.get('current_predictions', {}).get('cp', [])
+            out['events'] = raw_events if isinstance(raw_events, list) else []
     except Exception as e:
         print(f"  ! {station['id']} ({station['name']}): {e}")
         return False

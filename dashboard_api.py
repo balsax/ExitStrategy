@@ -2339,11 +2339,17 @@ def tides_stations():
             with open(os.path.join(TIDES_PRED_DIR, name)) as f:
                 d = json.load(f)
             station = {'id': d['id'], 'name': d['name'], 'lat': d['lat'], 'lon': d['lon'], 'type': d['type']}
-            if d['type'] == 'current' and d.get('events'):
-                # Every event in a station's cp list carries the same
-                # meanFloodDir/meanEbbDir (it's a property of the station, not
-                # the individual event) -- the first one is as good as any.
-                station['flood_dir'] = d['events'][0].get('meanFloodDir')
+            events = d.get('events')
+            # Every event in a station's cp list carries the same
+            # meanFloodDir/meanEbbDir (it's a property of the station, not
+            # the individual event) -- the first one is as good as any.
+            # isinstance guard: tide_tools.py normalizes NOAA's occasional
+            # "Currents are weak and variable" string response to [] now, but
+            # this stays as a second line of defense against any cache file
+            # written before that fix, or any other future shape surprise --
+            # one bad file must never take the whole endpoint down again.
+            if d['type'] == 'current' and isinstance(events, list) and events and isinstance(events[0], dict):
+                station['flood_dir'] = events[0].get('meanFloodDir')
             stations.append(station)
         except (json.JSONDecodeError, KeyError, OSError):
             continue
@@ -2402,7 +2408,11 @@ def _current_phase_direction(events, now_str):
     time_zone=lst_ldt convention as everywhere else in this feature), so
     lexical comparison is chronological comparison -- no datetime parsing
     needed."""
-    if not events:
+    # isinstance guard: same "weak and variable" string-instead-of-list shape
+    # tides_stations() above guards against -- tide_tools.py normalizes it to
+    # [] now, but this is the second line of defense for any pre-existing or
+    # future malformed cache file, same reasoning as there.
+    if not events or not isinstance(events, list) or not all(isinstance(e, dict) for e in events):
         return None
     evs = sorted(events, key=lambda e: e['Time'])
     prev, nxt = None, None

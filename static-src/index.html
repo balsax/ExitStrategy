@@ -6161,10 +6161,18 @@ function tideStationPopupHtml(pred) {
   if (pred.type === 'tide') {
     const upcoming = (pred.events || []).filter(e => tideParseLocal(e.t).getTime() > now).slice(0, 3);
     const rows = upcoming.map(e => row(e.type === 'H' ? 'High' : 'Low', `${parseFloat(e.v).toFixed(1)} ft @ ${tideFmtTime(e.t)}`)).join('');
+    // Only a "reference" NOAA station has a full harmonic model to generate
+    // a continuous curve from -- a "subordinate" station (offset-only from a
+    // nearby reference station, roughly 2/3 of them) still gets accurate
+    // High/Low predictions above, just no in-between curve to plot, so skip
+    // the canvas entirely rather than leaving a blank chart-sized gap.
+    const chartHtml = (pred.hourly && pred.hourly.length)
+      ? `<canvas id="tide-mini-chart" width="220" height="80" style="margin-top:6px"></canvas>`
+      : '';
     return `<div class="ais-popup-body">
       <div class="ais-popup-name">🌊 ${pred.name}</div>
       ${rows || row('Predictions', 'none upcoming')}
-      <canvas id="tide-mini-chart" width="220" height="80" style="margin-top:6px"></canvas>
+      ${chartHtml}
       <div id="tide-live-row"></div>
     </div>`;
   }
