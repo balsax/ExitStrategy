@@ -583,12 +583,12 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <!-- Navigation -->
 <div class="nav">
   <button class="navbtn active" id="nav-overview" onclick="showPage('overview')"><span>🧭</span>Overview</button>
-  <button class="navbtn" id="nav-electrical" onclick="showPage('electrical')"><span>⚡</span>Electrical</button>
-  <button class="navbtn" id="nav-watermaker" onclick="showPage('watermaker')"><span>💧</span>Watermaker</button>
-  <button class="navbtn" id="nav-engine" onclick="showPage('engine')"><span>🔧</span>Engine</button>
-  <button class="navbtn" id="nav-anchor" onclick="showPage('anchor')"><span>⚓</span>Anchor Watch</button>
   <button class="navbtn" id="nav-chart" onclick="showPage('chart')"><span>🗺️</span>Chart</button>
   <button class="navbtn" id="nav-weather" onclick="showPage('weather')"><span>🌤️</span>Weather</button>
+  <button class="navbtn" id="nav-anchor" onclick="showPage('anchor')"><span>⚓</span>Anchor Watch</button>
+  <button class="navbtn" id="nav-watermaker" onclick="showPage('watermaker')"><span>💧</span>Watermaker</button>
+  <button class="navbtn" id="nav-electrical" onclick="showPage('electrical')"><span>⚡</span>Electrical</button>
+  <button class="navbtn" id="nav-engine" onclick="showPage('engine')"><span>🔧</span>Engine</button>
   <button class="navbtn" id="nav-reference" onclick="showPage('reference')"><span>📖</span>Reference</button>
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
@@ -2110,6 +2110,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let trendChart = null;
+let trendChartPens = null; // which pens the current trendChart instance was built for -- see renderMultiPenChart's in-place-update path
 // Bumped by every loadPenHistory/loadVRMHistory/loadInfluxHistory call. A
 // slow request (VRM's cloud API in particular) can resolve after the modal's
 // moved on to a different node/pens/duration -- without this, that late
@@ -4277,13 +4278,21 @@ function setDuration(dur, btn) {
   }
 }
 
-async function loadPenHistory() {
+async function loadPenHistory(isAutoRefresh = false) {
   const seq = ++chartRequestSeq;
-  showChartLoading('Loading...');
-  // Clear stale rows from whatever was last rendered here (a previous node/
-  // pen selection, possibly taller than what's coming) so the modal doesn't
-  // briefly grow past max-height and pop a scrollbar for the loading beat.
-  document.getElementById('wm-pen-legend').innerHTML = '';
+  // The background auto-refresh (see the 10s setInterval below) skips the
+  // loading flash entirely -- clearing the legend and tearing down the chart
+  // for a call the user didn't ask for is exactly the jarring "lose your
+  // place, watch it redraw" effect that isn't wanted for that case.
+  // renderMultiPenChart below does the equivalent in-place data update
+  // instead when it's given the same pens as last time.
+  if (!isAutoRefresh) {
+    showChartLoading('Loading...');
+    // Clear stale rows from whatever was last rendered here (a previous node/
+    // pen selection, possibly taller than what's coming) so the modal doesn't
+    // briefly grow past max-height and pop a scrollbar for the loading beat.
+    document.getElementById('wm-pen-legend').innerHTML = '';
+  }
   try {
     const pens = [...activePens];
     let seriesMap;
@@ -4299,9 +4308,12 @@ async function loadPenHistory() {
       seriesMap = d.series || {};
     }
     if (seq !== chartRequestSeq) return; // superseded by a newer load -- discard
-    renderMultiPenChart(pens, seriesMap);
+    renderMultiPenChart(pens, seriesMap, isAutoRefresh);
   } catch (e) {
-    if (seq === chartRequestSeq) showChartLoading('Error loading history');
+    if (seq === chartRequestSeq && !isAutoRefresh) showChartLoading('Error loading history');
+    // An auto-refresh that fails (e.g. a momentary network blip) just leaves
+    // the last-good chart on screen rather than replacing it with an error --
+    // the next refresh 10s later will just try again.
   }
 }
 
@@ -4388,20 +4400,46 @@ function renderChart(times, values, color, unit) {
   });
 }
 
+// Shared by both the fresh-render and in-place-update paths in
+// renderMultiPenChart below, since a pure data refresh still needs its
+// current/min/avg/max text updated even when the chart itself isn't rebuilt.
+function buildPenLegendRows(pens, seriesMap) {
+  const fmt = v => v === null || v === undefined ? '--' : v.toFixed(Math.abs(v) < 10 ? 2 : 1);
+  return pens.map(metric => {
+    const meta = penMetrics[metric];
+    const s = seriesMap[metric] || { times: [], values: [] };
+    const present = s.values.filter(v => v !== null && v !== undefined);
+    const now = present.length ? present[present.length - 1] : null;
+    const min = present.length ? Math.min(...present) : null;
+    const max = present.length ? Math.max(...present) : null;
+    const avg = present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
+    return `
+      <div class="wm-pen-legend-row">
+        <span class="pen-dot" style="background:${meta.color}"></span>
+        <span class="pen-legend-label">${meta.label}</span>
+        <span class="pen-legend-now" style="color:${meta.color}">${fmt(now)}${meta.unit}</span>
+        <span class="pen-legend-stats">min ${fmt(min)} &middot; avg ${fmt(avg)} &middot; max ${fmt(max)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
 // Overlays any number of active watermaker "pens" (metrics) on one time axis.
 // Each pen gets its own auto-scaled y-axis (so mixed units like psi/gph/rpm/%
 // don't fight each other) — only the first two are drawn on the chart edges to
 // avoid clutter, but all of them keep their independent scaling, and every
 // active pen gets a color-matched row in the legend below with its current/
 // min/avg/max values so nothing is lost by hiding the extra axes.
-function renderMultiPenChart(pens, seriesMap) {
+function renderMultiPenChart(pens, seriesMap, isAutoRefresh = false) {
   const allTimes = new Set();
   pens.forEach(p => (seriesMap[p]?.times || []).forEach(t => allTimes.add(t)));
   const times = [...allTimes].sort();
 
   if (times.length === 0) {
-    showChartLoading('No data for this period');
-    document.getElementById('wm-pen-legend').innerHTML = '';
+    if (!isAutoRefresh) {
+      showChartLoading('No data for this period');
+      document.getElementById('wm-pen-legend').innerHTML = '';
+    }
     return;
   }
 
@@ -4412,17 +4450,37 @@ function renderMultiPenChart(pens, seriesMap) {
     return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
 
+  // Same pens as what's already drawn -- update the existing Chart.js
+  // instance's data in place instead of destroying and rebuilding it. Chart.js
+  // animates a data change on its own, which reads as the line scrolling/
+  // shifting with the new points rather than the whole chart flashing away
+  // and redrawing from scratch. Axis/dataset *config* (colors, axis ids,
+  // etc.) doesn't need touching since the pens haven't changed.
+  const samePens = trendChart && trendChartPens && trendChartPens.length === pens.length && trendChartPens.every((p, i) => p === pens[i]);
+  if (samePens) {
+    trendChart.data.labels = labels;
+    pens.forEach((metric, i) => {
+      const s = seriesMap[metric] || { times: [], values: [] };
+      const byTime = {};
+      s.times.forEach((t, idx) => { byTime[t] = s.values[idx]; });
+      const values = times.map(t => (t in byTime ? byTime[t] : null));
+      trendChart.data.datasets[i].data = values;
+      trendChart.data.datasets[i].pointRadius = values.length > 100 ? 0 : 3;
+    });
+    trendChart.update();
+    document.getElementById('wm-pen-legend').innerHTML = buildPenLegendRows(pens, seriesMap);
+    return;
+  }
+
   document.getElementById('chart-loading').style.display = 'none';
   const c = document.getElementById('trend-chart');
   c.style.display = 'block';
   if (trendChart) { trendChart.destroy(); trendChart = null; }
 
-  const fmt = v => v === null || v === undefined ? '--' : v.toFixed(Math.abs(v) < 10 ? 2 : 1);
-  const datasets = [];
   const scales = {
     x: { ticks: { color: '#6b82a0', maxTicksLimit: 8, font: { size: 11 } }, grid: { color: '#1e2d4a' } }
   };
-  const legendRows = [];
+  const datasets = [];
 
   pens.forEach((metric, i) => {
     const meta = penMetrics[metric];
@@ -4452,23 +4510,9 @@ function renderMultiPenChart(pens, seriesMap) {
       grid: { display: i === 0, color: '#1e2d4a' }
     };
 
-    const present = s.values.filter(v => v !== null && v !== undefined);
-    const now = present.length ? present[present.length - 1] : null;
-    const min = present.length ? Math.min(...present) : null;
-    const max = present.length ? Math.max(...present) : null;
-    const avg = present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
-
-    legendRows.push(`
-      <div class="wm-pen-legend-row">
-        <span class="pen-dot" style="background:${meta.color}"></span>
-        <span class="pen-legend-label">${meta.label}</span>
-        <span class="pen-legend-now" style="color:${meta.color}">${fmt(now)}${meta.unit}</span>
-        <span class="pen-legend-stats">min ${fmt(min)} &middot; avg ${fmt(avg)} &middot; max ${fmt(max)}</span>
-      </div>
-    `);
   });
 
-  document.getElementById('wm-pen-legend').innerHTML = legendRows.join('');
+  document.getElementById('wm-pen-legend').innerHTML = buildPenLegendRows(pens, seriesMap);
 
   trendChart = new Chart(c, {
     type: 'line',
@@ -4492,6 +4536,7 @@ function renderMultiPenChart(pens, seriesMap) {
       scales
     }
   });
+  trendChartPens = [...pens];
 }
 
 function closeModal() {
@@ -8367,11 +8412,18 @@ setInterval(fetchTanksAndBilge, 5000);
 setInterval(checkDestinationArrival, 5000);
 setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
 setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
-// Auto-refresh the watermaker trend modal while it's open and on-screen, so
-// gauges keep moving with the real system without needing a manual re-open.
-// Gated to penEndpoint (not just penModalOpen) since the same modal is reused
-// for System Health / Tank Levels trends, which this isn't meant to refresh.
-setInterval(() => { if (penModalOpen && penEndpoint === '/api/watermaker/history') loadPenHistory(); }, 10000);
+// Auto-refresh the watermaker/tank trend modal while it's open and on-screen,
+// so the chart keeps moving with the real system without needing a manual
+// re-open. Gated to penEndpoint (not just penModalOpen) since the same modal
+// is also reused for System Health trends, which this isn't meant to refresh
+// (server metrics aren't something you're watching live the way tank/
+// watermaker levels are). Only for the short durations -- a 6h+ view is for
+// spotting a trend over time, not watching it move live, and refreshing it
+// just yanks the chart (and whatever point you're hovering/reading) out from
+// under you every 10s for no benefit at that zoomed-out a scale.
+const TREND_AUTOREFRESH_ENDPOINTS = new Set(['/api/watermaker/history', '/api/tanks/history']);
+const TREND_AUTOREFRESH_DURATIONS = new Set(['10m', '1h']);
+setInterval(() => { if (penModalOpen && TREND_AUTOREFRESH_ENDPOINTS.has(penEndpoint) && TREND_AUTOREFRESH_DURATIONS.has(currentDuration)) loadPenHistory(true); }, 10000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);
 setInterval(() => { if (currentPage === 'chart') fetchChartAisLive(); }, 3000);
 // Current direction physically reverses on the scale of hours, not seconds --
