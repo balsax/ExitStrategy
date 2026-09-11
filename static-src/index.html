@@ -921,12 +921,12 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <div class="page" id="page-engine">
   <div class="section">Engine Compartment</div>
   <div class="grid">
-    <div class="card no-click">
+    <div class="card" onclick="openEngineModal('temp')">
       <div class="card-label">Compartment Temp</div>
       <div class="card-value info" id="engine-fan-temp">--<span class="card-unit">°F</span></div>
       <div class="card-sub">Engine bay temperature</div>
     </div>
-    <div class="card no-click">
+    <div class="card" onclick="openEngineModal('humidity')">
       <div class="card-label">Compartment Humidity</div>
       <div class="card-value good" id="engine-fan-humidity">--<span class="card-unit">%</span></div>
       <div class="card-sub">Engine bay humidity</div>
@@ -2158,6 +2158,10 @@ const TANK_METRICS = {
   diesel:  { label: 'Diesel',      unit: '%', color: '#e8a030' },
   black:   { label: 'Black Water', unit: '%', color: '#8b5e34' },
 };
+const ENGINE_METRICS = {
+  temp:     { label: 'Compartment Temp',     unit: '°F', color: '#f97316' },
+  humidity: { label: 'Compartment Humidity', unit: '%',  color: '#38bdf8' },
+};
 let penModalOpen = false;   // true while the modal is showing a multi-pen trend (watermaker, system health, tanks, or a VRM node)
 let penMetrics = WM_METRICS; // whichever metric registry the open modal is using
 let penEndpoint = '/api/watermaker/history';
@@ -3335,6 +3339,16 @@ function showDiagSub(tab) {
 // stop these just as easily.
 let simPollInterval = null;
 let simBusy = {}; // name -> true while a start/stop request is in flight, to disable that row's button only
+// fetchSimulators() is called from three places (the 3s poll below, plus
+// twice from toggleSimulator -- once immediately on click, once after the
+// start/stop completes) with no ordering guarantee on their responses. Without
+// this, an earlier-fired request's response landing *after* a newer one
+// (e.g. the periodic poll was already in flight when you clicked) would
+// overwrite the row with stale data -- looking exactly like the simulator
+// you just started immediately turned back off, even though it's still
+// running fine. Same discard-superseded-response pattern as chartRequestSeq
+// elsewhere in this file.
+let simFetchSeq = 0;
 
 function updateSimPolling(tab) {
   if (tab === 'sim') {
@@ -3347,10 +3361,12 @@ function updateSimPolling(tab) {
 }
 
 async function fetchSimulators() {
+  const seq = ++simFetchSeq;
   const list = document.getElementById('sim-list');
   try {
     const res = await fetch('/api/simulators/status');
     const d = await res.json();
+    if (seq !== simFetchSeq) return; // superseded by a newer call -- discard this stale response
     const sims = d.simulators || [];
     setText('sim-total-count', String(sims.length));
     setText('sim-running-count', String(sims.filter(s => s.running).length));
@@ -3365,7 +3381,7 @@ async function fetchSimulators() {
                 onclick="toggleSimulator('${s.name}', ${s.running})">${s.running ? 'ON' : 'OFF'}</button>
       </div>`).join('') || '<div class="mqtt-empty">No simulators registered</div>';
   } catch (e) {
-    list.innerHTML = '<div class="mqtt-empty">Failed to load simulator status</div>';
+    if (seq === simFetchSeq) list.innerHTML = '<div class="mqtt-empty">Failed to load simulator status</div>';
   }
 }
 
@@ -4236,6 +4252,10 @@ function openSystemModal(metric, title, unit, color) {
 
 function openTankModal(metric) {
   openPenModal(TANK_METRICS, '/api/tanks/history', '🛢️', 'Tank Levels Trend', metric);
+}
+
+function openEngineModal(metric) {
+  openPenModal(ENGINE_METRICS, '/api/engine/history', '🔧', 'Engine Compartment Trend', metric);
 }
 
 function togglePen(metric) {
@@ -8421,7 +8441,7 @@ setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 
 // spotting a trend over time, not watching it move live, and refreshing it
 // just yanks the chart (and whatever point you're hovering/reading) out from
 // under you every 10s for no benefit at that zoomed-out a scale.
-const TREND_AUTOREFRESH_ENDPOINTS = new Set(['/api/watermaker/history', '/api/tanks/history']);
+const TREND_AUTOREFRESH_ENDPOINTS = new Set(['/api/watermaker/history', '/api/tanks/history', '/api/engine/history']);
 const TREND_AUTOREFRESH_DURATIONS = new Set(['10m', '1h']);
 setInterval(() => { if (penModalOpen && TREND_AUTOREFRESH_ENDPOINTS.has(penEndpoint) && TREND_AUTOREFRESH_DURATIONS.has(currentDuration)) loadPenHistory(true); }, 10000);
 setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);

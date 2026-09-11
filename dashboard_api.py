@@ -9,6 +9,7 @@ import math
 import shutil
 import subprocess
 import signal
+import re
 import sqlite3
 from PIL import Image
 from collections import Counter
@@ -88,8 +89,16 @@ def _simulator_script_path(name):
 
 def _simulator_pids(name):
     script_path = _simulator_script_path(name)
+    # Anchored to the *exact* command line simulator_start below launches
+    # ('python3 <script_path>', nothing else) rather than pgrep -f's default
+    # substring-anywhere match -- an unanchored pattern here false-positives
+    # on any unrelated process that merely mentions this path in its own
+    # command line (a shell command investigating/grepping for the script,
+    # an editor, etc.), which reads to simulator_start as "already running"
+    # and makes it silently skip actually starting anything.
+    pattern = f'^python3? {re.escape(script_path)}$'
     try:
-        result = subprocess.run(['pgrep', '-f', script_path], capture_output=True, text=True, timeout=3)
+        result = subprocess.run(['pgrep', '-f', pattern], capture_output=True, text=True, timeout=3)
         return [int(pid) for pid in result.stdout.split()]
     except (OSError, subprocess.SubprocessError, ValueError):
         return []
@@ -859,6 +868,50 @@ def tanks_history():
                 series[metric] = {'times': [], 'values': [], 'error': 'unknown metric'}
                 continue
             s = query_bucketed_series(cur, TANK_METRIC_TOPICS[metric], start_dt, bucket)
+            keys = sorted(s.keys())
+            series[metric] = {
+                'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+                'values': [round(s[k], 2) for k in keys],
+            }
+        conn.close()
+    except Exception as e:
+        for metric in metrics:
+            series.setdefault(metric, {'times': [], 'values': [], 'error': str(e)})
+
+    return jsonify({'series': series})
+
+# ─── Engine compartment (Engine tab trend modal) ────────────────────────────
+# Same multi-pen bucketed-average approach as tanks/watermaker above.
+# boat/engine/fan/temp and /humidity are the BME680-backed compartment
+# readings that already drive the live cards on the Engine tab -- logged into
+# mqtt_readings for free by mqtt_logger.py's blanket boat/# subscription, same
+# as everything else. Engine Telemetry (RPM/oil/coolant/etc.) isn't wired to
+# real hardware yet (see the Engine tab's own warning banner), so there's
+# nothing to trend there until that's live.
+ENGINE_METRIC_TOPICS = {
+    'temp':     'boat/engine/fan/temp',
+    'humidity': 'boat/engine/fan/humidity',
+}
+
+@app.route('/api/engine/history')
+def engine_history():
+    metrics_param = request.args.get('metrics') or request.args.get('metric', 'temp')
+    metrics = [m.strip() for m in metrics_param.split(',') if m.strip()]
+    range_val = request.args.get('range', '1h')
+
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    seconds = TREND_RANGE_SECONDS.get(range_val, 3600)
+    start_dt = datetime.now() - timedelta(seconds=seconds)
+
+    series = {}
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        for metric in metrics:
+            if metric not in ENGINE_METRIC_TOPICS:
+                series[metric] = {'times': [], 'values': [], 'error': 'unknown metric'}
+                continue
+            s = query_bucketed_series(cur, ENGINE_METRIC_TOPICS[metric], start_dt, bucket)
             keys = sorted(s.keys())
             series[metric] = {
                 'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
