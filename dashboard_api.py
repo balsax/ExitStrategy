@@ -1663,6 +1663,8 @@ def ais_targets():
 # whether the AIS tab is open, same reasoning as the anchor-watch trail: without
 # this, reopening the tab after it's been closed would draw a straight line from
 # wherever things were last seen to wherever they are now instead of a real track.
+# record_ais_trails() also doubles as the only place that purges stale AIS
+# MQTT topics from mqtt_state['topics'] -- see the comment down there.
 AIS_TRAIL_WINDOW_S = 15 * 60  # matches AIS_TRAIL_WINDOW_MS on the frontend
 AIS_TRAIL_INTERVAL_S = 5
 AIS_TRAIL_LOCK = threading.Lock()
@@ -1691,6 +1693,26 @@ def record_ais_trails():
         for mmsi in list(_ais_target_trails.keys()):
             if mmsi not in active_mmsis:
                 del _ais_target_trails[mmsi]  # target's gone — matches marker/vector cleanup on the frontend
+
+    # Also purge the raw boat/ais/<mmsi>/* MQTT topic entries themselves once
+    # a target goes stale -- a real AIS transceiver has no way to send a
+    # "this vessel is gone" message when a contact sails out of range, and
+    # neither does ais_simulator.py: it just stops publishing that MMSI and
+    # starts a new one (see AisTarget.expires_at there). Without this,
+    # mqtt_state['topics'] -- and the MQTT Diagnostics tree that reads it
+    # directly -- keeps every MMSI that has EVER existed for the life of the
+    # process, growing without bound (this is what accumulated into the
+    # "few hundred AIS items" seen in Diagnostics). Reuses the exact same
+    # staleness signal active_ais_targets() already computed above for the
+    # Chart tab, so a target disappears from Diagnostics at the same moment
+    # it disappears from the map -- not a separate, only-loosely-related TTL.
+    with mqtt_lock:
+        for topic in list(mqtt_state['topics'].keys()):
+            if not topic.startswith('boat/ais/'):
+                continue
+            parts = topic.split('/')
+            if len(parts) == 4 and parts[2] not in active_mmsis:
+                del mqtt_state['topics'][topic]
 
 def ais_trail_monitor_loop():
     while True:
@@ -2011,6 +2033,8 @@ def weather_alerts():
             'severity': f['properties']['severity'],
             'headline': f['properties']['headline'],
             'description': f['properties']['description'],
+            'instruction': f['properties'].get('instruction'),
+            'area_desc': f['properties'].get('areaDesc'),
             'effective': f['properties']['effective'],
             'expires': f['properties']['expires'],
         } for f in resp.get('features', [])]
@@ -2102,6 +2126,66 @@ def ncds_meta():
         'regionCount': len(files),
     })
 
+# _ncds_lookup_tile used to open a brand-new sqlite3 connection against every
+# single region .mbtiles file (47 of them, 22GB total -- well past this Pi's
+# 3.7GB RAM, so most of that is cold on disk, not page-cache-resident) for
+# EVERY tile request, then throw the connection away. A zoomed-in viewport
+# needing a few dozen tiles meant 1000+ fresh SQLite file-opens hitting disk.
+#
+# _ncds_region_bounds() below caches each file's declared lon/lat bbox (read
+# once, from the metadata table also used by ncds_meta()), so a tile whose
+# bbox can't possibly overlap a region skips that file's query entirely.
+# Bboxes still overlap at low zoom (see _ncds_lookup_tile's docstring), so
+# this doesn't shrink the candidate list to one there -- but at the
+# city/harbor zoom levels people actually navigate at, a tile's bbox is tiny
+# and this cuts dozens of irrelevant multi-hundred-MB files out of every
+# single request, which is where nearly all of the real win is.
+#
+# An earlier version of this also cached one shared, reused sqlite3
+# connection per file (check_same_thread=False) to skip the file-open cost
+# too. That caused a real production incident: Python's own docs are clear
+# that check_same_thread=False only disables sqlite3's OWN safety check, it
+# does not add any actual cross-thread locking -- and Flask's threaded=True
+# dev server hands every concurrent request its own thread, so a normal
+# chart pan (dozens of simultaneous tile requests) meant many threads
+# hitting the SAME connection object at once. Observed result: threads
+# piling up (16+ stuck at once) and one worker process pegging 2+ CPU cores
+# for hours. Reverted to a plain, independent open-query-close per call
+# below -- exactly the original's connection lifecycle, just gated by the
+# bbox filter so far fewer files ever need to be opened.
+_ncds_bounds_cache = {}
+
+def _ncds_region_bounds(path):
+    """(west, south, east, north) from this file's metadata, or None if
+    unavailable -- cached after the first read since these files are static
+    once downloaded. Independent short-lived connection, same as any other
+    one-off metadata read (see ncds_meta()) -- deliberately NOT a shared
+    connection reused across threads (see the incident note above)."""
+    if path in _ncds_bounds_cache:
+        return _ncds_bounds_cache[path]
+    bounds = None
+    conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    try:
+        meta = dict(conn.execute('SELECT name, value FROM metadata').fetchall())
+        if 'bounds' in meta:
+            west, south, east, north = (float(v) for v in meta['bounds'].split(','))
+            bounds = (west, south, east, north)
+    except sqlite3.DatabaseError:
+        bounds = None  # mid-download or otherwise corrupt -- treat as "can't tell, don't skip"
+    finally:
+        conn.close()
+    _ncds_bounds_cache[path] = bounds
+    return bounds
+
+def _tile_bounds_lonlat(z, x, y):
+    """Standard XYZ slippy-map tile -> (west, south, east, north) in degrees."""
+    n = 2 ** z
+    west = x / n * 360.0 - 180.0
+    east = (x + 1) / n * 360.0 - 180.0
+    north = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    south = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+    return (west, south, east, north)
+
 def _ncds_lookup_tile(files, z, x, y):
     """Best real tile at exactly this z/x/y across every region file, or
     None if nothing has a row there.
@@ -2115,8 +2199,14 @@ def _ncds_lookup_tile(files, z, x, y):
     and keeping the largest reliably picks the real tile: actual chart
     imagery compresses to KB, blank placeholders don't."""
     tms_row = (2 ** z - 1) - y  # MBTiles stores rows TMS-style; Leaflet requests XYZ
+    tile_w, tile_s, tile_e, tile_n = _tile_bounds_lonlat(z, x, y)
     best = None
     for path in files:
+        bounds = _ncds_region_bounds(path)
+        if bounds is not None:
+            west, south, east, north = bounds
+            if tile_e < west or tile_w > east or tile_n < south or tile_s > north:
+                continue  # this region's own bbox can't contain this tile -- skip the query
         conn = sqlite3.connect(path)
         try:
             row = conn.execute(
@@ -2377,36 +2467,80 @@ NOAA_DATAGETTER = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter'
 TIDES_LIVE_CACHE_TTL_S = 300
 _tides_live_cache = {}  # station id -> {'data': {...}, 'fetched_at': epoch seconds}
 
+# tides_stations()/tides_current_directions() used to re-read and JSON-parse
+# every one of the ~3,850 prediction files (177MB+) on every single request --
+# 40-55s to check the Tides & Currents box. tide_tools.py syncs these in bulk,
+# offline, not live, so an in-memory cache is safe: rebuilt only if the
+# predictions dir's mtime changes (a resync) or TIDES_STATION_CACHE_TTL_S
+# elapses (belt-and-suspenders for a resync that overwrites files in place
+# without touching the dir's own mtime).
+TIDES_STATION_CACHE_TTL_S = 6 * 3600
+_tides_station_cache = {'built_at': 0, 'dir_mtime': None, 'stations': [], 'current_events': {}}
+# A cold rebuild reads and JSON-parses all ~3,850 prediction files -- measured
+# ~10s on this Pi. Without a lock, every request that lands while the cache is
+# stale (at the 6-hour mark, or right after a resync) would independently
+# redo that same 10s scan concurrently under Flask's threaded=True -- bounded
+# and self-resolving, not the same failure mode as the earlier tile-cache
+# incident, but the same class of risk on the same box, so guarding against
+# it here too. Double-checked: the cheap freshness check runs lock-free on
+# every call (the common case), only the actual rebuild is serialized.
+_tides_station_cache_lock = threading.Lock()
+
+def _load_tides_station_cache():
+    try:
+        dir_mtime = os.path.getmtime(TIDES_PRED_DIR)
+    except OSError:
+        dir_mtime = None
+    now = time.time()
+    if (_tides_station_cache['dir_mtime'] == dir_mtime
+            and now - _tides_station_cache['built_at'] < TIDES_STATION_CACHE_TTL_S):
+        return
+    with _tides_station_cache_lock:
+        # Re-check: another thread may have already rebuilt while this one
+        # was waiting for the lock.
+        if (_tides_station_cache['dir_mtime'] == dir_mtime
+                and now - _tides_station_cache['built_at'] < TIDES_STATION_CACHE_TTL_S):
+            return
+        _rebuild_tides_station_cache(dir_mtime, now)
+
+def _rebuild_tides_station_cache(dir_mtime, now):
+    stations = []
+    current_events = {}
+    if dir_mtime is not None:
+        for name in os.listdir(TIDES_PRED_DIR):
+            if not name.endswith('.json'):
+                continue
+            try:
+                with open(os.path.join(TIDES_PRED_DIR, name)) as f:
+                    d = json.load(f)
+                station = {'id': d['id'], 'name': d['name'], 'lat': d['lat'], 'lon': d['lon'], 'type': d['type']}
+                events = d.get('events')
+                # Every event in a station's cp list carries the same
+                # meanFloodDir/meanEbbDir (it's a property of the station, not
+                # the individual event) -- the first one is as good as any.
+                # isinstance guard: tide_tools.py normalizes NOAA's occasional
+                # "Currents are weak and variable" string response to [] now, but
+                # this stays as a second line of defense against any cache file
+                # written before that fix, or any other future shape surprise --
+                # one bad file must never take the whole endpoint down again.
+                if d['type'] == 'current' and isinstance(events, list) and events and isinstance(events[0], dict):
+                    station['flood_dir'] = events[0].get('meanFloodDir')
+                    current_events[d['id']] = events
+                stations.append(station)
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+    _tides_station_cache['stations'] = stations
+    _tides_station_cache['current_events'] = current_events
+    _tides_station_cache['dir_mtime'] = dir_mtime
+    _tides_station_cache['built_at'] = now
+
 @app.route('/api/tides/stations')
 def tides_stations():
     # Only ever the subset tide_tools.py sync has actually cached predictions
     # for -- a station in NOAA's full index with nothing synced would just be
     # a marker that 404s the moment it's clicked.
-    if not os.path.isdir(TIDES_PRED_DIR):
-        return jsonify([])
-    stations = []
-    for name in os.listdir(TIDES_PRED_DIR):
-        if not name.endswith('.json'):
-            continue
-        try:
-            with open(os.path.join(TIDES_PRED_DIR, name)) as f:
-                d = json.load(f)
-            station = {'id': d['id'], 'name': d['name'], 'lat': d['lat'], 'lon': d['lon'], 'type': d['type']}
-            events = d.get('events')
-            # Every event in a station's cp list carries the same
-            # meanFloodDir/meanEbbDir (it's a property of the station, not
-            # the individual event) -- the first one is as good as any.
-            # isinstance guard: tide_tools.py normalizes NOAA's occasional
-            # "Currents are weak and variable" string response to [] now, but
-            # this stays as a second line of defense against any cache file
-            # written before that fix, or any other future shape surprise --
-            # one bad file must never take the whole endpoint down again.
-            if d['type'] == 'current' and isinstance(events, list) and events and isinstance(events[0], dict):
-                station['flood_dir'] = events[0].get('meanFloodDir')
-            stations.append(station)
-        except (json.JSONDecodeError, KeyError, OSError):
-            continue
-    return jsonify(stations)
+    _load_tides_station_cache()
+    return jsonify(_tides_station_cache['stations'])
 
 @app.route('/api/tides/predictions')
 def tides_predictions():
@@ -2487,25 +2621,15 @@ def tides_current_directions():
     # Deliberately not the same lazy-per-popup pattern as predictions/live --
     # a marker's rotation has to be right without opening its popup, so this
     # computes phase for every synced current station in one request. All
-    # from cached files already on disk (see _current_phase_direction above),
-    # so this never touches the network either.
-    if not os.path.isdir(TIDES_PRED_DIR):
-        return jsonify({})
+    # from the in-memory station cache (see _load_tides_station_cache above),
+    # so this never touches the network or disk beyond an occasional resync.
+    _load_tides_station_cache()
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     directions = {}
-    for name in os.listdir(TIDES_PRED_DIR):
-        if not name.endswith('.json'):
-            continue
-        try:
-            with open(os.path.join(TIDES_PRED_DIR, name)) as f:
-                d = json.load(f)
-            if d.get('type') != 'current':
-                continue
-            direction = _current_phase_direction(d.get('events') or [], now_str)
-            if direction is not None:
-                directions[d['id']] = direction
-        except (json.JSONDecodeError, KeyError, OSError):
-            continue
+    for station_id, events in _tides_station_cache['current_events'].items():
+        direction = _current_phase_direction(events, now_str)
+        if direction is not None:
+            directions[station_id] = direction
     return jsonify(directions)
 # ─── end tides & currents siloed addition ───────────────────────────────────
 
@@ -2525,6 +2649,7 @@ if __name__ == '__main__':
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
+        threading.Thread(target=_load_tides_station_cache, daemon=True).start()
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a

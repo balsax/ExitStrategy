@@ -6,6 +6,7 @@
 <title>Exit Strategy · Dashboard</title>
 <link rel="manifest" href="/assets/manifest.json">
 <meta name="theme-color" content="#0a0e1a">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon-anchor.svg">
 <link rel="apple-touch-icon" href="/assets/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -105,7 +106,8 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .hourly-row-desc{color:#c9d4e0}
 .hourly-row-precip{color:#4a9fd4;text-align:right}
 .hourly-row-wind{color:#6b82a0;text-align:right}
-.windy-embed-wrap{width:100%;height:420px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
+.windy-embed-wrap{width:100%;height:630px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
+.windy-overlay-buttons{display:flex;gap:8px;margin-bottom:10px}
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
 .status-row:last-child{border-bottom:none}
@@ -391,8 +393,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .marine-alert-detail.active{display:flex}
 .marine-alert-detail.minor{background:#3a2400;border-color:#a06a10;color:#ffb84d}
 .marine-alert-detail-head{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
-.marine-alert-detail-item{font-size:12px;color:#c9d4e0;line-height:1.4}
+.marine-alert-detail-item{font-size:12px;color:#c9d4e0;line-height:1.4;cursor:pointer}
 .marine-alert-detail-item b{color:inherit}
+.marine-alert-detail-item .marine-alert-chevron{display:inline-block;margin-right:4px;transition:transform .15s ease}
+.marine-alert-detail-item.open .marine-alert-chevron{transform:rotate(90deg)}
+.marine-alert-detail-body{display:none;font-size:12px;color:#c9d4e0;line-height:1.5;margin:4px 0 8px 18px;white-space:pre-wrap}
+.marine-alert-detail-item.open + .marine-alert-detail-body{display:block}
+.marine-alert-detail-body .marine-alert-detail-times{color:#8a97a8;margin-top:6px;font-size:11px}
+.marine-alert-detail-body .marine-alert-detail-where{margin-bottom:6px}
+.marine-alert-detail-body .marine-alert-detail-instruction{margin-top:6px}
 @media (max-width:820px){.anchor-radar-wrap{width:100%}}
 @media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}.sys-stat-grid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:520px){.sys-stat-grid{grid-template-columns:1fr}}
@@ -474,6 +483,23 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 #chart-trip-badge{display:block;text-align:center;margin-bottom:6px}
 .chart-map-wrap{position:relative;width:100%;height:600px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#dce8ee}
 .chart-map-wrap .leaflet-container{background:#dce8ee;font-family:inherit}
+.chart-fullscreen-btn{display:flex;align-items:center;gap:6px;background:#0f1628;border:.5px solid #1e2d4a;color:#a0b0c0;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;user-select:none;transition:border-color .15s,color .15s}
+.chart-fullscreen-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-fullscreen-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+/* Full-screen mode: overlays the whole viewport with just the Chart page
+   (controls row + map), hiding the header/nav so the map gets max space.
+   CSS-driven rather than the native Fullscreen API, so it works the same
+   across browsers/tablets with no permission prompt. Toggled by
+   toggleChartFullscreen(); the layer-toggle checkboxes and base-map radio
+   buttons stay exactly where they are in .chart-controls-row, just above
+   the now-larger map. */
+body.chart-fullscreen-active .header,
+body.chart-fullscreen-active .nav,
+body.chart-fullscreen-active .marine-alert-chip,
+body.chart-fullscreen-active .dest-arrived-banner{display:none !important}
+body.chart-fullscreen-active #page-chart{position:fixed;inset:0;z-index:5000;background:#0a0e1a;padding:.75rem;margin:0;overflow:hidden;display:flex;flex-direction:column}
+body.chart-fullscreen-active #page-chart .flow-wrap{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
+body.chart-fullscreen-active .chart-map-wrap{flex:1;height:auto;min-height:0}
 .leaflet-container.chart-dark-base{background:#0a0e1a}
 /* Dark theme applies to whichever base SOURCE (Chart/Streets) is active --
    see updateChartBase() -- rather than being its own tile source (Carto's
@@ -615,6 +641,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .soc-bar-bg{height:18px;background:#1e2d4a;border-radius:6px;overflow:hidden;position:relative}
 .soc-bar-fill{height:100%;border-radius:6px;transition:width .8s ease,background .5s ease;display:flex;align-items:center;justify-content:flex-end;padding-right:8px}
 .soc-bar-label{font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+
 </style>
 </head>
 <body>
@@ -627,7 +654,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <p>Bavaria 36 · Harborage Marina, St. Pete</p>
     </div>
   </div>
-  <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather')" title="">
+  <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather'); showWeatherSubTab('conditions')" title="">
     <span>⚠️</span><span id="marine-alert-banner-title"></span>
   </div>
   <div class="header-right">
@@ -1118,6 +1145,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks<span class="trip-recording-dot" id="chart-trips-rec-dot" title="A trip is recording"></span></label>
     </div>
     <div class="chart-controls-right">
+      <button class="chart-fullscreen-btn" id="chart-fullscreen-btn" onclick="toggleChartFullscreen()" title="Toggle full screen">⛶ Full Screen</button>
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
@@ -1221,10 +1249,15 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 <div class="page" id="page-weather">
   <div class="subnav">
     <button class="subnavbtn active" id="wxsub-nav-conditions" onclick="showWeatherSubTab('conditions')">Local Conditions</button>
-    <button class="subnavbtn" id="wxsub-nav-map" onclick="showWeatherSubTab('map')">Wind Map</button>
+    <button class="subnavbtn" id="wxsub-nav-map" onclick="showWeatherSubTab('map')">Weather Map</button>
   </div>
 
   <div class="weather-subpage active" id="wxsub-conditions">
+    <div class="marine-alert-detail" id="marine-alert-detail">
+      <div class="marine-alert-detail-head"><span>⚠️</span><span id="marine-alert-detail-title"></span></div>
+      <div id="marine-alert-detail-list"></div>
+    </div>
+
     <div class="section">Current Conditions · BME680</div>
     <div class="grid">
       <div class="card" onclick="openInfluxModal('temp_f','Temperature','°F','#4a9fd4')">
@@ -1319,11 +1352,6 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       </div>
     </div>
 
-    <div class="marine-alert-detail" id="marine-alert-detail">
-      <div class="marine-alert-detail-head"><span>⚠️</span><span id="marine-alert-detail-title"></span></div>
-      <div id="marine-alert-detail-list"></div>
-    </div>
-
     <div class="section">Forecast · National Weather Service</div>
     <div class="forecast-row" id="wx-forecast-row">
       <div class="forecast-empty">Loading forecast…</div>
@@ -1331,8 +1359,14 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   </div>
 
   <div class="weather-subpage" id="wxsub-map">
-    <div class="section">Wind Map · Windy.com</div>
     <div class="flow-wrap">
+      <div class="windy-overlay-buttons" id="windy-overlay-buttons">
+        <button class="dur-btn active" data-overlay="wind" onclick="setWindyOverlay('wind', this)">Wind</button>
+        <button class="dur-btn" data-overlay="rain" onclick="setWindyOverlay('rain', this)">Rain/Thunder</button>
+        <button class="dur-btn" data-overlay="waves" onclick="setWindyOverlay('waves', this)">Waves</button>
+        <button class="dur-btn" data-overlay="radar" onclick="setWindyOverlay('radar', this)">Radar</button>
+        <button class="dur-btn" data-overlay="satellite" onclick="setWindyOverlay('satellite', this)">Satellite</button>
+      </div>
       <div class="windy-embed-wrap">
         <iframe id="windy-embed" frameborder="0"
           src="https://embed.windy.com/embed2.html?lat=27.7000&lon=-82.6900&detailLat=27.7000&detailLon=-82.6900&zoom=9&level=surface&overlay=wind&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1"
@@ -3171,6 +3205,11 @@ async function wmAdjustAutopilotCourse(delta, btn) {
 // here (drag/click, not a click on a button), so failure just means the
 // pin's optimistic position gets overwritten by the next poll's real value
 // once chartDestSyncSuppressUntil expires -- a quiet, self-correcting revert.
+// Returns true/false so callers that DO have a button to flash (the "Set
+// Destination Here" popup button below) can show that failure instead of
+// just closing the popup as if nothing happened -- the drag call site above
+// still ignores the return value and keeps its existing silent-revert
+// behavior unchanged.
 async function wmSetDestination(lat, lon) {
   try {
     const res = await fetch('/api/autopilot/set_destination', {
@@ -3179,8 +3218,10 @@ async function wmSetDestination(lat, lon) {
       body: JSON.stringify({ lat, lon }),
     });
     if (!res.ok) throw new Error((await res.json()).error || 'Command failed');
+    return true;
   } catch (e) {
     console.error('Failed to set destination:', e.message);
+    return false;
   }
 }
 
@@ -5404,9 +5445,30 @@ const WEATHER_LAT = 27.7000, WEATHER_LON = -82.6900; // mirrors WEATHER_LAT/LON 
 // if there's no live fix yet, and just leaves the iframe alone on a fetch
 // failure rather than reloading it to the fallback (avoids an unnecessary
 // reload flicker when GPS is only transiently unavailable).
+// Which Windy layer the map embed shows — set by the Wind/Waves/Radar buttons
+// above it, read back here so switching away to another sub-tab and back (or
+// a GPS-driven recenter) doesn't silently reset the view to wind.
+let windyOverlay = 'wind';
+// Bumped on every recenterWindyEmbed() call and captured by each call's own
+// closure -- if a second call starts (another overlay click, a GPS-driven
+// recenter) before an earlier one's /api/mqtt/topics fetch resolves, the
+// earlier call sees its captured token no longer matches this counter once
+// its await finally returns and skips writing iframe.src. Without this, two
+// overlapping calls race to set iframe.src and whichever fetch happens to
+// resolve LAST wins -- not necessarily the one from the most recent click.
+let windyRecenterToken = 0;
+
+function setWindyOverlay(overlay, btn) {
+  windyOverlay = overlay;
+  document.querySelectorAll('#windy-overlay-buttons .dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  recenterWindyEmbed();
+}
+
 async function recenterWindyEmbed() {
   const iframe = document.getElementById('windy-embed');
   if (!iframe) return;
+  const token = ++windyRecenterToken;
   let lat = WEATHER_LAT, lon = WEATHER_LON;
   try {
     const res = await fetch('/api/mqtt/topics');
@@ -5421,7 +5483,13 @@ async function recenterWindyEmbed() {
   } catch (e) {
     return; // transient failure — leave the embed centered wherever it already is
   }
-  iframe.src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&zoom=9&level=surface&overlay=wind&menu=&message=&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1`;
+  if (token !== windyRecenterToken) return; // a newer call already started (or finished) -- don't clobber it
+  // Radar needs type=radar to render (the map/wind/waves overlays all use type=map) —
+  // per Windy's own embed generator examples. Satellite additionally needs its own
+  // product= param or the embed silently falls back to the wind layer.
+  const type = windyOverlay === 'radar' ? 'radar' : 'map';
+  const product = windyOverlay === 'satellite' ? '&product=satellite' : '';
+  iframe.src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&zoom=9&level=surface&overlay=${windyOverlay}${product}&menu=&message=&marker=true&calendar=now&pressure=&type=${type}&location=coordinates&detail=&metricWind=kt&metricTemp=%C2%B0F&radarRange=-1`;
 }
 
 function showWeatherSubTab(tab) {
@@ -5827,6 +5895,21 @@ function closeHourlyModalOutside(e) {
 // mirrors how the anchor alarm banners split "drag" (red) from "depth" (amber).
 const MARINE_ALERT_LOUD_SEVERITIES = new Set(['Extreme', 'Severe']);
 
+// Populated by fetchMarineAlerts(), read by toggleMarineAlertDetail() — click-to-expand
+// on the Weather tab's alert list needs the full alert object, not just its rendered row.
+let _marineAlertsData = [];
+
+function formatMarineAlertTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d) ? null : d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function toggleMarineAlertDetail(idx) {
+  const item = document.getElementById(`marine-alert-item-${idx}`);
+  if (item) item.classList.toggle('open');
+}
+
 async function fetchMarineAlerts() {
   const chip = document.getElementById('marine-alert-banner');
   const detail = document.getElementById('marine-alert-detail'); // only present on the Weather tab
@@ -5851,9 +5934,20 @@ async function fetchMarineAlerts() {
       detail.classList.add('active');
       detail.classList.toggle('minor', !loud);
       document.getElementById('marine-alert-detail-title').textContent = title;
-      document.getElementById('marine-alert-detail-list').innerHTML = d.alerts.map(a => `
-        <div class="marine-alert-detail-item"><b>${a.event}</b> — ${a.headline}</div>
-      `).join('');
+      _marineAlertsData = d.alerts;
+      document.getElementById('marine-alert-detail-list').innerHTML = d.alerts.map((a, i) => {
+        const effective = formatMarineAlertTime(a.effective);
+        const expires = formatMarineAlertTime(a.expires);
+        const times = [effective ? `Effective ${effective}` : null, expires ? `Expires ${expires}` : null].filter(Boolean).join(' · ');
+        const where = a.area_desc ? `<div class="marine-alert-detail-where"><b>Where:</b> ${escapeHtml(a.area_desc)}</div>` : '';
+        const instruction = a.instruction ? `<div class="marine-alert-detail-instruction"><b>Precautions:</b> ${escapeHtml(a.instruction)}</div>` : '';
+        return `
+        <div class="marine-alert-detail-item" id="marine-alert-item-${i}" onclick="toggleMarineAlertDetail(${i})">
+          <span class="marine-alert-chevron">▶</span><b>${escapeHtml(a.event)}</b> — ${escapeHtml(a.headline)}
+        </div>
+        <div class="marine-alert-detail-body">${where}${escapeHtml(a.description || 'No further details provided.')}${instruction}${times ? `<div class="marine-alert-detail-times">${escapeHtml(times)}</div>` : ''}</div>
+      `;
+      }).join('');
     }
   } catch (e) {
     chip.classList.remove('active', 'minor');
@@ -6235,6 +6329,73 @@ const CHART_LAYER_STYLERS = {
 function chartRecenter() {
   if (chartMap && chartAisOwnMarker) chartMap.setView(chartAisOwnMarker.getLatLng(), chartMap.getZoom());
 }
+
+// ─── Chart full-screen toggle ───────────────────────────────────────────────
+// Two layers, stacked: the CSS (body.chart-fullscreen-active rules) hides our
+// own header/nav and grows .chart-map-wrap to fill the freed space --
+// .chart-controls-row (checkboxes + base-map radios) is untouched by it, so
+// it stays visible and usable above the enlarged map. On top of that, the
+// native Fullscreen API asks the BROWSER itself to go fullscreen (hides its
+// address bar/tabs too, the same effect as pressing F11) wherever it's
+// available. Falls back silently to the CSS-only layout on browsers/contexts
+// that don't allow it (e.g. iPhone Safari, or an embedding iframe without
+// allowfullscreen) -- isFullscreenApiAvailable() below decides which case
+// we're in so the button label never promises more than it can deliver.
+let chartFullscreenActive = false;
+
+function isFullscreenApiAvailable() {
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen);
+}
+function isNativeFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+
+function toggleChartFullscreen() {
+  chartFullscreenActive = !chartFullscreenActive;
+  document.body.classList.toggle('chart-fullscreen-active', chartFullscreenActive);
+  const btn = document.getElementById('chart-fullscreen-btn');
+  if (btn) {
+    btn.classList.toggle('active', chartFullscreenActive);
+    btn.innerHTML = chartFullscreenActive ? '⛶ Exit Full Screen' : '⛶ Full Screen';
+  }
+
+  const el = document.documentElement;
+  if (chartFullscreenActive) {
+    const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (request) {
+      // Rejected (permissions policy, no user-gesture context, etc.) is not
+      // an error here -- the CSS layout above already delivers the in-app
+      // fullscreen experience on its own; the browser-chrome part is a bonus.
+      Promise.resolve(request.call(el)).catch(() => {});
+    }
+  } else if (isNativeFullscreen()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+  }
+
+  // Leaflet caches its container size -- it needs an explicit nudge once the
+  // layout change actually lands, or tiles stay clipped to the old size.
+  setTimeout(() => { if (chartMap) chartMap.invalidateSize(); }, 50);
+}
+
+// Keeps our state in sync when fullscreen is exited some other way than our
+// own button -- Esc, F11, the browser's own "Exit full screen" affordance --
+// so the CSS layout and button label don't get stuck "on" after the browser
+// has already left fullscreen. Guarded on chartFullscreenActive so this
+// never fights with a toggleChartFullscreen() call already in flight.
+function onFullscreenChange() {
+  if (!isNativeFullscreen() && chartFullscreenActive) toggleChartFullscreen();
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+document.addEventListener('msfullscreenchange', onFullscreenChange);
+// Belt-and-suspenders for browsers/contexts with no Fullscreen API at all
+// (isFullscreenApiAvailable() false) -- there, Esc has nothing native to
+// exit, so this is the only way out of the CSS-only fullscreen layout.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && chartFullscreenActive && !isFullscreenApiAvailable()) toggleChartFullscreen();
+});
 
 // Base map is two independent choices -- which data SOURCE (Chart/Streets)
 // and whether it's shown Light or Dark -- rather than the old 3-way
@@ -6862,10 +7023,24 @@ function handleChartMapDblClick(e) {
   }
 }
 
-async function wmConfirmSetDestination(lat, lon) {
-  await wmSetDestination(lat, lon);
-  chartMap.closePopup();
-  setChartToolMode(null); // one-shot -- placing a destination turns the tool back off
+async function wmConfirmSetDestination(lat, lon, btn) {
+  // Previously closed the popup unconditionally, so a failed command (e.g.
+  // MQTT broker briefly down) looked identical to a successful one -- the
+  // popup vanished either way and nothing on screen ever told you it didn't
+  // take. Same disable/"…"/flash-"⚠"-on-failure pattern as the Engage/
+  // Standby/course-change buttons above; the popup now only closes on an
+  // actual success.
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  const ok = await wmSetDestination(lat, lon);
+  if (ok) {
+    chartMap.closePopup();
+    setChartToolMode(null); // one-shot -- placing a destination turns the tool back off
+  } else {
+    btn.disabled = false;
+    btn.textContent = '⚠ Failed';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
 }
 
 // Right-click: mid-measurement it's a shortcut for "finish here" (same as
@@ -6891,7 +7066,7 @@ function handleChartMapContextMenu(e) {
     .setLatLng(e.latlng)
     .setContent(`<div class="ais-popup-body">
       <div class="ais-popup-name">Chart Actions</div>
-      <button class="wm-btn wm-btn-start" style="width:100%;margin-top:4px" onclick="wmConfirmSetDestination(${lat}, ${lng})">Set Destination Here</button>
+      <button class="wm-btn wm-btn-start" style="width:100%;margin-top:4px" onclick="wmConfirmSetDestination(${lat}, ${lng}, this)">Set Destination Here</button>
       <button class="wm-btn wm-btn-manual" style="width:100%;margin-top:6px" onclick="wmStartMeasureHere(${lat}, ${lng})">Start Measuring Here</button>
     </div>`)
     .openOn(chartMap);
@@ -8543,6 +8718,8 @@ window.addEventListener('resize', () => {
   if (currentPage === 'electrical') {
     fitElectricalCanvas();
     buildFlow(lastFlowState.shoreOn, lastFlowState.charging, lastFlowState.discharging);
+  } else if (currentPage === 'chart' && chartMap) {
+    chartMap.invalidateSize();
   }
 });
 </script>
