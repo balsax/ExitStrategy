@@ -2525,7 +2525,34 @@ def _rebuild_tides_station_cache(dir_mtime, now):
                 # one bad file must never take the whole endpoint down again.
                 if d['type'] == 'current' and isinstance(events, list) and events and isinstance(events[0], dict):
                     station['flood_dir'] = events[0].get('meanFloodDir')
-                    current_events[d['id']] = events
+                    # Keeping the raw event dicts here held ~1GB+ in memory
+                    # across ~1,600 current stations (734,827 events total,
+                    # each event was a 7-key dict -- Type/meanFloodDir/Bin/
+                    # meanEbbDir/Time/Depth/Velocity_Major -- but
+                    # _current_phase_direction() below only ever reads Time
+                    # and Type per event, plus meanFloodDir/meanEbbDir once
+                    # per station, not per event. Down to a (time, type)
+                    # tuple per event -- discards Bin/Depth/Velocity_Major
+                    # entirely and the per-event flood/ebb dir duplication --
+                    # and pre-sorted once here instead of on every request
+                    # (_current_phase_direction() used to re-sort on every
+                    # single call). NOTE: flood_dir/ebb_dir here deliberately
+                    # come from the chronologically-FIRST event (post-sort),
+                    # matching _current_phase_direction()'s old `evs[0]` --
+                    # NOT the same source as station['flood_dir'] above
+                    # (which reads the file's raw, unsorted events[0]). A
+                    # station with multiple depth bins can genuinely have
+                    # different flood/ebb readings per bin, so those two
+                    # fields have always picked different "first" events for
+                    # two different features (the static map marker vs. this
+                    # live current-direction lookup) -- preserved exactly as
+                    # it was, not something this trim should change.
+                    events_by_time = sorted(events, key=lambda e: e['Time'])
+                    current_events[d['id']] = {
+                        'flood_dir': events_by_time[0].get('meanFloodDir'),
+                        'ebb_dir': events_by_time[0].get('meanEbbDir'),
+                        'events': [(e['Time'], e['Type']) for e in events_by_time],
+                    }
                 stations.append(station)
             except (json.JSONDecodeError, KeyError, OSError):
                 continue
@@ -2583,7 +2610,7 @@ def tides_live():
     except Exception as e:
         return jsonify({'error': str(e)}), 502
 
-def _current_phase_direction(events, now_str):
+def _current_phase_direction(station_events, now_str):
     """Which way a current station is running right now, derived from its
     cached flood/ebb/slack event list -- NOAA only gives event TIMES (not a
     continuous direction feed), so "now" always falls between two events.
@@ -2594,26 +2621,29 @@ def _current_phase_direction(events, now_str):
     Timestamps are plain 'YYYY-MM-DD HH:MM' strings (zero-padded, same
     time_zone=lst_ldt convention as everywhere else in this feature), so
     lexical comparison is chronological comparison -- no datetime parsing
-    needed."""
-    # isinstance guard: same "weak and variable" string-instead-of-list shape
-    # tides_stations() above guards against -- tide_tools.py normalizes it to
-    # [] now, but this is the second line of defense for any pre-existing or
-    # future malformed cache file, same reasoning as there.
-    if not events or not isinstance(events, list) or not all(isinstance(e, dict) for e in events):
+    needed.
+
+    station_events is the {'flood_dir', 'ebb_dir', 'events': [(time, type), ...]}
+    shape _rebuild_tides_station_cache() builds -- events pre-sorted and
+    trimmed to just (time, type) there, since this runs on every request
+    for every current station and the full per-event dicts (Bin/Depth/
+    Velocity_Major/meanFloodDir/meanEbbDir on every single event, when only
+    one station-level flood/ebb dir is ever used) cost ~1GB across ~1,600
+    stations' worth of cached predictions for data never read here."""
+    if not station_events or not station_events.get('events'):
         return None
-    evs = sorted(events, key=lambda e: e['Time'])
+    evs = station_events['events']
     prev, nxt = None, None
-    for e in evs:
-        if e['Time'] <= now_str:
-            prev = e
+    for t, typ in evs:
+        if t <= now_str:
+            prev = typ
         elif nxt is None:
-            nxt = e
-    phase = prev['Type'] if prev and prev['Type'] in ('flood', 'ebb') else \
-        (nxt['Type'] if nxt and nxt['Type'] in ('flood', 'ebb') else None)
+            nxt = typ
+    phase = prev if prev in ('flood', 'ebb') else (nxt if nxt in ('flood', 'ebb') else None)
     if phase == 'flood':
-        return evs[0].get('meanFloodDir')
+        return station_events.get('flood_dir')
     if phase == 'ebb':
-        return evs[0].get('meanEbbDir')
+        return station_events.get('ebb_dir')
     return None
 
 @app.route('/api/tides/current_directions')
@@ -2626,8 +2656,8 @@ def tides_current_directions():
     _load_tides_station_cache()
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     directions = {}
-    for station_id, events in _tides_station_cache['current_events'].items():
-        direction = _current_phase_direction(events, now_str)
+    for station_id, station_events in _tides_station_cache['current_events'].items():
+        direction = _current_phase_direction(station_events, now_str)
         if direction is not None:
             directions[station_id] = direction
     return jsonify(directions)
