@@ -607,6 +607,10 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .bsym{width:70px;height:108px}
 .bsym-lg{width:96px;height:150px}
 .nd.ndc{transform:translateX(-50%)} /* left = column center, so columns line up regardless of label width */
+/* Screen-size scaling (--fs set in JS): grow from the node's top edge, so layout tops stay put */
+#fcanvas{--fs:1}
+#fcanvas .nd{transform-origin:top left;transform:scale(var(--fs))}
+#fcanvas .nd.ndc{transform-origin:top center;transform:translateX(-50%) scale(var(--fs))}
 .ni-svg{width:1em;height:1em;display:block}
 #modal-icon .ni-svg{width:22px;height:22px;color:#c084fc}
 #modal-icon.src-icon .ni-svg{color:#facc15}
@@ -614,18 +618,18 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 /* Labels outside cards sit on a canvas-colored backing so pipes pass behind, not through, the text */
 #fcanvas .nd > .nl, #fcanvas .nd > .nv2{background:#0f1628;padding:0 4px;border-radius:3px;position:relative;z-index:1}
 #page-electrical #sys-state{display:none} /* Idle/Charging badge (still updated by fetchVictron) */
-#page-electrical .leg .li:not(:last-child){display:none} /* color legend; keeps the "Tap any node" hint */
+#page-electrical .leg{display:none} /* color legend + "Tap any node" hint */
 #page-electrical .wm-info-box{display:none} /* State / DC charging / Alarm panel (still updated in JS) */
 .nb.ldc{width:92px;height:72px}.nb.ldc .ni{font-size:22px}.nb.ldc .nl{font-size:13px}.nb.ldc .nv{font-size:15px}
-svg.fsvg line.flow-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:help}
-svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
+svg.fsvg .flow-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:help}
+svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 .flow-tip{position:absolute;display:none;z-index:5;pointer-events:none;min-width:190px;max-width:260px;background:#0a0e1a;border:1px solid #2c3e5c;border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
 .flow-tip .ft-title{color:#e0e6f0;font-weight:600;margin-bottom:5px}
 .flow-tip .ft-row{display:flex;justify-content:space-between;gap:12px;color:#8fa3bd;line-height:1.55}
 .flow-tip .ft-row span:last-child{color:#e0e6f0;text-align:right}
 .flow-tip .ft-hint{color:#4a9fd4;font-size:11px;margin-top:5px;border-top:.5px solid #1e2d4a;padding-top:4px}
 .dimg.vsim-surge{filter:drop-shadow(0 0 8px rgba(224,80,80,.9))}
-@media (max-width:600px){#fcanvas{min-height:780px}#nd-sol .nb,#nd-sol2 .nb,#nd-shore .nb,#nd-alt .nb{width:62px!important;height:58px!important}#nd-sol .nl,#nd-sol2 .nl,#nd-shore .nl,#nd-alt .nl{font-size:10px}#nd-sol .nv,#nd-sol2 .nv,#nd-shore .nv,#nd-alt .nv{font-size:12px}#nd-mp{left:21%!important;top:58%!important}#nd-mppt{top:13%!important}#nd-mppt2{top:30%!important}#nd-48v{top:45%!important}#nd-or3{left:47%!important;top:2%!important}#nd-or2{left:61%!important;top:31%!important}#nd-or1{left:57%!important;top:72%!important}#nd-alt{left:73%!important;top:2%!important}#nd-12s{left:73%!important;top:14%!important}#nd-bt{left:77%!important;top:45%!important}#nd-12h{left:73%!important}#nd-ld12s,#nd-ldbt,#nd-ld12h{left:92%!important}#nd-ld48{top:61%!important}.nb.ldc{width:58px;height:62px}.nb.ldc .nl{font-size:10px}.nb.ldc .nv{font-size:12px}.nb.ldc .ni{font-size:17px}.bsym{width:42px;height:66px}.bsym-lg{width:60px;height:94px}#nd-48v .nl-top,#nd-12s .nl-top,#nd-bt .nl-top,#nd-12h .nl-top{font-size:10px}#nd-alt .nv{font-size:10px!important}.dimg svg{max-width:100%}}
+@media (max-width:600px){#fcanvas{min-height:780px}#nd-sol .nb,#nd-sol2 .nb,#nd-shore .nb,#nd-alt .nb{width:62px!important;height:58px!important}#nd-sol .nl,#nd-sol2 .nl,#nd-shore .nl,#nd-alt .nl{font-size:10px}#nd-sol .nv,#nd-sol2 .nv,#nd-shore .nv,#nd-alt .nv{font-size:12px}#nd-mp{left:21%!important;top:58%!important}#nd-mppt{top:13%!important}#nd-mppt2{top:30%!important}#nd-48v{top:45%!important}#nd-or3{left:47%!important;top:2%!important}#nd-or2{left:61%!important;top:31%!important}#nd-or1{left:57%!important;top:72%!important}#nd-alt{left:73%!important;top:2%!important}#nd-12s{left:73%!important;top:14%!important}#nd-bt{left:77%!important;top:45%!important}#nd-12h{left:73%!important}#nd-ld12s,#nd-ldbt,#nd-ld12h{left:92%!important}#nd-ld48{top:61%!important}.nb.ldc{width:58px;height:62px}.nb.ldc .nl{font-size:10px}.nb.ldc .nv{font-size:12px}.nb.ldc .ni{font-size:17px}.bsym{width:42px;height:66px}.bsym-lg{width:60px;height:94px}#nd-mp .dimg{width:56px!important;height:74px!important}#nd-mppt .dimg,#nd-mppt2 .dimg{width:50px!important;height:62px!important}#nd-or1 .dimg,#nd-or2 .dimg,#nd-or3 .dimg{width:64px!important;height:46px!important}#nd-48v .nl-top,#nd-12s .nl-top,#nd-bt .nl-top,#nd-12h .nl-top{font-size:10px}#nd-alt .nv{font-size:10px!important}.dimg svg{max-width:100%}}
 /* ─── end Victron sim extras CSS ─── */
 
 /* Battery SOC tank fill inside node */
@@ -861,7 +865,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- Multiplus -->
     <div class="nd" id="nd-mp" style="left:22%;top:57%" onclick="openNodeModal('multiplus')">
       <span class="nl nl-top" style="color:#5a8ab0">MultiPlus-II</span>
-      <div class="dimg" style="width:56px;height:74px"><svg viewBox="0 0 56 74" width="56" height="74">
+      <div class="dimg" style="width:76px;height:100px"><svg viewBox="0 0 56 74" width="56" height="74">
           <rect x="1" y="1" width="54" height="72" rx="5" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="8" y="7" width="40" height="24" rx="2" fill="#0e2744" stroke="#2c5d94" stroke-width=".8"/>
           <circle id="mp-led-mains" cx="16" cy="15" r="2.4" fill="#2a3444"/><circle id="mp-led-inv" cx="28" cy="15" r="2.4" fill="#2a3444"/><circle id="mp-led-chg" cx="40" cy="15" r="2.4" fill="#2a3444"/>
@@ -891,7 +895,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- SmartSolar MPPT 150/35 (left is set in JS to line up with the MultiPlus) -->
     <div class="nd ndc vsim-idle" id="nd-mppt" style="left:25%;top:4%" onclick="openNodeModal('mppt')">
       <span class="nl nl-top" style="color:#5a8ab0">MPPT 150/35</span>
-      <div class="dimg" style="width:50px;height:62px"><svg viewBox="0 0 50 62" width="50" height="62">
+      <div class="dimg" style="width:68px;height:84px"><svg viewBox="0 0 50 62" width="50" height="62">
           <rect x="1" y="1" width="48" height="60" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="7" y="6" width="36" height="5" rx="1" fill="#e8eef6" opacity=".85"/>
           <circle id="led-mppt" cx="38" cy="18" r="2.6" fill="#2a3444"/>
@@ -915,7 +919,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- Bimini SmartSolar MPPT 100/20 (left set in JS like the main MPPT) -->
     <div class="nd ndc vsim-idle" id="nd-mppt2" style="left:25%;top:32%" onclick="openNodeModal('mppt2')">
       <span class="nl nl-top" style="color:#5a8ab0">MPPT 100/20</span>
-      <div class="dimg" style="width:50px;height:62px"><svg viewBox="0 0 50 62" width="50" height="62">
+      <div class="dimg" style="width:68px;height:84px"><svg viewBox="0 0 50 62" width="50" height="62">
           <rect x="1" y="1" width="48" height="60" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="7" y="6" width="36" height="5" rx="1" fill="#e8eef6" opacity=".85"/>
           <circle id="led-mppt2" cx="38" cy="18" r="2.6" fill="#2a3444"/>
@@ -930,7 +934,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- Orion 1 (48→12V house) -->
     <div class="nd ndc" id="nd-or1" style="left:63%;top:81%" onclick="openNodeModal('orion1')">
       <span class="nl nl-top" style="color:#5a8ab0">Orion 48|12</span>
-      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+      <div class="dimg" style="width:86px;height:62px"><svg viewBox="0 0 64 46" width="64" height="46">
           <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
           <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
@@ -944,7 +948,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- Orion 2 (48→12V thruster) -->
     <div class="nd ndc" id="nd-or2" style="left:63%;top:44%" onclick="openNodeModal('orion2')">
       <span class="nl nl-top" style="color:#5a8ab0">Orion 48|12</span>
-      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+      <div class="dimg" style="width:86px;height:62px"><svg viewBox="0 0 64 46" width="64" height="46">
           <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
           <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
@@ -980,7 +984,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- Orion 12|48 (diesel alternator → 48V house) -->
     <div class="nd vsim-idle ndc" id="nd-or3" style="left:63%;top:12%" onclick="openNodeModal('orionAlt')">
       <span class="nl nl-top" style="color:#5a8ab0">Orion 12|48</span>
-      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+      <div class="dimg" style="width:86px;height:62px"><svg viewBox="0 0 64 46" width="64" height="46">
           <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
           <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
           <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
@@ -1022,7 +1026,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
       </div>
     </div>
     <!-- 48V DC loads (watermaker + A/C), under the 48V bank; left set in JS -->
-    <div class="nd ndc" id="nd-ld48" style="left:43%;top:87%" onclick="openNodeModal('load48')">
+    <div class="nd ndc" id="nd-ld48" style="left:43%;top:84%" onclick="openNodeModal('load48')">
       <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
         <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 21h-1l1-7H7.5c-.88 0 -.33-.75-.31-.78C8.48 10.94 10.42 7.54 13.01 3h1l-1 7h3.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z"/></svg></span>
         <span class="nl" style="color:#c084fc">48V Loads</span>
@@ -1032,7 +1036,7 @@ svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <!-- ─── end Victron sim extras nodes ─── -->
 
     <!-- Loads -->
-    <div class="nd ndc" id="nd-load" style="left:25%;top:87%" onclick="openNodeModal('loads')">
+    <div class="nd ndc" id="nd-load" style="left:25%;top:84%" onclick="openNodeModal('loads')">
       <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
         <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg></span>
         <span class="nl" style="color:#c084fc">AC Loads</span>
@@ -2781,16 +2785,31 @@ const FLOW_COLUMNS = [
   ['nd-alt', 'nd-12s', 'nd-bt', 'nd-12h'],
   ['nd-ld12s', 'nd-ldbt', 'nd-ld12h'],
 ];
+// On-screen offset of a node child's center from its node's top (accounts for
+// the --fs card scaling, which offsetTop/offsetHeight ignore).
+function vc(child) {
+  const nd = child.closest('.nd').getBoundingClientRect(), r = child.getBoundingClientRect();
+  return r.top - nd.top + r.height / 2;
+}
+// Card/device scale for the screen: 1.0 at the ~1216x700 canvas the layout was
+// tuned on, 0.75-1.8 otherwise. Phones keep their own fixed layout (1.0).
+function setFlowScale(cr) {
+  const fs = cr.width < 600 ? 1 : Math.max(0.55, Math.min(1.8, Math.min(cr.width / 1216, cr.height / 700)));
+  canvas.style.setProperty('--fs', fs.toFixed(3));
+}
+
 function layoutFlowColumns(cr) {
-  const first = 44, last = cr.width - 50, step = (last - first) / (FLOW_COLUMNS.length - 1);
+  const fs = parseFloat(canvas.style.getPropertyValue('--fs')) || 1;  // margins grow with the (scaled) edge cards
+  const first = 44 * fs, last = cr.width - 50 * fs, step = (last - first) / (FLOW_COLUMNS.length - 1);
   FLOW_COLUMNS.forEach((ids, c) => ids.forEach(id => {
     const el = document.getElementById(id), x = first + step * c;
-    el.style.left = (el.classList.contains('ndc') ? x : x - el.offsetWidth / 2) + 'px';
+    el.style.left = (el.classList.contains('ndc') ? x : x - el.getBoundingClientRect().width / 2) + 'px';
   }));
 }
 
 function alignLoadCards() {
   const cr = canvas.getBoundingClientRect();
+  setFlowScale(cr);
   if (cr.width >= 600) layoutFlowColumns(cr);
   // 48V bank graphic sits 30px higher than its pipe anchor (desktop): the battery
   // moves up, every pipe stays where it was.
@@ -2802,20 +2821,20 @@ function alignLoadCards() {
   if (cr.width >= 600) {
     const al = document.querySelector('#nd-alt .nb').getBoundingClientRect(), o3 = document.getElementById('nd-or3');
     const g3 = o3.querySelector('.dimg');
-    o3.style.top = (al.top - cr.top + al.height / 2 - (g3.offsetTop + g3.offsetHeight / 2)) + 'px';
+    o3.style.top = (al.top - cr.top + al.height / 2 - vc(g3)) + 'px';
   }
   // House Orion level with the AC Loads card (desktop), so the whole 12V house row
   // (Orion, battery, 12V Loads) lines up with it.
   if (cr.width >= 600) {
     const ac = document.querySelector('#nd-load .nb').getBoundingClientRect(), o1n = document.getElementById('nd-or1');
     const g1 = o1n.querySelector('.dimg');
-    o1n.style.top = (ac.top - cr.top + ac.height / 2 - (g1.offsetTop + g1.offsetHeight / 2)) + 'px';
+    o1n.style.top = (ac.top - cr.top + ac.height / 2 - vc(g1)) + 'px';
   }
   // Thruster Orion halfway between the Orion 12|48 and the house Orion (desktop).
   if (cr.width >= 600) {
     const gc = id => { const r = document.querySelector(`#${id} .dimg`).getBoundingClientRect(); return r.top - cr.top + r.height / 2; };
     const o2 = document.getElementById('nd-or2'), g = o2.querySelector('.dimg');
-    o2.style.top = ((gc('nd-or3') + gc('nd-or1')) / 2 - (g.offsetTop + g.offsetHeight / 2)) + 'px';
+    o2.style.top = ((gc('nd-or3') + gc('nd-or1')) / 2 - vc(g)) + 'px';
     // The 48V bank's pipes all meet it level with that Orion, so its pipe runs straight across.
     const bank = document.getElementById('bsym-48v').getBoundingClientRect();
     document.getElementById('nd-48v').dataset.pipeDy = gc('nd-or2') - (bank.top - cr.top + bank.height / 2);
@@ -2823,13 +2842,13 @@ function alignLoadCards() {
   // 12V House battery level with its Orion (runs first so its load card follows it).
   const o1 = document.querySelector('#nd-or1 .dimg').getBoundingClientRect(), h = document.getElementById('nd-12h');
   const hb = document.getElementById('bsym-12h');
-  h.style.top = (o1.top - cr.top + o1.height / 2 - (hb.offsetTop + hb.offsetHeight / 2)) + 'px';
+  h.style.top = (o1.top - cr.top + o1.height / 2 - vc(hb)) + 'px';
   // Bow Thruster battery halfway between the Diesel and House batteries (desktop),
   // so the three 12V batteries are evenly spaced.
   if (cr.width >= 600) {
     const mid = id => { const r = document.getElementById(id).getBoundingClientRect(); return r.top - cr.top + r.height / 2; };
     const bt = document.getElementById('nd-bt'), bb = document.getElementById('bsym-bt');
-    bt.style.top = ((mid('bsym-12s') + mid('bsym-12h')) / 2 - (bb.offsetTop + bb.offsetHeight / 2)) + 'px';
+    bt.style.top = ((mid('bsym-12s') + mid('bsym-12h')) / 2 - vc(bb)) + 'px';
   }
   // Column alignment: Solar over Shore; MPPT, MultiPlus and AC Loads in one column.
   const cx = id => { const r = document.querySelector(`#${id} .dimg, #${id} .nb`).getBoundingClientRect();
@@ -2844,15 +2863,15 @@ function alignLoadCards() {
   }
   // Solar card centered vertically on the MPPT graphic, so that pipe runs level.
   const m = document.querySelector('#nd-mppt .dimg').getBoundingClientRect(), sol = document.getElementById('nd-sol');
-  sol.style.top = (m.top - cr.top + m.height / 2 - sol.querySelector('.nb').offsetHeight / 2) + 'px';
+  sol.style.top = (m.top - cr.top + m.height / 2 - vc(sol.querySelector('.nb'))) + 'px';
   const m2 = document.querySelector('#nd-mppt2 .dimg').getBoundingClientRect(), sol2 = document.getElementById('nd-sol2');
-  sol2.style.top = (m2.top - cr.top + m2.height / 2 - sol2.querySelector('.nb').offsetHeight / 2) + 'px';
+  sol2.style.top = (m2.top - cr.top + m2.height / 2 - vc(sol2.querySelector('.nb'))) + 'px';
   // Shore card level with the MultiPlus graphic.
   const mp = document.querySelector('#nd-mp .dimg').getBoundingClientRect(), shore = document.getElementById('nd-shore');
-  shore.style.top = (mp.top - cr.top + mp.height / 2 - shore.querySelector('.nb').offsetHeight / 2) + 'px';
+  shore.style.top = (mp.top - cr.top + mp.height / 2 - vc(shore.querySelector('.nb'))) + 'px';
   [['bsym-12s', 'nd-ld12s'], ['bsym-bt', 'nd-ldbt'], ['bsym-12h', 'nd-ld12h']].forEach(([b, l]) => {
     const br = document.getElementById(b).getBoundingClientRect(), el = document.getElementById(l);
-    el.style.top = (br.top - cr.top + br.height / 2 - el.querySelector('.nb').offsetHeight / 2) + 'px';
+    el.style.top = (br.top - cr.top + br.height / 2 - vc(el.querySelector('.nb'))) + 'px';
   });
 }
 
@@ -2949,9 +2968,9 @@ function applyFlowIntensity() {
 
   // Pipe width: 1.5px at a trickle up to ~24px at ~5kW (~13px on phones)
   const maxExtra = canvas.getBoundingClientRect().width < 600 ? 11.5 : 22.5;
-  svg.querySelectorAll('line:not(.flow-hit)').forEach(l => {
+  svg.querySelectorAll('.fpipe').forEach(l => {
     if (l.getAttribute('stroke-dasharray')) return;
-    const link = lookup[key({ x: +l.getAttribute('x1'), y: +l.getAttribute('y1') }, { x: +l.getAttribute('x2'), y: +l.getAttribute('y2') })];
+    const link = lookup[key({ x: +l.dataset.x1, y: +l.dataset.y1 }, { x: +l.dataset.x2, y: +l.dataset.y2 })];
     const w = link ? watts[link] : null;
     if (w === null || w === undefined) return;
     const n = flowNorm(w);
@@ -2975,7 +2994,7 @@ function applyFlowIntensity() {
     while (ps.length < want) {                       // add dots, spread along the pipe
       const c = tmpl.el.cloneNode();
       svg.appendChild(c);
-      const np = { el: c, x1: tmpl.x1, y1: tmpl.y1, x2: tmpl.x2, y2: tmpl.y2, t: (tmpl.t + ps.length / want) % 1, spd, link };
+      const np = { el: c, x1: tmpl.x1, y1: tmpl.y1, x2: tmpl.x2, y2: tmpl.y2, t: (tmpl.t + ps.length / want) % 1, spd, link, curve: tmpl.curve };
       parts.push(np); ps.push(np);
     }
     while (ps.length > want) {                       // drop extras
@@ -3102,8 +3121,8 @@ function addFlowHitLines() {
     const a = document.getElementById(link[0]), b = document.getElementById(link[1]);
     if (!a || !b) return;
     const p = ctr(link[0]), q = ctr(link[1]);
-    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    l.setAttribute('x1', p.x); l.setAttribute('y1', p.y); l.setAttribute('x2', q.x); l.setAttribute('y2', q.y);
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    l.setAttribute('d', pipeD(p.x, p.y, q.x, q.y)); l.setAttribute('fill', 'none');
     l.setAttribute('class', 'flow-hit');
     l.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showFlowTip(link, e); });
     l.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideFlowTip(); });
@@ -3168,25 +3187,31 @@ function renderOrionBle() {
 // at the bottom, lightning bolt while charging. Drawn in a 60x100 viewBox and
 // scaled by the .bsym box size.
 function batteryColor(soc) {
-  return soc < 20 ? '#e5383b' : soc < 55 ? '#f7941d' : soc < 85 ? '#8dc63f' : '#39b54a';
+  // Muted versions of green / light green / orange / red, to sit with the dark theme
+  return soc < 20 ? '#c24a47' : soc < 55 ? '#c98a35' : soc < 85 ? '#7fa446' : '#3f9a63';
 }
+let batteryGradSeq = 0;
 function batterySvg(soc, charging) {
   const known = typeof soc === 'number' && !isNaN(soc);
   const pct = known ? Math.max(0, Math.min(100, soc)) : 0;
-  const ix = 8, iy = 15, iw = 44, ih = 77, numH = 20;
+  const ix = 8, iy = 14, iw = 44, ih = 79, numH = 20;
   let fillH = ih * pct / 100;
-  if (pct > 0) fillH = Math.max(fillH, numH + 2); // like the reference: low SOC still gets a pill behind the number
+  if (pct > 0) fillH = Math.max(fillH, numH + 2); // low SOC still gets a pill behind the number
   const col = batteryColor(pct);
   const numOnFill = known && pct > 0;
   const txt = known ? Math.round(pct) : '--';
-  const fs = String(txt).length >= 3 ? 17 : 21;
+  const fs = String(txt).length >= 3 ? 16 : 19;
+  const gid = `bgrad${++batteryGradSeq}`;
   return `<svg viewBox="0 0 60 100" preserveAspectRatio="xMidYMid meet">
-    <rect x="21" y="1" width="18" height="8" rx="3" fill="#c9d4e3"/>
-    <rect x="3" y="8" width="54" height="90" rx="11" fill="#0a0e1a" stroke="#c9d4e3" stroke-width="4"/>
-    ${fillH > 0 ? `<rect x="${ix}" y="${iy + ih - fillH}" width="${iw}" height="${fillH}" rx="6" fill="${col}"/>` : ''}
-    ${charging ? `<path d="M34 22 L20 50 L29 50 L25 72 L41 42 L31 42 Z" fill="#fff" stroke="#0a0e1a" stroke-width="1.2" stroke-linejoin="round"/>` : ''}
-    <text x="30" y="${iy + ih - 4}" text-anchor="middle" font-size="${fs}" font-weight="800"
-      font-family="system-ui,-apple-system,Segoe UI,sans-serif" fill="${numOnFill ? '#fff' : '#c9d4e3'}">${txt}</text>
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="${col}" stop-opacity=".78"/><stop offset=".45" stop-color="${col}" stop-opacity=".95"/>
+      <stop offset="1" stop-color="${col}" stop-opacity=".7"/></linearGradient></defs>
+    <rect x="22" y="2" width="16" height="7" rx="2.5" fill="#5f6f87"/>
+    <rect x="4" y="8" width="52" height="90" rx="10" fill="#0b1120" stroke="#5f6f87" stroke-width="2.5"/>
+    ${fillH > 0 ? `<rect x="${ix}" y="${iy + ih - fillH}" width="${iw}" height="${fillH}" rx="5" fill="url(#${gid})"/>` : ''}
+    ${charging ? `<path d="M33 26 L22 49 L29 49 L26 67 L38 43 L31 43 Z" fill="#eef4f0" fill-opacity=".85" stroke="#0b1120" stroke-width="1" stroke-linejoin="round"/>` : ''}
+    <text x="30" y="${iy + ih - 5}" text-anchor="middle" font-size="${fs}" font-weight="700"
+      font-family="system-ui,-apple-system,Segoe UI,sans-serif" fill="${numOnFill ? '#f1f5f9' : '#8a9ab0'}" fill-opacity="${numOnFill ? .92 : 1}">${txt}</text>
   </svg>`;
 }
 // DC loads can't be measured directly -- a battery monitor only sees net
@@ -3391,10 +3416,23 @@ function ctr(id, canvasEl) {
   return { x: er.left - cr.left + er.width / 2, y: er.top - cr.top + er.height / 2 + dy };
 }
 
+// Pipes are SVG paths: straight when level or vertical, otherwise an S-curve that
+// leaves and enters horizontally (Victron sim extras, siloed). Endpoints are kept
+// in data-x1..y2 so the power-width code can match a pipe to its link.
+function pipeD(x1, y1, x2, y2) {
+  if (Math.abs(x2 - x1) < 8 || Math.abs(y2 - y1) < 2) return `M${x1},${y1} L${x2},${y2}`;
+  const mx = (x1 + x2) / 2;
+  return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+}
+function pipePoint(p, t) {
+  if (!p.curve) return { x: p.x1 + (p.x2 - p.x1) * t, y: p.y1 + (p.y2 - p.y1) * t };
+  const mx = (p.x1 + p.x2) / 2, u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, e = t * t * t;
+  return { x: a * p.x1 + (b + c) * mx + e * p.x2, y: (a + b) * p.y1 + (c + e) * p.y2 };
+}
 function fline(x1, y1, x2, y2, col, dash, svgEl) {
-  const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  l.setAttribute('x1', x1); l.setAttribute('y1', y1);
-  l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+  const l = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  l.setAttribute('d', pipeD(x1, y1, x2, y2)); l.setAttribute('fill', 'none'); l.setAttribute('class', 'fpipe');
+  l.dataset.x1 = x1; l.dataset.y1 = y1; l.dataset.x2 = x2; l.dataset.y2 = y2;
   l.setAttribute('stroke', col); l.setAttribute('stroke-width', '1.5');
   l.setAttribute('opacity', '0.35');
   if (dash) l.setAttribute('stroke-dasharray', '4 4');
@@ -3405,7 +3443,8 @@ function fpart(x1, y1, x2, y2, col, svgEl) {
   const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   c.setAttribute('r', '3.5'); c.setAttribute('fill', col);
   (svgEl || svg).appendChild(c);
-  parts.push({ el: c, x1, y1, x2, y2, t: Math.random(), spd: .003 + Math.random() * .002 });
+  parts.push({ el: c, x1, y1, x2, y2, t: Math.random(), spd: .003 + Math.random() * .002,
+               curve: Math.abs(x2 - x1) >= 8 && Math.abs(y2 - y1) >= 2 });
 }
 
 function fitElectricalCanvas() {
@@ -3413,11 +3452,16 @@ function fitElectricalCanvas() {
   if (!canvasEl) return;
   const top = canvasEl.getBoundingClientRect().top;
   const legend = document.querySelector('#page-electrical .leg');
-  const legendSpace = legend ? legend.getBoundingClientRect().height + 12 : 0; // + its margin-top
+  const legendSpace = legend && legend.offsetParent ? legend.getBoundingClientRect().height + 12 : 0; // + its margin-top (0 when hidden)
   const infoBox = document.querySelector('#page-electrical .wm-info-box');
   const infoBoxSpace = infoBox && infoBox.offsetParent ? infoBox.getBoundingClientRect().height + 10 : 0; // + its margin-top (0 when hidden)
   const available = window.innerHeight - top - legendSpace - infoBoxSpace - 40; // flow-wrap/body padding + safety margin
-  canvasEl.style.height = Math.max(420, available) + 'px';
+  // Victron sim extras (siloed): desktop fits the window exactly (cards scale down via --fs
+  // instead); phones keep a minimum and scroll.
+  const minH = window.innerWidth < 600 ? 420 : 300;
+  canvasEl.style.height = Math.max(minH, available) + 'px';
+  const over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over > 0 && window.innerWidth >= 600) canvasEl.style.height = Math.max(minH, available - over) + 'px';
 }
 
 function buildFlow(shoreOn, batCharge, batDischarge) {
@@ -3489,8 +3533,9 @@ function buildFlow(shoreOn, batCharge, batDischarge) {
 function animFlow() {
   for (const p of parts) {
     p.t += p.spd; if (p.t > 1) p.t -= 1;
-    p.el.setAttribute('cx', p.x1 + (p.x2 - p.x1) * p.t);
-    p.el.setAttribute('cy', p.y1 + (p.y2 - p.y1) * p.t);
+    const pt = pipePoint(p, p.t);
+    p.el.setAttribute('cx', pt.x);
+    p.el.setAttribute('cy', pt.y);
   }
   raf = requestAnimationFrame(animFlow);
 }
