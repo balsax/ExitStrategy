@@ -61,6 +61,14 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
   ```
   Currently downloaded: US East Coast (Maine–South Florida), the full Gulf of Mexico, and the Caribbean/Puerto Rico/USVI region (`ncds_01a` through `ncds_14`, `ncds_09`) — 17 regions, ~8.1GB in `chart_data/ncds/` (gitignored, not in version control). See the docstring at the top of the file for how to look up the NCDS region or ENC cell(s) covering a different location.
 
+## Database logging & trend rollups
+
+`mqtt_logger.py` writes to `mqtt_readings` (75M+ rows). Three pieces keep that cheap; install/revert steps are in [`ops/README.md`](./ops/README.md).
+
+- **Write reduction** (`mqtt_logger.py` + `logger_policy.py`, tests in `test_logger_policy.py`): unchanged values are skipped (with a 5s heartbeat so chart buckets never go empty), fast streams are capped to one row per 2s, `last_value`/`last_seen` updates are throttled to ~1/s, and each message commits once. Simulated `boat/nav/*` topics that nothing reads back from the DB are not stored (`NAV_IS_SIMULATED` — flip to `False` once real N2K data is live). Sparse state topics (e.g. the bilge pump) never lose a change.
+- **Trend rollup** (`mqtt_rollup.py`, run every minute by `ops/mqtt-rollup.timer`): keeps `mqtt_readings_1m` (n/sum/min/max per numeric topic per minute). `query_bucketed_series` in `dashboard_api.py` reads it for the 6h/24h/7d/30d ranges and falls back to the raw table for the un-rolled-up tail or if the rollup doesn't cover the range.
+- **MariaDB tuning** (`ops/99-boat-tuning.cnf`): 768MB InnoDB buffer pool (the 128MB default missed on ~12% of page reads against a 6.6GB table).
+
 ## Hardware status
 
 | System | Status |

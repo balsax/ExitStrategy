@@ -1,0 +1,12 @@
+[Unit]
+Description=Run mqtt-rollup.service every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+# A run still in progress (e.g. the first 31-day backfill) makes later triggers
+# no-ops: oneshot services aren't started again while active, and mqtt_rollup.py
+# also holds a DB-level lock.
+
+[Install]
+WantedBy=timers.target

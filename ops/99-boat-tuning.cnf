@@ -1,0 +1,20 @@
+# MariaDB tuning for the boat_monitoring database on the Pi (3.7GB RAM).
+# Install: sudo cp ops/99-boat-tuning.cnf /etc/mysql/mariadb.conf.d/99-boat-tuning.cnf
+# (see ops/README.md for how to apply it live without a restart).
+#
+# Why: mqtt_readings is ~6.6GB but InnoDB shipped with the 128MB default buffer
+# pool, so ~12% of page requests went to disk (Innodb_buffer_pool_reads vs
+# _read_requests) -- that was the sustained ~150MB/s of disk reads and 30% iowait.
+# innodb_flush_method is already O_DIRECT, so the pool isn't double-cached by
+# the OS; nothing to change there.
+
+[mysqld]
+# ~20% of RAM. The dev dashboard alone holds ~740MB and prod ~330MB, so this is
+# deliberately not larger. Dynamic in MariaDB 10.11 (no restart needed).
+innodb_buffer_pool_size = 768M
+
+# The logger commits a lot of tiny transactions. =2 writes the redo log at every
+# commit but fsyncs once per second; a hard crash/power loss can lose at most
+# ~1s of telemetry (an OS-level crash, not a mysqld crash). Fine for sensor
+# readings; NOT something to copy to a database holding anything transactional.
+innodb_flush_log_at_trx_commit = 2

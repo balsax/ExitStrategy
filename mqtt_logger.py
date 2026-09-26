@@ -19,6 +19,7 @@ import logging.handlers
 import mysql.connector
 import paho.mqtt.client as mqtt
 from datetime import datetime
+from logger_policy import StreamGate
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 def get_secrets():
@@ -66,6 +67,38 @@ IGNORE_PREFIXES = (
     "boat/ais/",
 )
 
+# Topics that are still registered and still get last_value/last_seen updates,
+# but whose *readings* are not stored in mqtt_readings. While the NMEA2000 side
+# is simulated (gps_simulator.py, autopilot_simulator.py, ... publish the same
+# boat/nav/* topics real hardware will), these were ~55% of all rows in the
+# table and nothing reads them back from the database -- the dashboard uses
+# them live over MQTT only (anchor watch, chart, autopilot panel; trips have
+# their own trip_points table). Anything dashboard_api.py *does* read from
+# mqtt_readings (wind speed/angle, gps/sog, tanks, engine, system, bilge) is
+# deliberately NOT listed here or is re-allowed in NAV_KEEP_LOGGING.
+# Set NAV_IS_SIMULATED = False once the CAN HAT is wired into the real N2K
+# backbone to resume logging real position/depth/heading history.
+NAV_IS_SIMULATED = True
+NAV_NO_READINGS_PREFIXES = (
+    "boat/nav/destination/",
+    "boat/nav/autopilot/",
+    "boat/nav/rudder",
+    "boat/nav/heading",
+    "boat/nav/depth",
+    "boat/nav/gps/",
+)
+NAV_KEEP_LOGGING = {
+    "boat/nav/gps/sog",   # Weather tab wind-direction chart plots SOG (dashboard_api.py /api/wind/direction_history)
+}
+
+# Write-reduction gates (see logger_policy.py for the exact rules).
+# Readings: skip unchanged values (heartbeat row every 5s, which is the smallest
+# trend bucket so charts never get holes) and cap fast streams to one row per 2s.
+# Topic last_value / device last_seen: at most ~1 update/second per key.
+READING_MIN_INTERVAL_S = 2.0
+READING_HEARTBEAT_S    = 5.0
+TOUCH_INTERVAL_S       = 1.0
+
 # Topics that indicate device status
 STATUS_TOPIC_SUFFIXES = {"status", "connected", "LWT"}
 STATUS_ONLINE_VALUES  = {"online", "ONLINE", "Online"}
@@ -106,6 +139,8 @@ class Database:
         self._device_cache = {}   # device_id -> topic_prefix
         self._topic_cache  = {}   # topic -> topic_id
         self._warned_topics = set()
+        self._log_enabled = {}            # topic_id -> bool, refreshed by log_enabled_cached()
+        self._log_enabled_loaded = 0.0    # time.monotonic() of the last refresh
 
     def connect(self):
         try:
@@ -257,20 +292,37 @@ class Database:
 
         return None
 
+    # ── log_enabled lookup (cached) ────────────────────────────────────────────
+    # on_message used to SELECT log_enabled from mqtt_topics for every message.
+    # It only changes when someone edits the row by hand, so re-read the whole
+    # (~300 row) table once a minute -- or immediately for a topic_id we haven't
+    # seen yet, e.g. one that was just auto-registered.
+    def log_enabled_cached(self, topic_id):
+        now = time.monotonic()
+        if topic_id not in self._log_enabled or now - self._log_enabled_loaded >= 60:
+            self.cursor.execute("SELECT id, log_enabled FROM mqtt_topics")
+            self._log_enabled = {r["id"]: bool(r["log_enabled"]) for r in self.cursor.fetchall()}
+            self._log_enabled_loaded = now
+            # autocommit is off: end the read snapshot now, otherwise a message
+            # that writes nothing would leave it open and the next refresh
+            # would keep seeing this same (stale) view of the table.
+            self.conn.commit()
+        return self._log_enabled.get(topic_id, False)
+
     # ── Update last_value on topic ─────────────────────────────────────────────
-    def update_topic_last(self, topic_id, value):
-        self.execute("""
+    def update_topic_last(self, topic_id, value, commit=True):
+        return self.execute("""
             UPDATE mqtt_topics
             SET last_value = %s, last_update = %s
             WHERE id = %s
-        """, (value, now_ms(), topic_id), commit=True)
+        """, (value, now_ms(), topic_id), commit=commit)
 
     # ── Insert reading ─────────────────────────────────────────────────────────
-    def insert_reading(self, topic_id, value):
-        self.execute("""
+    def insert_reading(self, topic_id, value, commit=True):
+        return self.execute("""
             INSERT INTO mqtt_readings (ts, topic_id, value)
             VALUES (%s, %s, %s)
-        """, (now_ms(), topic_id, value), commit=True)
+        """, (now_ms(), topic_id, value), commit=commit)
 
     # ── Update device status ───────────────────────────────────────────────────
     def update_device_status(self, device_id, status, ts):
@@ -281,11 +333,11 @@ class Database:
         """, (status, ts, device_id), commit=True)
 
     # ── Update device last_seen ────────────────────────────────────────────────
-    def update_device_seen(self, device_id, ts):
-        self.execute("""
+    def update_device_seen(self, device_id, ts, commit=True):
+        return self.execute("""
             UPDATE mqtt_devices SET last_seen = %s
             WHERE device_id = %s
-        """, (ts, device_id), commit=True)
+        """, (ts, device_id), commit=commit)
 
     def check_connection(self):
         try:
@@ -312,6 +364,16 @@ def detect_type(value):
 
 # ── MQTT callbacks ────────────────────────────────────────────────────────────
 db = Database()
+
+reading_gate      = StreamGate(READING_MIN_INTERVAL_S, READING_HEARTBEAT_S)
+topic_touch_gate  = StreamGate(TOUCH_INTERVAL_S, TOUCH_INTERVAL_S)
+device_touch_gate = StreamGate(TOUCH_INTERVAL_S, TOUCH_INTERVAL_S)
+
+def readings_excluded(topic):
+    """True if this topic's readings should not be written to mqtt_readings (see NAV_* above)."""
+    return (NAV_IS_SIMULATED
+            and topic.startswith(NAV_NO_READINGS_PREFIXES)
+            and topic not in NAV_KEEP_LOGGING)
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
@@ -353,13 +415,19 @@ def on_message(client, userdata, msg):
             log.warning(f"Could not register topic: {topic}")
             return
 
-        # Update topic last value
-        db.update_topic_last(topic_id, value)
+        # Writes below are batched into one commit at the end of the message
+        # (they used to commit individually -- ~3 fsyncs per message).
+        dirty = False
 
-        # Update device last_seen
-        db.update_device_seen(device_id, ts)
+        # Update topic last value (throttled to ~1/s per topic, see logger_policy.py)
+        if topic_touch_gate.allow(topic_id, value):
+            dirty |= bool(db.update_topic_last(topic_id, value, commit=False))
 
-        # Handle status topics
+        # Update device last_seen (~1/s per device)
+        if device_touch_gate.allow(device_id, None):
+            dirty |= bool(db.update_device_seen(device_id, ts, commit=False))
+
+        # Handle status topics (never throttled -- these are state transitions)
         leaf = topic.split("/")[-1]
         if leaf in STATUS_TOPIC_SUFFIXES:
             if value in STATUS_ONLINE_VALUES:
@@ -369,12 +437,15 @@ def on_message(client, userdata, msg):
                 db.update_device_status(device_id, "OFFLINE", ts)
                 log.warning(f"Device OFFLINE: {device_id}")
 
-        # Log to readings table if enabled
-        db.cursor.execute(
-            "SELECT log_enabled FROM mqtt_topics WHERE id = %s", (topic_id,))
-        row = db.cursor.fetchone()
-        if row and row["log_enabled"]:
-            db.insert_reading(topic_id, value)
+        # Log to readings table if enabled, not a simulated-nav topic that nothing
+        # reads back, and worth writing (changed / heartbeat / rate cap).
+        if (db.log_enabled_cached(topic_id)
+                and not readings_excluded(topic)
+                and reading_gate.allow(topic_id, value)):
+            dirty |= bool(db.insert_reading(topic_id, value, commit=False))
+
+        if dirty:
+            db.conn.commit()
 
     except Exception as e:
         log.error(f"Error processing message topic={msg.topic}: {e}")

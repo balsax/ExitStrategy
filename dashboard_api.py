@@ -716,12 +716,58 @@ def get_boat_db():
         database='boat_monitoring', connection_timeout=5,
     )
 
+# ─── Trend rollup read path (siloed addition) ──────────────────────────────
+# Wide trend ranges (6h/24h/7d/30d) used to AVG() raw mqtt_readings per topic;
+# one topic's rows are scattered across the whole table (every row a random page
+# read), so 24h took ~6s, 7d ~30s and 30d minutes. mqtt_rollup.py keeps
+# mqtt_readings_1m (n/sum per topic per minute); a whole-minute bucket's average
+# is exactly SUM(sum_value)/SUM(n). The rollup only covers *closed* minutes, so
+# the not-yet-rolled-up tail is read raw and combined. Anything the rollup can't
+# answer completely (table missing, range starts before its coverage, non-numeric
+# topic) returns None and the caller falls back to the original raw query.
+ROLLUP_MIN_BUCKET_SECONDS = 120   # the 10m (5s) and 1h (30s) ranges are finer than a 1-minute rollup
+
+def _query_bucketed_from_rollup(cursor, topic_id, start_dt, bucket_seconds):
+    try:
+        cursor.execute("SELECT covered_from, covered_to FROM mqtt_rollup_state WHERE id = 1")
+        state = cursor.fetchone()
+        if not state:
+            return None
+        covered_from, covered_to = state
+        start_minute = start_dt.replace(second=0, microsecond=0)
+        if covered_from > start_minute:
+            return None
+        cursor.execute("SELECT data_type FROM mqtt_topics WHERE id = %s", (topic_id,))
+        dt_row = cursor.fetchone()
+        if not dt_row or dt_row[0] not in ('int', 'float'):
+            return None
+        cursor.execute("""
+            SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(t)/%s)*%s) AS bucket_ts, SUM(s)/SUM(n) AS avg_value
+            FROM (
+                SELECT minute_ts AS t, sum_value AS s, n FROM mqtt_readings_1m
+                WHERE topic_id = %s AND minute_ts >= %s AND minute_ts < %s
+                UNION ALL
+                SELECT ts, CAST(value AS DECIMAL(20,4)), 1 FROM mqtt_readings
+                WHERE topic_id = %s AND ts >= %s
+            ) u
+            GROUP BY bucket_ts
+            ORDER BY bucket_ts
+        """, (bucket_seconds, bucket_seconds, topic_id, start_minute, covered_to, topic_id, covered_to))
+        return {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
+    except mysql.connector.Error:
+        return None
+# ─── end trend rollup siloed addition ───────────────────────────────────────
+
 def query_bucketed_series(cursor, topic, start_dt, bucket_seconds):
     cursor.execute("SELECT id FROM mqtt_topics WHERE topic = %s", (topic,))
     row = cursor.fetchone()
     if not row:
         return {}
     topic_id = row[0]
+    if bucket_seconds >= ROLLUP_MIN_BUCKET_SECONDS and bucket_seconds % 60 == 0:
+        rolled = _query_bucketed_from_rollup(cursor, topic_id, start_dt, bucket_seconds)
+        if rolled is not None:
+            return rolled
     cursor.execute("""
         SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(ts)/%s)*%s) AS bucket_ts,
                AVG(CAST(value AS DECIMAL(20,4))) AS avg_value
@@ -991,6 +1037,65 @@ SYSTEM_EVENT_TOPICS = {
     'bilge_pump': 'boat/nav/bilge/pump_on',
 }
 
+# ─── System events: incremental change cache (siloed addition) ──────────────
+# /api/system/events used to run LAG() over a topic's *entire* history on every
+# poll just to return the last few value changes. mqtt_readings is tens of
+# millions of rows and each row is a random lookup, so one call took over a
+# minute -- and since the System tab re-polls every 30s, calls overlapped and
+# stacked up until MariaDB was saturated. Instead, keep the list of value
+# changes per topic in memory: the first call folds the full history once,
+# later calls only read rows newer than the last one already seen.
+_SYSTEM_EVENTS_CACHE = {}          # topic_id -> entry dict (see _system_events_entry)
+_SYSTEM_EVENTS_CACHE_GUARD = threading.Lock()
+_SYSTEM_EVENTS_MIN_REFRESH_S = 5   # concurrent pollers within this window share one refresh
+_SYSTEM_EVENTS_KEEP = 200          # endpoint caps limit at 100; keep headroom, bound memory
+_SYSTEM_EVENTS_UNSET = object()
+
+def _system_events_entry(topic_id):
+    with _SYSTEM_EVENTS_CACHE_GUARD:
+        entry = _SYSTEM_EVENTS_CACHE.get(topic_id)
+        if entry is None:
+            entry = _SYSTEM_EVENTS_CACHE[topic_id] = {
+                'lock': threading.Lock(),
+                'events': [],                          # [(ts, value)] oldest -> newest, value changes only
+                'last_ts': None,                       # newest reading folded in so far
+                'last_value': _SYSTEM_EVENTS_UNSET,
+                'checked_at': 0.0,
+            }
+        return entry
+
+def system_events_recent(topic_id, limit):
+    """Newest-first [(ts, value)] of the most recent value changes for one topic."""
+    entry = _system_events_entry(topic_id)
+    # Blocking lock on purpose: a second poller arriving mid-refresh just waits
+    # for the same result instead of launching a second query against the DB.
+    with entry['lock']:
+        if time.monotonic() - entry['checked_at'] >= _SYSTEM_EVENTS_MIN_REFRESH_S:
+            conn = get_boat_db()
+            try:
+                cur = conn.cursor()
+                if entry['last_ts'] is None:
+                    cur.execute("SELECT ts, value FROM mqtt_readings WHERE topic_id = %s ORDER BY ts",
+                                (topic_id,))
+                else:
+                    cur.execute("SELECT ts, value FROM mqtt_readings WHERE topic_id = %s AND ts > %s ORDER BY ts",
+                                (topic_id, entry['last_ts']))
+                while True:
+                    rows = cur.fetchmany(5000)
+                    if not rows:
+                        break
+                    for ts, value in rows:
+                        if entry['last_value'] is _SYSTEM_EVENTS_UNSET or value != entry['last_value']:
+                            entry['events'].append((ts, value))
+                        entry['last_value'] = value
+                        entry['last_ts'] = ts
+                    del entry['events'][:-_SYSTEM_EVENTS_KEEP]
+            finally:
+                conn.close()
+            entry['checked_at'] = time.monotonic()
+        return list(reversed(entry['events'][-limit:]))
+# ─── end system events siloed addition ──────────────────────────────────────
+
 @app.route('/api/system/events')
 def system_events():
     metric = request.args.get('metric', 'throttled')
@@ -1009,17 +1114,9 @@ def system_events():
         if not row:
             conn.close()
             return jsonify({'events': []})
-        cur.execute("""
-            SELECT ts, value FROM (
-                SELECT ts, value, LAG(value) OVER (ORDER BY ts) AS prev_value
-                FROM mqtt_readings WHERE topic_id = %s
-            ) t
-            WHERE prev_value IS NULL OR value <> prev_value
-            ORDER BY ts DESC
-            LIMIT %s
-        """, (row[0], limit))
-        events = [{'time': ts.strftime('%Y-%m-%dT%H:%M:%S'), 'value': value} for ts, value in cur.fetchall()]
         conn.close()
+        events = [{'time': ts.strftime('%Y-%m-%dT%H:%M:%S'), 'value': value}
+                  for ts, value in system_events_recent(row[0], limit)]
         return jsonify({'events': events})
     except Exception as e:
         return jsonify({'events': [], 'error': str(e)})

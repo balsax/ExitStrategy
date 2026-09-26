@@ -1,0 +1,13 @@
+[Unit]
+Description=Roll up mqtt_readings into per-minute rows (mqtt_readings_1m) for trend charts
+After=mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=oneshot
+User=mikemc
+WorkingDirectory=/home/mikemc/dashboard-dev
+Nice=10
+ExecStart=/usr/bin/python3 /home/mikemc/dashboard-dev/mqtt_rollup.py
+StandardOutput=journal
+StandardError=journal
