@@ -355,8 +355,7 @@ def get_vrm_data():
     # MultiPlus DC side on its own (the battery's current is the net of every
     # charger/load on the 48V bus): CI/CV from the VE.Bus device, vp = signed
     # VE.Bus charge power (negative = inverting from the battery).
-    mp_dc = {('VE.Bus System', 'CI'): 'mp_dc_current', ('VE.Bus System', 'CV'): 'mp_dc_voltage',
-             ('System overview', 'vp'): 'mp_dc_power'}
+    mp_dc = {('VE.Bus System', 'CI'): 'mp_dc_current', ('VE.Bus System', 'CV'): 'mp_dc_voltage'}
     for r in data.get('records', []):
         if r.get('code') == 'S' and r.get('Device') == 'VE.Bus System':
             result['mp_state'] = r.get('formattedValue', '')
@@ -366,6 +365,41 @@ def get_vrm_data():
                 result[key] = float(r.get('rawValue'))
             except (TypeError, ValueError):
                 pass
+
+    # Read each value from the device that measures it. The "System overview"
+    # totals (g1 grid, bc/bv/bs battery, vp VE.Bus charge power) can go stale in
+    # the diagnostics snapshot -- e.g. still showing 724W of shore and the bank
+    # charging after shore was unplugged and the MultiPlus was inverting.
+    def rec(device, code, instance=None):
+        for r in data.get('records', []):
+            if r.get('Device') == device and r.get('code') == code and (instance is None or r.get('instance') == instance):
+                return r
+        return None
+    def num(r):
+        try:
+            return float(r.get('rawValue')) if r else None
+        except (TypeError, ValueError):
+            return None
+    if 'mp_dc_voltage' in result and 'mp_dc_current' in result:
+        result['mp_dc_power'] = round(result['mp_dc_voltage'] * result['mp_dc_current'], 1)  # + charging / - inverting
+    # Shore: the MultiPlus's own AC input power; 0 when its input is disconnected.
+    ip1, ai = rec('VE.Bus System', 'IP1'), rec('VE.Bus System', 'AI')
+    if ip1 is not None:
+        disconnected = ai is not None and 'disconnect' in str(ai.get('formattedValue', '')).lower()
+        result['grid'] = 0.0 if disconnected else num(ip1)
+    # 48V bank: the active battery service's own monitor (the BMS), e.g.
+    # 'com.victronenergy.battery/512' -> instance 512.
+    abs_rec = rec('Gateway', 'abs') or next((r for r in data.get('records', []) if r.get('code') == 'abs'), None)
+    try:
+        bank = int(str(abs_rec.get('formattedValue', '')).rsplit('/', 1)[1]) if abs_rec else None
+    except (IndexError, ValueError):
+        bank = None
+    if bank is not None:
+        v, i, soc = (num(rec('Battery Monitor', c, bank)) for c in ('V', 'I', 'SOC'))
+        if v is not None: result['voltage'] = v
+        if i is not None: result['current'] = i
+        if soc is not None: result['soc'] = soc
+        if v is not None and i is not None: result['power'] = round(v * i, 1)
     # ─── end VRM battery monitors by instance ───────────────────────────────
 
     # Stash raw records for diagnostics endpoint
