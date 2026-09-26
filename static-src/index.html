@@ -108,6 +108,15 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .hourly-row-wind{color:#6b82a0;text-align:right}
 .windy-embed-wrap{width:100%;height:630px;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
 .windy-overlay-buttons{display:flex;gap:8px;margin-bottom:10px}
+/* ─── Media (Boat Radio) tab — siloed addition ─── */
+.media-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+.media-bar .media-spacer{flex:1}
+.media-link{color:#4a9fd4;text-decoration:none;font-size:13px}
+.media-link:hover{text-decoration:underline}
+.media-embed-wrap{width:100%;height:max(760px,calc(100vh - 190px));border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#0a0e1a}
+.media-embed-wrap iframe{width:100%;height:100%;border:0}
+.media-msg{padding:2rem 1rem;color:#8fa3bd;font-size:14px;line-height:1.6;text-align:center}
+/* ─── end Media (Boat Radio) CSS ─── */
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
 .status-row:last-child{border-bottom:none}
@@ -681,6 +690,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <button class="navbtn" id="nav-electrical" onclick="showPage('electrical')"><span>⚡</span>Electrical</button>
   <button class="navbtn" id="nav-engine" onclick="showPage('engine')"><span>🔧</span>Engine</button>
   <button class="navbtn" id="nav-reference" onclick="showPage('reference')"><span>📖</span>Reference</button>
+  <button class="navbtn" id="nav-media" onclick="showPage('media')"><span>🎵</span>Media</button><!-- siloed Media (Boat Radio) addition -->
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
 
@@ -1714,6 +1724,19 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   <div class="starchart-tooltip" id="starchart-tooltip"></div>
   </div>
 </div>
+
+<!-- ══════════════════ Media (Boat Radio) page — siloed addition ══════════════════ -->
+<script>var _mediaBootHash = location.hash;  // showPage() rewrites the hash during boot; capture it first</script>
+<div class="page" id="page-media">
+  <div class="section"><span>Media</span></div>
+  <div class="media-bar">
+    <span class="media-spacer"></span>
+    <button class="dur-btn" onclick="mediaReload()">Reload</button>
+    <a class="media-link" id="media-open-link" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
+  </div>
+  <div class="media-embed-wrap" id="media-embed-wrap"></div>
+</div>
+<!-- ══════════════════ end Media (Boat Radio) page ══════════════════ -->
 
 <!-- ══════════════════════════════ Diagnostics page ══════════════════════════════ -->
 <div class="page" id="page-mqtt">
@@ -2868,8 +2891,7 @@ function wmUpdateControlGating(mode) {
 async function fetchWatermakerLive() {
   const notice = document.getElementById('wm-notice');
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = key => {
       const rec = t['boat/watermaker/' + key];
@@ -2992,7 +3014,7 @@ function openManualModal() {
   setText('mc-feedback', '');
   mcSpeedSliderSynced = false;
   fetchManualPanelLive();
-  manualPollInterval = setInterval(fetchManualPanelLive, 3000);
+  manualPollInterval = setInterval(ifVisible(fetchManualPanelLive), 3000);
 }
 
 function closeManualModal() {
@@ -3006,8 +3028,7 @@ function closeManualModalOutside(e) {
 
 async function fetchManualPanelLive() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = key => { const rec = t['boat/watermaker/' + key]; return rec ? rec.value : null; };
 
@@ -3304,6 +3325,26 @@ async function wmSetPumpSpeed(btn) {
 }
 
 // ─── MQTT diagnostics ───────────────────────────────────────────────────────────
+// ─── Shared /api/mqtt/topics fetch + visibility-gated polling (siloed addition) ──
+// ~16 pollers used to each fetch the full topic dump on their own timers (3
+// on the Overview page alone at 5s), multiplying identical requests. This
+// returns one shared response: callers within MQTT_TOPICS_TTL_MS reuse the
+// last result, and concurrent callers share a single in-flight request.
+// Failures are never cached, so the next call retries.
+const MQTT_TOPICS_TTL_MS = 1000;
+let mqttTopicsCache = null, mqttTopicsCacheAt = 0, mqttTopicsInflight = null;
+function getMqttTopics() {
+  if (mqttTopicsCache && Date.now() - mqttTopicsCacheAt < MQTT_TOPICS_TTL_MS) return Promise.resolve(mqttTopicsCache);
+  if (mqttTopicsInflight) return mqttTopicsInflight;
+  mqttTopicsInflight = fetch('/api/mqtt/topics')
+    .then(res => res.json())
+    .then(d => { mqttTopicsCache = d; mqttTopicsCacheAt = Date.now(); return d; })
+    .finally(() => { mqttTopicsInflight = null; });
+  return mqttTopicsInflight;
+}
+// Wraps a poll callback so it does nothing while the tab is hidden.
+function ifVisible(fn) { return (...args) => { if (!document.hidden) return fn(...args); }; }
+
 let mqttTopics = {};
 let mqttExpanded = { boat: true }; // everything else defaults collapsed; user toggles are still respected either way
 let mqttSearchTerm = '';
@@ -3461,7 +3502,7 @@ let simFetchSeq = 0;
 function updateSimPolling(tab) {
   if (tab === 'sim') {
     fetchSimulators();
-    if (!simPollInterval) simPollInterval = setInterval(fetchSimulators, 3000);
+    if (!simPollInterval) simPollInterval = setInterval(ifVisible(fetchSimulators), 3000);
   } else if (simPollInterval) {
     clearInterval(simPollInterval);
     simPollInterval = null;
@@ -3924,7 +3965,7 @@ function updateSysSparklinePolling(tab) {
   if (tab === 'system') {
     fetchSystemSparklines();
     fetchThrottleEvents();
-    if (!sysSparkInterval) sysSparkInterval = setInterval(() => { fetchSystemSparklines(); fetchThrottleEvents(); }, 30000);
+    if (!sysSparkInterval) sysSparkInterval = setInterval(ifVisible(() => { fetchSystemSparklines(); fetchThrottleEvents(); }), 30000);
   } else if (sysSparkInterval) {
     clearInterval(sysSparkInterval);
     sysSparkInterval = null;
@@ -3934,8 +3975,7 @@ function updateSysSparklinePolling(tab) {
 async function fetchMqtt() {
   const badge = document.getElementById('mqtt-state');
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     mqttTopics = d.topics || {};
     if (d.connected) {
       badge.textContent = 'Connected'; badge.style.color = '#3db87a';
@@ -4095,8 +4135,7 @@ const TANKS = [
 ];
 async function fetchTanksAndBilge() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = k => t[k] ? parseFloat(t[k].value) : null;
 
@@ -4747,8 +4786,7 @@ function updateAnchorBadge() {
 
 async function fetchAnchorLive() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = k => t[k] ? t[k].value : null;
 
@@ -5196,8 +5234,7 @@ function updateRelay1UI() {
 
 async function fetchRelay1State() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const rec = d.topics && d.topics['boat/power/relay1/0/get'];
     if (rec) {
       const v = String(rec.value).trim().toLowerCase();
@@ -5246,8 +5283,7 @@ async function toggleRelay1() {
 // ─── Engine ─────────────────────────────────────────────────────────────────
 async function fetchEngineLive() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = k => t[k] ? t[k].value : null;
 
@@ -5370,8 +5406,7 @@ async function setFanMode(command) {
 // whatever the user is mid-typing into the inputs.
 async function fetchEngineFanConfig() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     // Status topics have their own /state suffix, distinct from the bare
     // topics this page writes to (boat/engine/fan/setpoint/on, etc.) — same
@@ -5471,8 +5506,7 @@ async function recenterWindyEmbed() {
   const token = ++windyRecenterToken;
   let lat = WEATHER_LAT, lon = WEATHER_LON;
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const latVal = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
     const lonVal = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
@@ -5543,8 +5577,7 @@ async function fetchWeatherConditions() {
 // that don't need -- and shouldn't get -- polled that often on the Pi.
 async function fetchWindLive() {
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = k => t[k] ? parseFloat(t[k].value) : null;
     updateWindInstrument(get('boat/nav/wind/speed'), get('boat/nav/wind/angle'), get('boat/nav/gps/sog'), get('boat/nav/heading'));
@@ -6658,7 +6691,7 @@ async function initChartMap() {
   // read early enough to seed the map's own initial view instead.
   let chartInitialCenter = AIS_DEFAULT_CENTER;
   try {
-    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const t = ((await getMqttTopics()).topics) || {};
     const lat0 = t['boat/nav/gps/latitude'] ? parseFloat(t['boat/nav/gps/latitude'].value) : null;
     const lon0 = t['boat/nav/gps/longitude'] ? parseFloat(t['boat/nav/gps/longitude'].value) : null;
     if (lat0 !== null && lon0 !== null && !isNaN(lat0) && !isNaN(lon0)) chartInitialCenter = [lat0, lon0];
@@ -7302,8 +7335,7 @@ function chartHeadingEndpoint(lat, lon, headingDeg, distM) {
 async function fetchChartAisLive() {
   if (!chartMap || !chartAisGroup || !chartMeGroup) return;
   try {
-    const res = await fetch('/api/mqtt/topics');
-    const d = await res.json();
+    const d = await getMqttTopics();
     const t = d.topics || {};
     const get = k => t[k] ? t[k].value : null;
 
@@ -8023,7 +8055,7 @@ function dismissDestinationArrived() {
 }
 async function checkDestinationArrival() {
   try {
-    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const t = ((await getMqttTopics()).topics) || {};
     const get = k => t[k] ? t[k].value : null;
     const arrived = get('boat/nav/destination/arrived') === 'Yes';
     const lat = get('boat/nav/destination/latitude');
@@ -8322,7 +8354,7 @@ function celnavUseNow() {
 }
 async function celnavUseGps() {
   try {
-    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const t = ((await getMqttTopics()).topics) || {};
     const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
     const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
     if (lat === null || lon === null) { alert('No live GPS position available'); return; }
@@ -8458,7 +8490,7 @@ function starchartUseNowClicked() {
 }
 async function starchartUseGps() {
   try {
-    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const t = ((await getMqttTopics()).topics) || {};
     const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
     const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
     if (lat === null || lon === null) { alert('No live GPS position available'); return; }
@@ -8493,7 +8525,7 @@ async function starchartAutoRefresh() {
   if (!starchartLive) return; // user is previewing a specific moment -- leave it alone
   starchartUseNow();
   try {
-    const t = ((await (await fetch('/api/mqtt/topics')).json()).topics) || {};
+    const t = ((await getMqttTopics()).topics) || {};
     const lat = t['boat/nav/gps/latitude'] ? t['boat/nav/gps/latitude'].value : null;
     const lon = t['boat/nav/gps/longitude'] ? t['boat/nav/gps/longitude'].value : null;
     if (lat !== null && lon !== null) {
@@ -8680,12 +8712,12 @@ fetchData();
 fetchVictron();
 fetchTanksAndBilge();
 queryRelay1State();
-setInterval(fetchData, 60000);
-setInterval(fetchVictron, 30000);
-setInterval(fetchTanksAndBilge, 5000);
+setInterval(ifVisible(fetchData), 60000);
+setInterval(ifVisible(fetchVictron), 30000);
+setInterval(ifVisible(fetchTanksAndBilge), 5000);
 setInterval(checkDestinationArrival, 5000);
-setInterval(() => { if (currentPage === 'mqtt') fetchMqtt(); }, 3000);
-setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 4000);
+setInterval(ifVisible(() => { if (currentPage === 'mqtt') fetchMqtt(); }), 3000);
+setInterval(ifVisible(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }), 4000);
 // Auto-refresh the watermaker/tank trend modal while it's open and on-screen,
 // so the chart keeps moving with the real system without needing a manual
 // re-open. Gated to penEndpoint (not just penModalOpen) since the same modal
@@ -8697,22 +8729,26 @@ setInterval(() => { if (currentPage === 'watermaker') fetchWatermakerLive(); }, 
 // under you every 10s for no benefit at that zoomed-out a scale.
 const TREND_AUTOREFRESH_ENDPOINTS = new Set(['/api/watermaker/history', '/api/tanks/history', '/api/engine/history']);
 const TREND_AUTOREFRESH_DURATIONS = new Set(['10m', '1h']);
-setInterval(() => { if (penModalOpen && TREND_AUTOREFRESH_ENDPOINTS.has(penEndpoint) && TREND_AUTOREFRESH_DURATIONS.has(currentDuration)) loadPenHistory(true); }, 10000);
-setInterval(() => { if (currentPage === 'anchor') fetchAnchorLive(); }, 3000);
-setInterval(() => { if (currentPage === 'chart') fetchChartAisLive(); }, 3000);
+setInterval(ifVisible(() => { if (penModalOpen && TREND_AUTOREFRESH_ENDPOINTS.has(penEndpoint) && TREND_AUTOREFRESH_DURATIONS.has(currentDuration)) loadPenHistory(true); }), 10000);
+setInterval(ifVisible(() => { if (currentPage === 'anchor') fetchAnchorLive(); }), 3000);
+setInterval(ifVisible(() => { if (currentPage === 'chart') fetchChartAisLive(); }), 3000);
 // Current direction physically reverses on the scale of hours, not seconds --
 // no need to poll anywhere near as often as AIS/live position above.
-setInterval(() => { if (currentPage === 'chart' && chartTidesLoaded) updateCurrentDirections(); }, 10 * 60 * 1000);
-setInterval(() => { if (currentPage === 'chart' && chartActiveTripId) fetchActiveTripPoints(); }, 5000);
-setInterval(() => { if (currentPage === 'overview') fetchRelay1State(); }, 5000);
-setInterval(() => { if (currentPage === 'engine') fetchEngineLive(); }, 4000);
-setInterval(() => { if (currentPage === 'weather') fetchWeatherConditions(); }, 15000);
-setInterval(() => { if (currentPage === 'weather') fetchWindLive(); }, 2000);
-setInterval(() => { if (currentPage === 'weather') fetchWeatherForecast(); }, 15 * 60 * 1000);
-setInterval(() => { if (currentPage === 'weather') fetchWxSparklines(); }, 60000);
-setInterval(() => { if (currentPage === 'reference') starchartAutoRefresh(); }, 60000);
+setInterval(ifVisible(() => { if (currentPage === 'chart' && chartTidesLoaded) updateCurrentDirections(); }), 10 * 60 * 1000);
+setInterval(ifVisible(() => { if (currentPage === 'chart' && chartActiveTripId) fetchActiveTripPoints(); }), 5000);
+setInterval(ifVisible(() => { if (currentPage === 'overview') fetchRelay1State(); }), 5000);
+setInterval(ifVisible(() => { if (currentPage === 'engine') fetchEngineLive(); }), 4000);
+setInterval(ifVisible(() => { if (currentPage === 'weather') fetchWeatherConditions(); }), 15000);
+setInterval(ifVisible(() => { if (currentPage === 'weather') fetchWindLive(); }), 2000);
+setInterval(ifVisible(() => { if (currentPage === 'weather') fetchWeatherForecast(); }), 15 * 60 * 1000);
+setInterval(ifVisible(() => { if (currentPage === 'weather') fetchWxSparklines(); }), 60000);
+setInterval(ifVisible(() => { if (currentPage === 'reference') starchartAutoRefresh(); }), 60000);
+// A hidden tab skips its polls (ifVisible); catch the slow ones up on return.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { fetchData(); fetchVictron(); fetchTanksAndBilge(); }
+});
 fetchMarineAlerts(); // global banner — runs on every tab, not gated to currentPage === 'weather'
-setInterval(fetchMarineAlerts, 5 * 60 * 1000);
+setInterval(ifVisible(fetchMarineAlerts), 5 * 60 * 1000);
 setTimeout(() => { if (currentPage === 'electrical') buildFlow(true, false, false); }, 300);
 window.addEventListener('resize', () => {
   if (currentPage === 'electrical') {
@@ -8722,6 +8758,52 @@ window.addEventListener('resize', () => {
     chartMap.invalidateSize();
   }
 });
+
+// ─── Media (Boat Radio) tab — siloed addition ────────────────────────────────
+// Embeds the Boat Radio service (~/pianobar-web, port 5010) straight from this host, so it
+// works from whatever LAN address the dashboard was opened on. On-boat only: an http://
+// iframe inside an https:// page (the Cloudflare tunnel) is blocked as mixed content, so
+// that case shows a note instead. showPage() is wrapped, not edited; delete this block,
+// the CSS block, the nav button and the #page-media div to remove the feature.
+const RADIO_PORT = 5010;
+const radioBase = 'http://' + location.hostname + ':' + RADIO_PORT;
+let mediaLoaded = false;
+
+async function mediaLoad() {
+  const wrap = document.getElementById('media-embed-wrap');
+  document.getElementById('media-open-link').href = radioBase + '/';
+  if (location.protocol === 'https:') {
+    wrap.innerHTML = '<div class="media-msg">Boat Radio is only available on the boat network.<br>' +
+      'Open the dashboard at its local address (e.g. <b>http://192.168.200.20:8080</b>) to use it.</div>';
+    return;
+  }
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 4000);
+    await fetch(radioBase + '/api/state', { mode: 'no-cors', cache: 'no-store', signal: ctl.signal });
+    clearTimeout(t);
+  } catch (e) {
+    wrap.innerHTML = '<div class="media-msg">Can\'t reach Boat Radio at <b>' + radioBase + '</b>.<br>' +
+      'Check that the <code>pianobar-web</code> service is running, then press Reload.<br>' +
+      '<small>(If it is, the Pi\'s firewall may be blocking port ' + RADIO_PORT + '.)</small></div>';
+    return;
+  }
+  wrap.innerHTML = '<iframe id="media-embed" allow="autoplay; fullscreen" title="Boat Radio"></iframe>';
+  document.getElementById('media-embed').src = radioBase + '/?embed=1';
+  mediaLoaded = true;
+}
+
+function mediaReload() { mediaLoaded = false; mediaLoad(); }
+
+// Loaded lazily on first open. Leaving the tab keeps the iframe alive, so a "listen on
+// this device" stream carries on playing while you look at the chart or weather.
+const _showPageBeforeMedia = showPage;
+showPage = function(page) {
+  _showPageBeforeMedia(page);
+  if (page === 'media' && !mediaLoaded) mediaLoad();
+};
+if (_mediaBootHash === '#media') showPage('media');
+// ─── end Media (Boat Radio) siloed addition ──────────────────────────────────
 </script>
 </body>
 </html>
