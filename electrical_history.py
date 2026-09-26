@@ -91,7 +91,28 @@ def _rollup_and_prune(conn, now):
     conn.execute('DELETE FROM rollup WHERE ts < ?', (now - ROLLUP_KEEP_S,))
 
 
-def _loop(mqtt_state, mqtt_lock):
+def _energy_balance(snap, vrm):
+    """Same formulas as the Electrical tab's Energy balance card (watts)."""
+    num = lambda v: isinstance(v, (int, float))
+    vi = lambda v, i: v * i if num(v) and num(i) else None
+    def total(vals):
+        vals = [v for v in vals if num(v)]
+        return sum(vals) if vals else None
+    alt = vi(snap.get('shunt_diesel_voltage'), snap.get('engine_alternator_current')) if snap.get('engine_running') else None
+    in_w = total([snap.get('mppt_pv_power'), snap.get('mppt_bimini_pv_power'), vrm.get('grid'), alt])
+    out_w = total([vrm.get('ac_load'), snap.get('load_48_w'), snap.get('load_12h_w'), snap.get('load_12s_w'), snap.get('load_bt_w')])
+    net_w = total([vi(vrm.get('voltage'), vrm.get('current')), vi(vrm.get('v_12v'), vrm.get('i_12v')),
+                   vi(snap.get('shunt_diesel_voltage'), snap.get('shunt_diesel_current')),
+                   vi(snap.get('shunt_thruster_voltage'), snap.get('shunt_thruster_current'))])
+    out = {}
+    if in_w is not None: out['energy_in_w'] = in_w
+    if out_w is not None: out['energy_out_w'] = out_w
+    if net_w is not None: out['energy_net_w'] = net_w
+    if None not in (in_w, out_w, net_w): out['energy_losses_w'] = in_w - out_w - net_w
+    return out
+
+
+def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
     _init()
     last_rollup = 0
     while True:
@@ -99,6 +120,11 @@ def _loop(mqtt_state, mqtt_lock):
         try:
             now = int(time.time())
             snap = _snapshot(mqtt_state, mqtt_lock)
+            if vrm_fn:  # Energy balance needs the real VRM side (48V bank, shore, AC loads, 12V house)
+                try:
+                    snap.update(_energy_balance(snap, vrm_fn() or {}))
+                except Exception as e:
+                    print(f'electrical_history: energy balance skipped ({e})')
             with _connect() as conn:
                 if snap:
                     conn.executemany('INSERT INTO raw (k, ts, v) VALUES (?, ?, ?)',
@@ -110,8 +136,9 @@ def _loop(mqtt_state, mqtt_lock):
             print(f'electrical_history: {e}')
 
 
-def start(mqtt_state, mqtt_lock):
-    threading.Thread(target=_loop, args=(mqtt_state, mqtt_lock), daemon=True).start()
+def start(mqtt_state, mqtt_lock, vrm_fn=None):
+    """vrm_fn: optional callable returning a (cached) get_vrm_data() dict."""
+    threading.Thread(target=_loop, args=(mqtt_state, mqtt_lock, vrm_fn), daemon=True).start()
 
 
 def series(keys, range_val):

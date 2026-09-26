@@ -2869,6 +2869,19 @@ def victron_ble():
 # other pen-chart endpoints: {series: {key: {times, values}}}.
 import electrical_history
 
+# VRM snapshot for the recorder's Energy balance, fetched at most once a minute
+# (the diagnostics call is shared VRM API quota with /api/victron and the
+# tank/battery monitor).
+_vrm_cache = {'t': 0.0, 'd': {}}
+def vrm_cached(max_age_s=60):
+    if time.time() - _vrm_cache['t'] > max_age_s:
+        try:
+            _vrm_cache['d'] = get_vrm_data() or {}
+        except Exception as e:
+            print(f'vrm_cached: {e}')
+        _vrm_cache['t'] = time.time()
+    return _vrm_cache['d']
+
 @app.route('/api/electrical/history')
 def electrical_history_route():
     keys = [k.strip() for k in (request.args.get('metrics') or '').split(',') if k.strip()]
@@ -2895,7 +2908,7 @@ if __name__ == '__main__':
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
-        electrical_history.start(mqtt_state, mqtt_lock)  # Electrical history (siloed)
+        electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a

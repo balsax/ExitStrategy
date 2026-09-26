@@ -620,6 +620,15 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #page-electrical #sys-state{display:none} /* Idle/Charging badge (still updated by fetchVictron) */
 #page-electrical .leg{display:none} /* color legend + "Tap any node" hint */
 #page-electrical .wm-info-box{display:none} /* State / DC charging / Alarm panel (still updated in JS) */
+.nb.ebal{width:176px;padding:8px 10px;gap:4px;background:#0c1426;border-color:#2c3e5c;align-items:stretch}
+.ebal .eb-title{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b82a0;text-align:center}
+.ebal .eb-net{font-size:18px;font-weight:600;text-align:center;color:#8fa3bd}
+.ebal .eb-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#1a2438}
+.ebal .eb-in{background:#3db87a;opacity:.85;width:50%;transition:width .8s}
+.ebal .eb-out{background:#d9534f;opacity:.85;width:50%;transition:width .8s}
+.ebal .eb-rows{display:flex;justify-content:space-between;font-size:11px;color:#6b82a0}
+.ebal .eb-lin b{color:#3db87a;font-weight:600}
+.ebal .eb-lout b{color:#e06a66;font-weight:600}
 .nb.ldc{width:92px;height:72px}.nb.ldc .ni{font-size:22px}.nb.ldc .nl{font-size:13px}.nb.ldc .nv{font-size:15px}
 svg.fsvg .flow-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:help}
 svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
@@ -629,7 +638,7 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 .flow-tip .ft-row span:last-child{color:#e0e6f0;text-align:right}
 .flow-tip .ft-hint{color:#4a9fd4;font-size:11px;margin-top:5px;border-top:.5px solid #1e2d4a;padding-top:4px}
 .dimg.vsim-surge{filter:drop-shadow(0 0 8px rgba(224,80,80,.9))}
-@media (max-width:600px){#fcanvas{min-height:780px}#nd-sol .nb,#nd-sol2 .nb,#nd-shore .nb,#nd-alt .nb{width:62px!important;height:58px!important}#nd-sol .nl,#nd-sol2 .nl,#nd-shore .nl,#nd-alt .nl{font-size:10px}#nd-sol .nv,#nd-sol2 .nv,#nd-shore .nv,#nd-alt .nv{font-size:12px}#nd-mp{left:21%!important;top:58%!important}#nd-mppt{top:13%!important}#nd-mppt2{top:30%!important}#nd-48v{top:45%!important}#nd-or3{left:47%!important;top:2%!important}#nd-or2{left:61%!important;top:31%!important}#nd-or1{left:57%!important;top:72%!important}#nd-alt{left:73%!important;top:2%!important}#nd-12s{left:73%!important;top:14%!important}#nd-bt{left:77%!important;top:45%!important}#nd-12h{left:73%!important}#nd-ld12s,#nd-ldbt,#nd-ld12h{left:92%!important}#nd-ld48{top:61%!important}.nb.ldc{width:58px;height:62px}.nb.ldc .nl{font-size:10px}.nb.ldc .nv{font-size:12px}.nb.ldc .ni{font-size:17px}.bsym{width:42px;height:66px}.bsym-lg{width:60px;height:94px}#nd-mp .dimg{width:56px!important;height:74px!important}#nd-mppt .dimg,#nd-mppt2 .dimg{width:50px!important;height:62px!important}#nd-or1 .dimg,#nd-or2 .dimg,#nd-or3 .dimg{width:64px!important;height:46px!important}#nd-48v .nl-top,#nd-12s .nl-top,#nd-bt .nl-top,#nd-12h .nl-top{font-size:10px}#nd-alt .nv{font-size:10px!important}.dimg svg{max-width:100%}}
+@media (max-width:600px){#fcanvas{min-height:860px}#nd-energy{left:70%!important;top:88%!important}#nd-energy .nb.ebal{width:150px}#nd-sol .nb,#nd-sol2 .nb,#nd-shore .nb,#nd-alt .nb{width:62px!important;height:58px!important}#nd-sol .nl,#nd-sol2 .nl,#nd-shore .nl,#nd-alt .nl{font-size:10px}#nd-sol .nv,#nd-sol2 .nv,#nd-shore .nv,#nd-alt .nv{font-size:12px}#nd-mp{left:21%!important;top:58%!important}#nd-mppt{top:13%!important}#nd-mppt2{top:30%!important}#nd-48v{top:45%!important}#nd-or3{left:47%!important;top:2%!important}#nd-or2{left:61%!important;top:31%!important}#nd-or1{left:57%!important;top:72%!important}#nd-alt{left:73%!important;top:2%!important}#nd-12s{left:73%!important;top:14%!important}#nd-bt{left:77%!important;top:45%!important}#nd-12h{left:73%!important}#nd-ld12s,#nd-ldbt,#nd-ld12h{left:92%!important}#nd-ld48{top:61%!important}.nb.ldc{width:58px;height:62px}.nb.ldc .nl{font-size:10px}.nb.ldc .nv{font-size:12px}.nb.ldc .ni{font-size:17px}.bsym{width:42px;height:66px}.bsym-lg{width:60px;height:94px}#nd-mp .dimg{width:56px!important;height:74px!important}#nd-mppt .dimg,#nd-mppt2 .dimg{width:50px!important;height:62px!important}#nd-or1 .dimg,#nd-or2 .dimg,#nd-or3 .dimg{width:64px!important;height:46px!important}#nd-48v .nl-top,#nd-12s .nl-top,#nd-bt .nl-top,#nd-12h .nl-top{font-size:10px}#nd-alt .nv{font-size:10px!important}.dimg svg{max-width:100%}}
 /* ─── end Victron sim extras CSS ─── */
 
 /* Battery SOC tank fill inside node */
@@ -1031,6 +1040,15 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
         <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 21h-1l1-7H7.5c-.88 0 -.33-.75-.31-.78C8.48 10.94 10.42 7.54 13.01 3h1l-1 7h3.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z"/></svg></span>
         <span class="nl" style="color:#c084fc">48V Loads</span>
         <span class="nv" style="color:#6b82a0" id="v-ld48">--W</span>
+      </div>
+    </div>
+    <!-- Energy balance: whole-system net (all batteries) + sources in vs loads out -->
+    <div class="nd ndc" id="nd-energy" style="left:43%;top:3%" onclick="openNodeModal('energy')">
+      <div class="nb ebal">
+        <div class="eb-title">Energy balance</div>
+        <div class="eb-net" id="eb-net">--</div>
+        <div class="eb-bar"><div class="eb-in" id="eb-in-bar"></div><div class="eb-out" id="eb-out-bar"></div></div>
+        <div class="eb-rows"><span class="eb-lin">In <b id="eb-in">--</b></span><span class="eb-lout">Out <b id="eb-out">--</b></span></div>
       </div>
     </div>
     <!-- ─── end Victron sim extras nodes ─── -->
@@ -2780,7 +2798,7 @@ function renderVictronSim() {
 const FLOW_COLUMNS = [
   ['nd-sol', 'nd-sol2', 'nd-shore'],
   ['nd-mppt', 'nd-mppt2', 'nd-mp', 'nd-load'],
-  ['nd-48v', 'nd-ld48'],
+  ['nd-energy', 'nd-48v', 'nd-ld48'],
   ['nd-or3', 'nd-or2', 'nd-or1'],
   ['nd-alt', 'nd-12s', 'nd-bt', 'nd-12h'],
   ['nd-ld12s', 'nd-ldbt', 'nd-ld12h'],
@@ -3262,6 +3280,12 @@ const DC_LOAD_FIELDS = k => [
 Object.assign(NODE_DEFS, {
   load12s: { icon: '⚙️', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M7,4V6H10V8H7L5,10V13H3V10H1V18H3V15H5V18H8L10,20H18V16H20V19H23V9H20V12H18V8H12V6H15V4H7Z"/></svg>`, title: 'Diesel Battery Load (starter / engine)', liveFields: DC_LOAD_FIELDS('12s'), chartSeries: [] },
   loadbt:  { icon: '⚓', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z"/></svg>`, title: 'Bow Thruster Load',                       liveFields: DC_LOAD_FIELDS('bt'),  chartSeries: [] },
+  energy:  { icon: '⚖️', title: 'Energy balance (whole system)', chartSeries: [], liveFields: [
+    { key: 'energy_state',    label: 'State',                   unit: '',  color: '#e0e6f0', isText: true },
+    { key: 'energy_net_w',    label: 'Net into batteries',      unit: 'W', color: '#3db87a' },
+    { key: 'energy_in_w',     label: 'In (solar, shore, alt.)', unit: 'W', color: '#3db87a' },
+    { key: 'energy_out_w',    label: 'Out (all loads)',         unit: 'W', color: '#e06a66' },
+    { key: 'energy_losses_w', label: 'Losses / unmetered',      unit: 'W', color: '#6b82a0' } ] },
   load48:  { icon: '⚡', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M11 21h-1l1-7H7.5c-.88 0 -.33-.75-.31-.78C8.48 10.94 10.42 7.54 13.01 3h1l-1 7h3.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z"/></svg>`, title: '48V DC Loads (watermaker + A/C)', liveFields: DC_LOAD_FIELDS('48'), chartSeries: [] },
   load12h: { icon: '💡', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg>`, title: '12V House Loads',                         liveFields: DC_LOAD_FIELDS('12h'), chartSeries: [] },
 });
@@ -3283,14 +3307,50 @@ const ELEC_HISTORY = {
   loadbt:     [['load_bt_w', 'Load Power', 'W', '#c084fc']],
   load12h:    [['load_12h_w', 'Load Power', 'W', '#c084fc']],
   load48:     [['load_48_w', 'Load Power', 'W', '#c084fc']],
+  energy:     [['energy_net_w', 'Net', 'W', '#3db87a'], ['energy_in_w', 'In', 'W', '#facc15'],
+               ['energy_out_w', 'Out', 'W', '#e06a66'], ['energy_losses_w', 'Losses', 'W', '#6b82a0']],
 };
 Object.entries(ELEC_HISTORY).forEach(([node, list]) => {
   NODE_DEFS[node].history = 'elec';
   NODE_DEFS[node].chartSeries = list.map(([code, label, unit, color]) => ({ code, label, unit, color }));
 });
 
+// Energy balance. Net = what every battery is actually gaining (+) or losing (-),
+// straight from the battery monitors. In/Out = sources vs loads; the gap between
+// In - Out and Net is conversion losses (chargers, inverter, DC-DC) plus any
+// unmetered loads.
+function computeEnergyBalance() {
+  const d = victronData, num = v => typeof v === 'number' && !isNaN(v);
+  const vi = (v, i) => (num(v) && num(i)) ? v * i : null;
+  const sum = arr => { const k = arr.filter(num); return k.length ? k.reduce((a, b) => a + b, 0) : null; };
+  const inW = sum([d.mppt_pv_power, d.mppt_bimini_pv_power, d.grid,
+                   d.engine_running ? vi(d.shunt_diesel_voltage, d.engine_alternator_current) : null]);
+  const outW = sum([d.ac_load, d.load_48_w, d.load_12h_w, d.load_12s_w, d.load_bt_w]);
+  const netW = sum([vi(d.voltage, d.current), vi(d.v_12v, d.i_12v),
+                    vi(d.shunt_diesel_voltage, d.shunt_diesel_current), vi(d.shunt_thruster_voltage, d.shunt_thruster_current)]);
+  const fmtW = w => Math.abs(w) >= 1000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`;
+  d.energy_in_w = inW === null ? undefined : Math.round(inW);
+  d.energy_out_w = outW === null ? undefined : Math.round(outW);
+  d.energy_net_w = netW === null ? undefined : Math.round(netW);
+  d.energy_losses_w = (inW !== null && outW !== null && netW !== null) ? Math.round(inW - outW - netW) : undefined;
+  d.energy_state = netW === null ? undefined : netW > 20 ? 'Gaining' : netW < -20 ? 'Using' : 'Balanced';
+  const net = document.getElementById('eb-net');
+  if (!net) return;
+  if (netW === null) { net.textContent = '--'; net.style.color = '#8fa3bd'; }
+  else {
+    net.textContent = `${netW > 0 ? '+' : netW < 0 ? '−' : ''}${fmtW(Math.abs(netW))} · ${d.energy_state}`;
+    net.style.color = netW > 20 ? '#3db87a' : netW < -20 ? '#e8a030' : '#8fa3bd';
+  }
+  setText('eb-in', inW === null ? '--' : fmtW(inW));
+  setText('eb-out', outW === null ? '--' : fmtW(outW));
+  const tot = (inW || 0) + (outW || 0), share = tot > 0 ? (inW || 0) / tot * 100 : 50;
+  document.getElementById('eb-in-bar').style.width = share + '%';
+  document.getElementById('eb-out-bar').style.width = (100 - share) + '%';
+}
+
 function renderBatterySymbols() {
   computeDcLoads();
+  computeEnergyBalance();
   const d = victronData;
   const set = (id, soc, cur) => {
     const el = document.getElementById(id);
