@@ -65,6 +65,7 @@ EXCLUDE_FROM_LOG = {
 # register as a brand-new permanent "device" that never gets reused.
 IGNORE_PREFIXES = (
     "boat/ais/",
+    "boat/sim/",   # dev simulators with no real-hardware topic yet (victron_simulator.py)
 )
 
 # Topics that are still registered and still get last_value/last_seen updates,

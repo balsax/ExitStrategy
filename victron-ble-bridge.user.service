@@ -1,0 +1,15 @@
+[Unit]
+Description=Victron Bluetooth Instant Readout -> MQTT (Orion-Tr Smart)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mikemc/dashboard-dev
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/mikemc/dashboard-dev/.venv-ble/bin/python /home/mikemc/dashboard-dev/victron_ble_bridge.py
+Restart=on-failure
+RestartSec=15
+Nice=5
+
+[Install]
+WantedBy=default.target

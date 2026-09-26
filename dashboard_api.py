@@ -326,6 +326,37 @@ def get_vrm_data():
             except:
                 result[key] = fmt
 
+    # ─── VRM battery monitors by instance (siloed addition) ──────────────────
+    # Every battery monitor (the 48V BMS and each SmartShunt) reports under
+    # the same generic codes (V, I, SOC, ...), told apart only by VRM device
+    # instance. The 'Bv'/'Bs'/... codes mapped above never appear, and 'Bc'
+    # (Battery to consumers, kWh) / 'BT' (the 48V battery's temperature) were
+    # being read as the 12V house current/temperature. Add the new diesel and
+    # thruster SmartShunts here by instance once they're on the Cerbo.
+    VRM_BATTERY_INSTANCES = {
+        279: '12v',   # 12V house SmartShunt (150Ah)
+    }
+    per_instance = {'V': 'v', 'I': 'i', 'SOC': 'soc', 'CE': 'cah', 'TTG': 'ttg'}
+    for suffix in VRM_BATTERY_INSTANCES.values():
+        for k in ('v', 'i', 'soc', 'cah', 'ttg', 'temp'):
+            result.pop(f'{k}_{suffix}', None)
+    for r in data.get('records', []):
+        suffix = VRM_BATTERY_INSTANCES.get(r.get('instance'))
+        if suffix and r.get('Device') == 'Battery Monitor' and r.get('code') in per_instance:
+            try:
+                val = float(r.get('rawValue'))
+            except (TypeError, ValueError):
+                continue
+            if r['code'] == 'TTG':
+                val = round(val * 60)  # hours -> minutes, the unit the Electrical tab shows
+            result[f"{per_instance[r['code']]}_{suffix}"] = val
+    # 'ms' (mapped to mp_state above) is the Cerbo GX's serial number, not the
+    # MultiPlus -- the VE.Bus state (Bulk / Absorption / Float / Inverting ...) is 'S'.
+    for r in data.get('records', []):
+        if r.get('code') == 'S' and r.get('Device') == 'VE.Bus System':
+            result['mp_state'] = r.get('formattedValue', '')
+    # ─── end VRM battery monitors by instance ───────────────────────────────
+
     # Stash raw records for diagnostics endpoint
     result['_raw_codes'] = [
         {'code': r.get('code'), 'desc': r.get('description', ''), 'val': r.get('formattedValue', '')}
@@ -393,6 +424,8 @@ def victron_history():
     s = get_secrets()
     code = request.args.get('code', 'bs')
     range_val = request.args.get('range', '1h')
+    # 'CODE@INSTANCE' picks one battery monitor (they all share codes like SOC/V/I)
+    code, _, vrm_instance = code.partition('@')
 
     range_seconds = {
         '10m': 600,
@@ -416,6 +449,7 @@ def victron_history():
                 'start': start,
                 'end': now,
                 'type': 'custom',
+                **({'instance': int(vrm_instance)} if vrm_instance.isdigit() else {}),
             },
             timeout=15
         )
@@ -2760,6 +2794,79 @@ def tides_current_directions():
     return jsonify(directions)
 # ─── end tides & currents siloed addition ───────────────────────────────────
 
+# ─── Victron simulator siloed addition ──────────────────────────────────────
+# Serves victron_simulator.py's boat/sim/victron/<device>/<field> topics
+# (diesel + thruster SmartShunts, MPPT 150/35, Orion 12|48, engine/alternator)
+# to the Electrical tab as flat <device>_<field> keys, e.g. mppt_pv_power.
+# Stale topics (simulator stopped) are dropped so the nodes fall back to "--".
+VICTRON_SIM_PREFIX = 'boat/sim/victron/'
+VICTRON_SIM_STALE_S = 30
+
+@app.route('/api/victron/sim')
+def victron_sim():
+    cutoff = datetime.now(timezone.utc).timestamp() - VICTRON_SIM_STALE_S
+    out = {}
+    with mqtt_lock:
+        items = [(t, v) for t, v in mqtt_state['topics'].items() if t.startswith(VICTRON_SIM_PREFIX)]
+    for topic, entry in items:
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
+                continue
+        except (KeyError, ValueError):
+            continue
+        key = topic[len(VICTRON_SIM_PREFIX):].replace('/', '_')
+        try:
+            out[key] = float(entry['value'])
+        except ValueError:
+            out[key] = entry['value']
+    return jsonify(out)
+# ─── end Victron simulator siloed addition ──────────────────────────────────
+
+# ─── Victron Bluetooth (Orion-Tr Smart) siloed addition ─────────────────────
+# victron_ble_bridge.py reads the Orions' Bluetooth "Instant Readout"
+# broadcasts (they have no VE.Direct port, so VRM never sees them) and
+# publishes boat/victron/<name>/<field>. Served flat as <name>_<field>, e.g.
+# orion_house_state. Broadcasts are irregular (the bridge heartbeats every
+# 30s), hence the longer staleness window than the simulator route above.
+VICTRON_BLE_PREFIX = 'boat/victron/'
+VICTRON_BLE_STALE_S = 120
+
+@app.route('/api/victron/ble')
+def victron_ble():
+    cutoff = datetime.now(timezone.utc).timestamp() - VICTRON_BLE_STALE_S
+    out = {}
+    with mqtt_lock:
+        items = [(t, v) for t, v in mqtt_state['topics'].items() if t.startswith(VICTRON_BLE_PREFIX)]
+    for topic, entry in items:
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
+                continue
+        except (KeyError, ValueError):
+            continue
+        key = topic[len(VICTRON_BLE_PREFIX):].replace('/', '_')
+        try:
+            out[key] = float(entry['value'])
+        except ValueError:
+            out[key] = entry['value']
+    return jsonify(out)
+# ─── end Victron Bluetooth siloed addition ──────────────────────────────────
+
+# ─── Electrical history siloed addition ─────────────────────────────────────
+# History for the Electrical tab devices VRM doesn't have (simulated shunts /
+# MPPTs / alternator, Bluetooth Orions, derived DC loads), recorded by
+# electrical_history.py into its own SQLite file. Same response shape as the
+# other pen-chart endpoints: {series: {key: {times, values}}}.
+import electrical_history
+
+@app.route('/api/electrical/history')
+def electrical_history_route():
+    keys = [k.strip() for k in (request.args.get('metrics') or '').split(',') if k.strip()]
+    try:
+        return jsonify({'series': electrical_history.series(keys, request.args.get('range', '1h'))})
+    except Exception as e:
+        return jsonify({'series': {k: {'times': [], 'values': [], 'error': str(e)} for k in keys}})
+# ─── end Electrical history siloed addition ─────────────────────────────────
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})
@@ -2777,6 +2884,7 @@ if __name__ == '__main__':
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
+        electrical_history.start(mqtt_state, mqtt_lock)  # Electrical history (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a

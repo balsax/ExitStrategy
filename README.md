@@ -25,7 +25,7 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 | Tab | What it does | Data source |
 |---|---|---|
 | Overview | Cabin temp/humidity/pressure/air quality, system status, smart relay control | BME680 sensor, InfluxDB, `boat/power/relay1/*` |
-| Electrical | Live power flow diagram (shore/solar/battery/loads) | Victron VRM |
+| Electrical | Live power flow diagram (shore/solar/battery/loads, diesel + thruster shunts, Orion 12\|48, alternator) | Victron VRM; `victron_simulator.py` for not-yet-installed DC devices |
 | Watermaker | RO system gauges, start/stop/flush, manual device control, trend history | `boat/watermaker/*`, MariaDB |
 | Engine | Compartment temp/humidity, cooling fan control (mode/setpoints/timeout) in a modal, engine telemetry placeholders | `boat/engine/fan/*` (real), `boat/nav/engine/*` (not yet wired) |
 | Anchor Watch | Click-to-place drop point, live distance/bearing, drag/depth/GPS-staleness alarms (ntfy push + GPIO buzzer, works with no tab open), 15-min server-recorded trail | `boat/nav/gps/*`, `boat/nav/depth` |
@@ -53,6 +53,20 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
   python3 garmin_1243_simulator.py | python3 n2k_mqtt_bridge.py
   python3 garmin_1243_simulator.py --swing-radius 25 | python3 n2k_mqtt_bridge.py
   ```
+
+- **`victron_simulator.py`** — stands in for DC-side Victron gear that isn't installed yet: SmartShunt 500A (diesel start battery), SmartShunt 1000A (bow thruster battery), SmartSolar MPPT 150/35 (48V bank), an Orion 12|48 charging the 48V bank off the diesel alternator, and the two existing Orion-Tr Smart 48/12 chargers (same fields `victron_ble_bridge.py` will publish, until the Pi is aboard to pair with them). Models engine starts, alternator charging, thruster bursts and time-of-day solar. Publishes to `boat/sim/victron/<device>/<field>` (ignored by `mqtt_logger.py`); `/api/victron/sim` feeds it to the Electrical tab, and it drops out on its own ~30s after the script stops. Real units will report through VRM instead.
+  ```
+  python3 victron_simulator.py                       # engine runs every so often, solar follows the clock
+  python3 victron_simulator.py --engine on --daylight
+  ```
+
+- **`victron_ble_bridge.py`** (real hardware, not a simulator) — reads the Orion-Tr Smart 48/12 chargers' Bluetooth "Instant Readout" broadcasts (state, input/output voltage, off reason, error — no current) and publishes `boat/victron/<name>/<field>`; `/api/victron/ble` feeds the Electrical tab's Orion nodes. Needs BlueZ (`sudo apt install bluez`), the `.venv-ble` venv (`victron-ble`), and each Orion's MAC + Instant Readout key in `~/.config/victron-ble/devices.json` (names `orion_house`, `orion_thruster`). Runs as the systemd user service `victron-ble-bridge.user.service`.
+  ```
+  .venv-ble/bin/python victron_ble_bridge.py --discover   # list Victron devices in range
+  .venv-ble/bin/python victron_ble_bridge.py --print      # decode without publishing
+  ```
+
+- **`electrical_history.py`** — started by `dashboard_api.py`; every 20s records the Electrical-tab values VRM doesn't keep (simulated shunts/MPPTs/alternator, Bluetooth Orions, derived DC loads) into `electrical_history.db` (SQLite, gitignored): 20s detail for 2 days, 5-minute averages for 30 days. Served to the node pop-up charts by `/api/electrical/history`. Delete the .db file to reset it.
 
 - **`chart_tools.py`** — downloads chart data for the Chart tab. The base layer is NOAA's own pre-rendered Chart Display Service (NCDS) tiles, one MBTiles file per coastal region — no local rendering needed, dashboard_api.py scans every downloaded region and queries the SQLite file that actually has the requested tile. The clickable overlay (soundings, aids to navigation, bridges, hazards) is ENC vector data converted to GeoJSON via `ogr2ogr`, same as any ENC pipeline requires. Requires `gdal-bin` (`ogr2ogr`).
   ```

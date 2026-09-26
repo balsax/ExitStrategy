@@ -596,6 +596,35 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .nl{font-size:12px;font-weight:600;text-align:center;margin-top:2px}
 .nv{font-size:13px;font-weight:500;text-align:center}
 .nbadge{font-size:11px;padding:2px 6px;border-radius:3px;margin-top:3px}
+/* ─── Victron sim extras (solar/shunts/Orion 12|48/alternator) — siloed addition ─── */
+.nv2{font-size:10px;font-weight:500;text-align:center;color:#6b82a0}
+.nb.vsim-surge{box-shadow:0 0 14px rgba(224,80,80,.75)!important;border-color:#e05050!important}
+.nd.vsim-idle .nb,.nd.vsim-idle .dimg{opacity:.5}
+/* Device graphics + battery symbols (replace card chrome for Multiplus/Orions/batteries) */
+.dimg{position:relative;display:flex;align-items:center;justify-content:center;transition:filter .2s}
+.dimg svg{display:block;width:100%;height:100%;overflow:visible}
+.nd:hover .dimg{filter:brightness(1.25) drop-shadow(0 0 6px rgba(74,159,212,.35))}
+.bsym{width:46px;height:72px}
+.bsym-lg{width:62px;height:96px}
+.nd.ndc{transform:translateX(-50%)} /* left = column center, so columns line up regardless of label width */
+.ni-svg{width:1em;height:1em;display:block}
+#modal-icon .ni-svg{width:22px;height:22px;color:#c084fc}
+#modal-icon.src-icon .ni-svg{color:#facc15}
+.nl.nl-top{margin:0 0 3px}
+#page-electrical #sys-state{display:none} /* Idle/Charging badge (still updated by fetchVictron) */
+#page-electrical .leg .li:not(:last-child){display:none} /* color legend; keeps the "Tap any node" hint */
+#page-electrical .wm-info-box{display:none} /* State / DC charging / Alarm panel (still updated in JS) */
+.nb.ldc{width:92px;height:72px}.nb.ldc .ni{font-size:22px}.nb.ldc .nl{font-size:13px}.nb.ldc .nv{font-size:15px}
+svg.fsvg line.flow-hit{stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:help}
+svg.fsvg line.flow-hit:hover{stroke:rgba(255,255,255,.07)}
+.flow-tip{position:absolute;display:none;z-index:5;pointer-events:none;min-width:190px;max-width:260px;background:#0a0e1a;border:1px solid #2c3e5c;border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.flow-tip .ft-title{color:#e0e6f0;font-weight:600;margin-bottom:5px}
+.flow-tip .ft-row{display:flex;justify-content:space-between;gap:12px;color:#8fa3bd;line-height:1.55}
+.flow-tip .ft-row span:last-child{color:#e0e6f0;text-align:right}
+.flow-tip .ft-hint{color:#4a9fd4;font-size:11px;margin-top:5px;border-top:.5px solid #1e2d4a;padding-top:4px}
+.dimg.vsim-surge{filter:drop-shadow(0 0 8px rgba(224,80,80,.9))}
+@media (max-width:600px){#fcanvas{min-height:780px}#nd-sol .nb,#nd-sol2 .nb,#nd-shore .nb,#nd-alt .nb{width:62px!important;height:58px!important}#nd-sol .nl,#nd-sol2 .nl,#nd-shore .nl,#nd-alt .nl{font-size:10px}#nd-sol .nv,#nd-sol2 .nv,#nd-shore .nv,#nd-alt .nv{font-size:12px}#nd-mp{left:25%!important;top:58%!important}#nd-mppt{top:13%!important}#nd-mppt2{top:30%!important}#nd-48v{top:45%!important}#nd-or3{left:47%!important;top:2%!important}#nd-or2{left:61%!important;top:31%!important}#nd-or1{left:57%!important;top:72%!important}#nd-alt{left:73%!important;top:2%!important}#nd-12s{left:73%!important;top:14%!important}#nd-bt{left:75%!important;top:45%!important}#nd-12h{left:73%!important}#nd-ld12s,#nd-ldbt,#nd-ld12h{left:92%!important}.nb.ldc{width:58px;height:62px}.nb.ldc .nl{font-size:10px}.nb.ldc .nv{font-size:12px}.nb.ldc .ni{font-size:17px}.bsym{width:38px;height:60px}.bsym-lg{width:54px;height:84px}.dimg svg{max-width:100%}}
+/* ─── end Victron sim extras CSS ─── */
 
 /* Battery SOC tank fill inside node */
 .bat-tank{width:28px;height:32px;border-radius:3px;border:1.5px solid rgba(255,255,255,.25);overflow:hidden;position:relative;margin:2px auto 0;background:#0a0e1a}
@@ -820,98 +849,183 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
     <!-- Shore -->
     <div class="nd" id="nd-shore" style="left:1%;top:45%" onclick="openNodeModal('shore')">
-      <div class="nb" style="background:#0d1f38;border-color:#3a7bd5;width:76px;height:64px">
-        <span class="ni">⚡</span>
-        <span class="nl" style="color:#4a9fd4">Shore</span>
+      <div class="nb" style="background:#1c1705;border-color:#7a6212;width:80px;height:64px">
+        <span class="ni" style="color:#facc15"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16,7V3H14V7H10V3H8V7H8C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></svg></span>
+        <span class="nl" style="color:#facc15">Shore</span>
         <span class="nv" style="color:#6b82a0" id="v-grid">--W</span>
       </div>
     </div>
 
     <!-- Multiplus -->
-    <div class="nd" id="nd-mp" style="left:22%;top:45%" onclick="openNodeModal('multiplus')">
-      <div class="nb" style="background:#0d2010;border-color:#2a7a4a;width:82px;height:70px">
-        <span class="ni">🔌</span>
-        <span class="nl" style="color:#3db87a">Multiplus</span>
-        <span class="nv" style="color:#6b82a0" id="v-mp-state">48V</span>
-      </div>
+    <div class="nd" id="nd-mp" style="left:22%;top:57%" onclick="openNodeModal('multiplus')">
+      <span class="nl nl-top" style="color:#5a8ab0">MultiPlus-II</span>
+      <div class="dimg" style="width:56px;height:74px"><svg viewBox="0 0 56 74" width="56" height="74">
+          <rect x="1" y="1" width="54" height="72" rx="5" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="8" y="7" width="40" height="24" rx="2" fill="#0e2744" stroke="#2c5d94" stroke-width=".8"/>
+          <circle id="mp-led-mains" cx="16" cy="15" r="2.4" fill="#2a3444"/><circle id="mp-led-inv" cx="28" cy="15" r="2.4" fill="#2a3444"/><circle id="mp-led-chg" cx="40" cy="15" r="2.4" fill="#2a3444"/>
+          <rect x="12" y="22" width="32" height="3" rx="1" fill="#2c5d94"/>
+          <rect x="8" y="35" width="40" height="5" rx="1" fill="#e8eef6" opacity=".85"/>
+          <g stroke="#154b8a" stroke-width="2" stroke-linecap="round"><line x1="11" y1="47" x2="45" y2="47"/><line x1="11" y1="52" x2="45" y2="52"/><line x1="11" y1="57" x2="45" y2="57"/><line x1="11" y1="62" x2="45" y2="62"/><line x1="11" y1="67" x2="45" y2="67"/></g>
+        </svg></div>
+      <span class="nv2" id="v-mp-state">48V</span>
     </div>
 
     <!-- 48V Battery with SOC tank -->
     <div class="nd" id="nd-48v" style="left:44%;top:40%" onclick="openNodeModal('bat48')">
-      <div class="nb" style="background:#1a1500;border-color:#7a6020;width:86px;height:90px">
-        <span class="ni">🔋</span>
-        <span class="nl" style="color:#e8a030">48V Bank</span>
-        <div class="bat-cap"></div>
-        <div class="bat-tank">
-          <div class="bat-fill" id="bat-fill-48" style="height:0%;background:#3db87a"></div>
-          <div class="bat-soc-label" id="bat-soc-text" style="color:#fff">--%</div>
-        </div>
-      </div>
-      <span class="nbadge" style="background:#1a1500;color:#e8a030;border:.5px solid #7a6020">200Ah LiFePO4</span>
+      <div class="dimg bsym bsym-lg" id="bsym-48v"></div>
+      <span class="nl" style="color:#e8a030">48V Bank</span>
+      <span class="nv2" id="v-48v">200Ah LiFePO4</span>
     </div>
 
-    <!-- Solar (planned) -->
-    <div class="nd" id="nd-sol" style="left:44%;top:2%">
-      <div class="nb" style="background:#0d1f10;border-color:#2a5a2a;opacity:.5;width:76px;height:60px">
-        <span class="ni">☀️</span>
-        <span class="nl" style="color:#639922">Solar</span>
-        <span class="nv" style="color:#6b82a0">planned</span>
+    <!-- Arch solar panels (1200W) -->
+    <div class="nd ndc vsim-idle" id="nd-sol" style="left:6%;top:22%" onclick="openNodeModal('solar')">
+      <div class="nb" style="background:#1c1705;border-color:#7a6212;width:80px;height:64px">
+        <span class="ni" style="color:#facc15"><svg class="ni-svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/></g></svg></span>
+        <span class="nl" style="color:#facc15">Solar Arch</span>
+        <span class="nv" style="color:#6b82a0" id="v-solar">--W</span>
       </div>
+    </div>
+
+    <!-- SmartSolar MPPT 150/35 (left is set in JS to line up with the MultiPlus) -->
+    <div class="nd ndc vsim-idle" id="nd-mppt" style="left:25%;top:4%" onclick="openNodeModal('mppt')">
+      <span class="nl nl-top" style="color:#5a8ab0">MPPT 150/35</span>
+      <div class="dimg" style="width:50px;height:62px"><svg viewBox="0 0 50 62" width="50" height="62">
+          <rect x="1" y="1" width="48" height="60" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="7" y="6" width="36" height="5" rx="1" fill="#e8eef6" opacity=".85"/>
+          <circle id="led-mppt" cx="38" cy="18" r="2.6" fill="#2a3444"/>
+          <rect x="7" y="15" width="22" height="3" rx="1" fill="#2c5d94"/>
+          <rect x="4" y="27" width="42" height="31" rx="3" fill="#1a1f29"/>
+          <g stroke="#3a4252" stroke-width="1.4"><line x1="8" y1="33" x2="42" y2="33"/><line x1="8" y1="38" x2="42" y2="38"/></g>
+          <g fill="#c0c7d2"><circle cx="11" cy="49" r="2.3"/><circle cx="20" cy="49" r="2.3"/><circle cx="30" cy="49" r="2.3"/><circle cx="39" cy="49" r="2.3"/></g>
+        </svg></div>
+      <span class="nv2" id="v-mppt">--</span>
+    </div>
+
+    <!-- Bimini solar panels (400W) -->
+    <div class="nd ndc vsim-idle" id="nd-sol2" style="left:6%;top:30%" onclick="openNodeModal('solar2')">
+      <div class="nb" style="background:#1c1705;border-color:#7a6212;width:80px;height:64px">
+        <span class="ni" style="color:#facc15"><svg class="ni-svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/></g></svg></span>
+        <span class="nl" style="color:#facc15">Solar Bimini</span>
+        <span class="nv" style="color:#6b82a0" id="v-solar2">--W</span>
+      </div>
+    </div>
+
+    <!-- Bimini SmartSolar MPPT 100/20 (left set in JS like the main MPPT) -->
+    <div class="nd ndc vsim-idle" id="nd-mppt2" style="left:25%;top:32%" onclick="openNodeModal('mppt2')">
+      <span class="nl nl-top" style="color:#5a8ab0">MPPT 100/20</span>
+      <div class="dimg" style="width:50px;height:62px"><svg viewBox="0 0 50 62" width="50" height="62">
+          <rect x="1" y="1" width="48" height="60" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="7" y="6" width="36" height="5" rx="1" fill="#e8eef6" opacity=".85"/>
+          <circle id="led-mppt2" cx="38" cy="18" r="2.6" fill="#2a3444"/>
+          <rect x="7" y="15" width="22" height="3" rx="1" fill="#2c5d94"/>
+          <rect x="4" y="27" width="42" height="31" rx="3" fill="#1a1f29"/>
+          <g stroke="#3a4252" stroke-width="1.4"><line x1="8" y1="33" x2="42" y2="33"/><line x1="8" y1="38" x2="42" y2="38"/></g>
+          <g fill="#c0c7d2"><circle cx="11" cy="49" r="2.3"/><circle cx="20" cy="49" r="2.3"/><circle cx="30" cy="49" r="2.3"/><circle cx="39" cy="49" r="2.3"/></g>
+        </svg></div>
+      <span class="nv2" id="v-mppt2">--</span>
     </div>
 
     <!-- Orion 1 (48→12V house) -->
-    <div class="nd" id="nd-or1" style="left:66%;top:20%" onclick="openNodeModal('orion1')">
-      <div class="nb" style="background:#0d1a2a;border-color:#2a4a6a;width:68px;height:56px">
-        <span class="ni" style="font-size:14px">⇄</span>
-        <span class="nl" style="color:#5a8ab0">Orion</span>
-        <span class="nv" style="color:#6b82a0;font-size:9px">48→12V</span>
-      </div>
+    <div class="nd ndc" id="nd-or1" style="left:63%;top:76%" onclick="openNodeModal('orion1')">
+      <span class="nl nl-top" style="color:#5a8ab0">Orion 48|12</span>
+      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+          <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
+          <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
+          <rect x="8" y="27" width="30" height="4" rx="1" fill="#e8eef6" opacity=".8"/>
+          <circle id="led-or1" cx="50" cy="29" r="2.8" fill="#2a3444"/>
+          <g fill="#c0c7d2"><circle cx="11" cy="39" r="2.2"/><circle cx="19" cy="39" r="2.2"/><circle cx="45" cy="39" r="2.2"/><circle cx="53" cy="39" r="2.2"/></g>
+        </svg></div>
+      <span class="nv2" id="v-or1">48→12V</span>
     </div>
 
-    <!-- Orion 2 (48→12V diesel) -->
-    <div class="nd" id="nd-or2" style="left:66%;top:68%" onclick="openNodeModal('orion2')">
-      <div class="nb" style="background:#0d1a2a;border-color:#2a4a6a;width:68px;height:56px">
-        <span class="ni" style="font-size:14px">⇄</span>
-        <span class="nl" style="color:#5a8ab0">Orion</span>
-        <span class="nv" style="color:#6b82a0;font-size:9px">48→12V</span>
-      </div>
+    <!-- Orion 2 (48→12V thruster) -->
+    <div class="nd ndc" id="nd-or2" style="left:63%;top:44%" onclick="openNodeModal('orion2')">
+      <span class="nl nl-top" style="color:#5a8ab0">Orion 48|12</span>
+      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+          <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
+          <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
+          <rect x="8" y="27" width="30" height="4" rx="1" fill="#e8eef6" opacity=".8"/>
+          <circle id="led-or2" cx="50" cy="29" r="2.8" fill="#2a3444"/>
+          <g fill="#c0c7d2"><circle cx="11" cy="39" r="2.2"/><circle cx="19" cy="39" r="2.2"/><circle cx="45" cy="39" r="2.2"/><circle cx="53" cy="39" r="2.2"/></g>
+        </svg></div>
+      <span class="nv2" id="v-or2">48→12V</span>
     </div>
 
     <!-- 12V House -->
-    <div class="nd" id="nd-12h" style="left:85%;top:5%" onclick="openNodeModal('bat12h')">
-      <div class="nb" style="background:#0d1a1a;border-color:#2a6a6a;width:74px;height:64px">
-        <span class="ni">🔋</span>
-        <span class="nl" style="color:#2dd4bf">12V House</span>
-        <span class="nv" style="color:#6b82a0" id="v-12v">--V</span>
-      </div>
-      <span class="nbadge" style="background:#0d1a1a;color:#2dd4bf;border:.5px solid #2a6a6a">150Ah · SmartShunt</span>
+    <div class="nd ndc" id="nd-12h" style="left:79%;top:76%" onclick="openNodeModal('bat12h')">
+      <div class="dimg bsym" id="bsym-12h"></div>
+      <span class="nl" style="color:#e8a030">12V House</span>
+      <span class="nv2"><span id="v-12v">--V</span> · 150Ah</span>
     </div>
 
     <!-- 12V Diesel -->
-    <div class="nd" id="nd-12s" style="left:85%;top:57%" onclick="openNodeModal('bat12s')">
-      <div class="nb" style="background:#1a100d;border-color:#6a3a2a;width:74px;height:64px">
-        <span class="ni">🔋</span>
-        <span class="nl" style="color:#f97316">12V Diesel</span>
-        <span class="nv" style="color:#6b82a0" id="v-diesel">--V</span>
-      </div>
-      <span class="nbadge" style="background:#1a100d;color:#f97316;border:.5px solid #6a3a2a">Soon · SmartShunt</span>
+    <div class="nd ndc" id="nd-12s" style="left:79%;top:24%" onclick="openNodeModal('bat12s')">
+      <div class="dimg bsym" id="bsym-12s"></div>
+      <span class="nl" style="color:#e8a030">12V Diesel</span>
+      <span class="nv2"><span id="v-diesel">--V</span> <span id="v-diesel-i"></span></span>
     </div>
 
     <!-- Bow Thruster -->
-    <div class="nd" id="nd-bt" style="left:85%;top:83%" onclick="openNodeModal('bowthrust')">
-      <div class="nb" style="background:#1a0d1a;border-color:#6a2a6a;width:74px;height:58px">
-        <span class="ni" style="font-size:14px">⚓</span>
-        <span class="nl" style="color:#c084fc">Bow Thrust</span>
-        <span class="nv" style="color:#6b82a0" id="v-thruster">--V</span>
-      </div>
-      <span class="nbadge" style="background:#1a0d1a;color:#c084fc;border:.5px solid #6a2a6a">Soon · SmartShunt</span>
+    <div class="nd ndc" id="nd-bt" style="left:79%;top:50%" onclick="openNodeModal('bowthrust')">
+      <div class="dimg bsym" id="bsym-bt"></div>
+      <span class="nl" style="color:#e8a030">Bow Thruster</span>
+      <span class="nv2"><span id="v-thruster">--V</span> <span id="v-thruster-i"></span></span>
     </div>
 
+    <!-- ─── Victron sim extras: Orion 12|48 + alternator — siloed addition ─── -->
+    <!-- Orion 12|48 (diesel alternator → 48V house) -->
+    <div class="nd vsim-idle ndc" id="nd-or3" style="left:63%;top:12%" onclick="openNodeModal('orionAlt')">
+      <span class="nl nl-top" style="color:#5a8ab0">Orion 12|48</span>
+      <div class="dimg" style="width:64px;height:46px"><svg viewBox="0 0 64 46" width="64" height="46">
+          <rect x="1" y="1" width="62" height="44" rx="4" fill="#1b5fae" stroke="#4d8fdc"/>
+          <rect x="5" y="4" width="54" height="19" rx="2" fill="#1a1f29"/>
+          <g stroke="#3a4252" stroke-width="1.6"><line x1="10" y1="6" x2="10" y2="21"/><line x1="15" y1="6" x2="15" y2="21"/><line x1="20" y1="6" x2="20" y2="21"/><line x1="25" y1="6" x2="25" y2="21"/><line x1="30" y1="6" x2="30" y2="21"/><line x1="35" y1="6" x2="35" y2="21"/><line x1="40" y1="6" x2="40" y2="21"/><line x1="45" y1="6" x2="45" y2="21"/><line x1="50" y1="6" x2="50" y2="21"/><line x1="55" y1="6" x2="55" y2="21"/></g>
+          <rect x="8" y="27" width="30" height="4" rx="1" fill="#e8eef6" opacity=".8"/>
+          <circle id="led-or3" cx="50" cy="29" r="2.8" fill="#2a3444"/>
+          <g fill="#c0c7d2"><circle cx="11" cy="39" r="2.2"/><circle cx="19" cy="39" r="2.2"/><circle cx="45" cy="39" r="2.2"/><circle cx="53" cy="39" r="2.2"/></g>
+        </svg></div>
+      <span class="nv2" id="v-or3">12→48V</span>
+    </div>
+
+    <!-- Diesel alternator -->
+    <div class="nd vsim-idle ndc" id="nd-alt" style="left:79%;top:3%" onclick="openNodeModal('alternator')">
+      <div class="nb" style="background:#1c1705;border-color:#7a6212;width:80px;height:64px">
+        <span class="ni" style="color:#facc15"><svg class="ni-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M13.2 5.5 L8 13 H11.4 L10.6 18.5 L16 10.8 H12.6 Z"/></svg></span>
+        <span class="nl" style="color:#facc15">Alternator</span>
+        <span class="nv" style="color:#6b82a0" id="v-alt">--</span>
+      </div>
+    </div>
+    <!-- DC loads, one per 12V battery (derived from battery discharge current) -->
+    <div class="nd ndc" id="nd-ld12s" style="left:93%;top:26%" onclick="openNodeModal('load12s')">
+      <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
+        <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M7,4V6H10V8H7L5,10V13H3V10H1V18H3V15H5V18H8L10,20H18V16H20V19H23V9H20V12H18V8H12V6H15V4H7Z"/></svg></span>
+        <span class="nl" style="color:#c084fc">Engine</span>
+        <span class="nv" style="color:#6b82a0" id="v-ld12s">--W</span>
+      </div>
+    </div>
+    <div class="nd ndc" id="nd-ldbt" style="left:93%;top:52%" onclick="openNodeModal('loadbt')">
+      <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
+        <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z"/></svg></span>
+        <span class="nl" style="color:#c084fc">Thruster</span>
+        <span class="nv" style="color:#6b82a0" id="v-ldbt">--W</span>
+      </div>
+    </div>
+    <div class="nd ndc" id="nd-ld12h" style="left:93%;top:78%" onclick="openNodeModal('load12h')">
+      <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
+        <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg></span>
+        <span class="nl" style="color:#c084fc">12V Loads</span>
+        <span class="nv" style="color:#6b82a0" id="v-ld12h">--W</span>
+      </div>
+    </div>
+    <!-- ─── end Victron sim extras nodes ─── -->
+
     <!-- Loads -->
-    <div class="nd" id="nd-load" style="left:22%;top:83%" onclick="openNodeModal('loads')">
-      <div class="nb" style="background:#1a0d1a;border-color:#7a3a7a;width:76px;height:64px">
-        <span class="ni">💡</span>
-        <span class="nl" style="color:#c084fc">Loads</span>
+    <div class="nd ndc" id="nd-load" style="left:25%;top:87%" onclick="openNodeModal('loads')">
+      <div class="nb ldc" style="background:#1a0d1a;border-color:#7a3a7a">
+        <span class="ni" style="color:#c084fc"><svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg></span>
+        <span class="nl" style="color:#c084fc">AC Loads</span>
         <span class="nv" style="color:#6b82a0" id="v-load">--W</span>
       </div>
     </div>
@@ -921,6 +1035,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
     <div class="li"><div class="ld" style="background:#4a9fd4"></div>Shore power</div>
     <div class="li"><div class="ld" style="background:#3db87a"></div>Charging</div>
     <div class="li"><div class="ld" style="background:#e8a030"></div>Discharging</div>
+    <div class="li"><div class="ld" style="background:#639922"></div>Solar</div>
     <div class="li"><div class="ld" style="background:#5a8ab0"></div>DC-DC</div>
     <div class="li"><div class="ld" style="background:#c084fc"></div>Loads</div>
     <div class="li"><div class="ld" style="background:#334455;border:1px dashed #445566"></div>Inactive</div>
@@ -930,6 +1045,7 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
 <div class="wm-info-box">
   <div class="wm-info-row"><span class="wm-info-label">State</span><span id="elec-info-state">Idle</span></div>
+  <div class="wm-info-row"><span class="wm-info-label">DC charging</span><span id="elec-info-dc">--</span></div>
   <div class="wm-info-row"><span class="wm-info-label">Alarm</span><span id="elec-info-alarm" class="good">No active alarms</span></div>
 </div>
 
@@ -2309,6 +2425,7 @@ function showPage(page) {
   if (page === 'electrical') {
     fitElectricalCanvas();
     buildFlow(lastFlowState.shoreOn, lastFlowState.charging, lastFlowState.discharging);
+    fetchVictronSim(); // Victron sim extras (siloed)
   } else if (page === 'watermaker') {
     wmInitGauges();
     wmControl(wmSystemState === 'running' ? 'start' : wmSystemState === 'flushing' ? 'flush' : 'stop');
@@ -2342,7 +2459,7 @@ let raf;
 // and chartSeries (VRM attribute codes for history)
 const NODE_DEFS = {
   shore: {
-    icon: '⚡', title: 'Shore Power',
+    icon: '⚡', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16,7V3H14V7H10V3H8V7H8C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></svg>`, title: 'Shore Power',
     liveFields: [
       { key: 'grid',         label: 'Grid Power',    unit: 'W',  color: '#4a9fd4' },
       { key: 'mp_voltage_in',label: 'AC Voltage In', unit: 'VAC',color: '#6b82a0' },
@@ -2395,14 +2512,14 @@ const NODE_DEFS = {
       { key: 'soc_12v',   label: 'State of Charge', unit: '%',  color: '#2dd4bf' },
       { key: 'v_12v',     label: 'Voltage',         unit: 'V',  color: '#4a9fd4' },
       { key: 'i_12v',     label: 'Current',         unit: 'A',  color: '#3db87a' },
-      { key: 'temp_12v',  label: 'Temperature',     unit: '°C', color: '#f97316' },
       { key: 'ttg_12v',   label: 'Time to Go',      unit: 'min',color: '#6b82a0' },
       { key: 'cah_12v',   label: 'Consumed Ah',     unit: 'Ah', color: '#6b82a0' },
     ],
     chartSeries: [
-      { code: 'Bs',  label: 'SOC',     unit: '%', color: '#2dd4bf' },
-      { code: 'Bv',  label: 'Voltage', unit: 'V', color: '#4a9fd4' },
-      { code: 'Bc',  label: 'Current', unit: 'A', color: '#3db87a' },
+      // House SmartShunt = VRM instance 279 (see VRM_BATTERY_INSTANCES in dashboard_api.py)
+      { code: 'SOC@279', label: 'SOC',     unit: '%', color: '#2dd4bf' },
+      { code: 'V@279',   label: 'Voltage', unit: 'V', color: '#4a9fd4' },
+      { code: 'I@279',   label: 'Current', unit: 'A', color: '#3db87a' },
     ]
   },
   bat12s: {
@@ -2427,14 +2544,14 @@ const NODE_DEFS = {
     chartSeries: []
   },
   orion2: {
-    icon: '⇄', title: 'Orion 48→12V (Diesel)',
+    icon: '⇄', title: 'Orion 48→12V (Thruster)',
     liveFields: [
       { key: 'orion2_state', label: 'State', unit: '', color: '#5a8ab0', isText: true },
     ],
     chartSeries: []
   },
   loads: {
-    icon: '💡', title: 'AC Loads',
+    icon: '💡', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg>`, title: 'AC Loads',
     liveFields: [
       { key: 'ac_load', label: 'Load Power', unit: 'W', color: '#c084fc' },
     ],
@@ -2443,6 +2560,671 @@ const NODE_DEFS = {
     ]
   },
 };
+
+// ─── Victron sim extras — siloed addition ───────────────────────────────────
+// Diesel + thruster SmartShunts, MPPT 150/35, Orion 12|48 and the diesel
+// alternator. Fed by /api/victron/sim (victron_simulator.py over MQTT) until
+// the real devices report through VRM. Keys are <device>_<field>, merged
+// into victronData so the existing node modal can show them. Overrides the
+// old voltage-only bat12s/bowthrust entries above.
+Object.assign(NODE_DEFS, {
+  bat12s: {
+    icon: '🔋', title: '12V Diesel Start Battery',
+    isBattery: true, socKey: 'shunt_diesel_soc',
+    liveFields: [
+      { key: 'shunt_diesel_soc',         label: 'State of Charge', unit: '%',   color: '#f97316' },
+      { key: 'shunt_diesel_voltage',     label: 'Voltage',         unit: 'V',   color: '#4a9fd4' },
+      { key: 'shunt_diesel_current',     label: 'Current',         unit: 'A',   color: '#3db87a' },
+      { key: 'shunt_diesel_power',       label: 'Power',           unit: 'W',   color: '#a78bfa' },
+      { key: 'shunt_diesel_consumed_ah', label: 'Consumed Ah',     unit: 'Ah',  color: '#6b82a0' },
+      { key: 'shunt_diesel_ttg',         label: 'Time to Go',      unit: 'min', color: '#6b82a0' },
+      { key: 'shunt_diesel_alarm',       label: 'Alarm',           unit: '',    color: '#6b82a0', isText: true },
+    ],
+    chartSeries: []
+  },
+  bowthrust: {
+    icon: '⚓', title: 'Bow Thruster Battery',
+    isBattery: true, socKey: 'shunt_thruster_soc',
+    liveFields: [
+      { key: 'shunt_thruster_soc',         label: 'State of Charge', unit: '%',   color: '#c084fc' },
+      { key: 'shunt_thruster_voltage',     label: 'Voltage',         unit: 'V',   color: '#4a9fd4' },
+      { key: 'shunt_thruster_current',     label: 'Current',         unit: 'A',   color: '#3db87a' },
+      { key: 'shunt_thruster_power',       label: 'Power',           unit: 'W',   color: '#a78bfa' },
+      { key: 'shunt_thruster_consumed_ah', label: 'Consumed Ah',     unit: 'Ah',  color: '#6b82a0' },
+      { key: 'shunt_thruster_ttg',         label: 'Time to Go',      unit: 'min', color: '#6b82a0' },
+      { key: 'shunt_thruster_alarm',       label: 'Alarm',           unit: '',    color: '#6b82a0', isText: true },
+    ],
+    chartSeries: []
+  },
+  solar: {
+    icon: '☀️', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/></g></svg>`, title: 'Solar Arch (1200W)',
+    liveFields: [
+      { key: 'mppt_pv_power',        label: 'PV Power',      unit: 'W',   color: '#639922' },
+      { key: 'mppt_pv_voltage',      label: 'PV Voltage',    unit: 'V',   color: '#4a9fd4' },
+      { key: 'mppt_yield_today',     label: 'Yield Today',   unit: 'kWh', color: '#639922' },
+      { key: 'mppt_max_power_today', label: 'Max Today',     unit: 'W',   color: '#6b82a0' },
+      { key: 'mppt_yield_total',     label: 'Total Yield',   unit: 'kWh', color: '#6b82a0' },
+    ],
+    chartSeries: []
+  },
+  mppt: {
+    icon: '🔆', title: 'SmartSolar MPPT 150/35 (arch)',
+    liveFields: [
+      { key: 'mppt_state',       label: 'State',          unit: '',  color: '#639922', isText: true },
+      { key: 'mppt_bat_voltage', label: 'Battery Voltage',unit: 'V', color: '#e8a030' },
+      { key: 'mppt_bat_current', label: 'Charge Current', unit: 'A', color: '#3db87a' },
+      { key: 'mppt_pv_voltage',  label: 'PV Voltage',     unit: 'V', color: '#4a9fd4' },
+      { key: 'mppt_pv_power',    label: 'PV Power',       unit: 'W', color: '#639922' },
+      { key: 'mppt_error',       label: 'Error',          unit: '',  color: '#6b82a0', isText: true },
+    ],
+    chartSeries: []
+  },
+  solar2: {
+    icon: '☀️', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/></g></svg>`, title: 'Solar Bimini (400W)',
+    liveFields: [
+      { key: 'mppt_bimini_pv_power',        label: 'PV Power',    unit: 'W',   color: '#639922' },
+      { key: 'mppt_bimini_pv_voltage',      label: 'PV Voltage',  unit: 'V',   color: '#4a9fd4' },
+      { key: 'mppt_bimini_yield_today',     label: 'Yield Today', unit: 'kWh', color: '#639922' },
+      { key: 'mppt_bimini_max_power_today', label: 'Max Today',   unit: 'W',   color: '#6b82a0' },
+      { key: 'mppt_bimini_yield_total',     label: 'Total Yield', unit: 'kWh', color: '#6b82a0' },
+    ],
+    chartSeries: []
+  },
+  mppt2: {
+    icon: '🔆', title: 'SmartSolar MPPT 100/20 (bimini)',
+    liveFields: [
+      { key: 'mppt_bimini_state',       label: 'State',          unit: '',  color: '#639922', isText: true },
+      { key: 'mppt_bimini_bat_voltage', label: 'Battery Voltage',unit: 'V', color: '#e8a030' },
+      { key: 'mppt_bimini_bat_current', label: 'Charge Current', unit: 'A', color: '#3db87a' },
+      { key: 'mppt_bimini_pv_voltage',  label: 'PV Voltage',     unit: 'V', color: '#4a9fd4' },
+      { key: 'mppt_bimini_pv_power',    label: 'PV Power',       unit: 'W', color: '#639922' },
+      { key: 'mppt_bimini_error',       label: 'Error',          unit: '',  color: '#6b82a0', isText: true },
+    ],
+    chartSeries: []
+  },
+  orionAlt: {
+    icon: '⇄', title: 'Orion 12|48 (Alternator → 48V)',
+    liveFields: [
+      { key: 'orion_alt_state',          label: 'State',          unit: '',  color: '#5a8ab0', isText: true },
+      { key: 'orion_alt_off_reason',     label: 'Off Reason',     unit: '',  color: '#6b82a0', isText: true },
+      { key: 'orion_alt_input_voltage',  label: 'Input Voltage',  unit: 'V', color: '#f97316' },
+      { key: 'orion_alt_output_voltage', label: 'Output Voltage', unit: 'V', color: '#e8a030' },
+      { key: 'orion_alt_output_current', label: 'Output Current', unit: 'A', color: '#3db87a' },
+      { key: 'orion_alt_output_power',   label: 'Output Power',   unit: 'W', color: '#a78bfa' },
+    ],
+    chartSeries: []
+  },
+  alternator: {
+    icon: '⚙️', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M13.2 5.5 L8 13 H11.4 L10.6 18.5 L16 10.8 H12.6 Z"/></svg>`, title: 'Diesel Alternator',
+    liveFields: [
+      { key: 'engine_state',              label: 'Engine',              unit: '',  color: '#3db87a', isText: true },
+      { key: 'engine_alternator_current', label: 'Output (estimated)',  unit: 'A', color: '#3db87a' },
+      { key: 'shunt_diesel_voltage',      label: 'Diesel Batt Voltage', unit: 'V', color: '#f97316' },
+      { key: 'orion_alt_output_current',  label: 'To 48V via Orion',    unit: 'A', color: '#5a8ab0' },
+    ],
+    chartSeries: []
+  },
+});
+
+let victronSimData = {};
+let victronSimFlowSig = '';
+
+async function fetchVictronSim() {
+  let d = {};
+  try {
+    d = await (await fetch('/api/victron/sim')).json();
+  } catch (e) { /* treat as no sim data */ }
+  try {
+    Object.assign(d, await (await fetch('/api/victron/ble')).json()); // real Orions over Bluetooth
+  } catch (e) { /* bridge not running */ }
+  // '--' means "not applicable" (e.g. time-to-go while charging) -- show as blank
+  for (const k of Object.keys(d)) if (d[k] === '--') delete d[k];
+  if (d.engine_running !== undefined) d.engine_state = d.engine_running ? 'Running' : 'Off';
+  for (const k of Object.keys(victronSimData)) if (!(k in d)) delete victronData[k];
+  victronSimData = d;
+  Object.assign(victronData, d);
+  renderVictronSim();
+  if (currentNode && NODE_DEFS[currentNode]) refreshModalLive();
+}
+
+function vsimFlags() {
+  const d = victronSimData;
+  return {
+    solar: (d.mppt_pv_power || 0) > 5,
+    solar2: (d.mppt_bimini_pv_power || 0) > 5,
+    alt: (d.engine_alternator_current || 0) > 1,
+    orion: d.orion_alt_state !== undefined && d.orion_alt_state !== 'Off',
+    thrCharge: (d.shunt_thruster_current || 0) > 0.5,
+    thrSurge: (d.shunt_thruster_current || 0) < -50,
+    dslCharge: (d.shunt_diesel_current || 0) > 0.5,
+    dslSurge: (d.shunt_diesel_current || 0) < -50,
+  };
+}
+
+function renderVictronSim() {
+  const d = victronSimData, f = vsimFlags();
+  const amps = a => `${a > 0 ? '+' : ''}${Math.abs(a) >= 100 ? Math.round(a) : a.toFixed(1)}A`;
+  const idle = (id, on) => document.getElementById(id).classList.toggle('vsim-idle', !on);
+
+  setText('v-solar', d.mppt_pv_power !== undefined ? `${Math.round(d.mppt_pv_power)}W` : '--W');
+  idle('nd-sol', f.solar);
+  idle('nd-mppt', f.solar);
+  setText('v-mppt', d.mppt_state === undefined ? '--'
+    : f.solar && d.mppt_bat_current !== undefined ? `${d.mppt_state} · ${d.mppt_bat_current.toFixed(1)}A` : d.mppt_state);
+  setText('v-solar2', d.mppt_bimini_pv_power !== undefined ? `${Math.round(d.mppt_bimini_pv_power)}W` : '--W');
+  idle('nd-sol2', f.solar2);
+  idle('nd-mppt2', f.solar2);
+  setText('v-mppt2', d.mppt_bimini_state === undefined ? '--'
+    : f.solar2 && d.mppt_bimini_bat_current !== undefined ? `${d.mppt_bimini_state} · ${d.mppt_bimini_bat_current.toFixed(1)}A` : d.mppt_bimini_state);
+
+  if (d.shunt_diesel_voltage !== undefined) setText('v-diesel', `${d.shunt_diesel_voltage.toFixed(2)}V`);
+  setText('v-diesel-i', d.shunt_diesel_current !== undefined ? `· ${amps(d.shunt_diesel_current)}` : '');
+  if (d.shunt_thruster_voltage !== undefined) setText('v-thruster', `${d.shunt_thruster_voltage.toFixed(2)}V`);
+  setText('v-thruster-i', d.shunt_thruster_current !== undefined ? `· ${amps(d.shunt_thruster_current)}` : '');
+  document.getElementById('bsym-12s').classList.toggle('vsim-surge', f.dslSurge);
+  document.getElementById('bsym-bt').classList.toggle('vsim-surge', f.thrSurge);
+  renderBatterySymbols();
+
+  setText('v-or3', f.orion && d.orion_alt_output_current !== undefined
+    ? `${d.orion_alt_state} · ${d.orion_alt_output_current.toFixed(1)}A` : d.orion_alt_state || '12→48V');
+  idle('nd-or3', f.orion);
+  setText('v-alt', d.engine_running === undefined ? '--'
+    : d.engine_running ? `${Math.round(d.engine_alternator_current || 0)}A` : 'Engine off');
+  idle('nd-alt', !!d.engine_running);
+
+  // Info box: what's charging from the DC side right now
+  const src = [];
+  if (f.solar) src.push(`Arch ${Math.round(d.mppt_pv_power)}W`);
+  if (f.solar2) src.push(`Bimini ${Math.round(d.mppt_bimini_pv_power)}W`);
+  if (f.alt) src.push(`Alternator ~${Math.round(d.engine_alternator_current)}A`);
+  if (f.orion) src.push(`Orion 12|48 ${d.orion_alt_output_current.toFixed(1)}A → 48V`);
+  if (d.engine_running && f.thrCharge) src.push('Thruster charging from diesel (Cyrix)');
+  else if (!d.engine_running && orionBleActive('orion_thruster', false)) src.push('Orion 48→12 → Thruster + Diesel');
+  setText('elec-info-dc', Object.keys(d).length === 0 ? '--' : src.length ? src.join(' · ') : 'None');
+  const alarms = [['Diesel', d.shunt_diesel_alarm], ['Thruster', d.shunt_thruster_alarm]]
+    .filter(([, a]) => a && a !== 'None').map(([n, a]) => `${n}: ${a}`);
+  const alarmEl = document.getElementById('elec-info-alarm');
+  alarmEl.textContent = alarms.length ? alarms.join(' · ') : 'No active alarms';
+  alarmEl.className = alarms.length ? 'error' : 'good';
+
+  renderOrionBle();
+  if (currentPage === 'electrical') applyFlowIntensity(); // pipe width / dot speed follow the new numbers
+  const sig = JSON.stringify([f, d.engine_running, dcLoadActive('12s'), dcLoadActive('bt'), dcLoadActive('12h'), orionBleActive('orion_house', null), orionBleActive('orion_thruster', null)]);
+  if (sig !== victronSimFlowSig && currentPage === 'electrical') {
+    victronSimFlowSig = sig;
+    buildFlow(lastFlowState.shoreOn, lastFlowState.charging, lastFlowState.discharging);
+  }
+}
+
+// Called at the end of buildFlow(); draws on top of the base diagram.
+// Center each DC load card on its battery graphic, whatever the canvas size.
+// Desktop: six evenly spaced columns -- sources | MPPTs + MultiPlus (+ AC Loads) |
+// 48V bank | Orions | 12V batteries + alternator | DC loads. Centers run from
+// half a source card in from the left edge to half a load card in from the right.
+const FLOW_COLUMNS = [
+  ['nd-sol', 'nd-sol2', 'nd-shore'],
+  ['nd-mppt', 'nd-mppt2', 'nd-mp', 'nd-load'],
+  ['nd-48v'],
+  ['nd-or3', 'nd-or2', 'nd-or1'],
+  ['nd-alt', 'nd-12s', 'nd-bt', 'nd-12h'],
+  ['nd-ld12s', 'nd-ldbt', 'nd-ld12h'],
+];
+function layoutFlowColumns(cr) {
+  const first = 44, last = cr.width - 50, step = (last - first) / (FLOW_COLUMNS.length - 1);
+  FLOW_COLUMNS.forEach((ids, c) => ids.forEach(id => {
+    const el = document.getElementById(id), x = first + step * c;
+    el.style.left = (el.classList.contains('ndc') ? x : x - el.offsetWidth / 2) + 'px';
+  }));
+}
+
+function alignLoadCards() {
+  const cr = canvas.getBoundingClientRect();
+  if (cr.width >= 600) layoutFlowColumns(cr);
+  // Thruster Orion level with the 48V bank (desktop; the phone layout stacks it above the bank).
+  if (cr.width >= 600) {
+    const b = document.getElementById('bsym-48v').getBoundingClientRect(), o2 = document.getElementById('nd-or2');
+    const g = o2.querySelector('.dimg');
+    o2.style.top = (b.top - cr.top + b.height / 2 - (g.offsetTop + g.offsetHeight / 2)) + 'px';
+  }
+  // 12V House battery level with its Orion (runs first so its load card follows it).
+  const o1 = document.querySelector('#nd-or1 .dimg').getBoundingClientRect(), h = document.getElementById('nd-12h');
+  const hb = document.getElementById('bsym-12h');
+  h.style.top = (o1.top - cr.top + o1.height / 2 - (hb.offsetTop + hb.offsetHeight / 2)) + 'px';
+  // Column alignment: Solar over Shore; MPPT, MultiPlus and AC Loads in one column.
+  const cx = id => { const r = document.querySelector(`#${id} .dimg, #${id} .nb`).getBoundingClientRect();
+                     return (r.left - cr.left + r.width / 2) + 'px'; };
+  if (cr.width < 600) {
+    document.getElementById('nd-sol').style.left = cx('nd-shore');
+    document.getElementById('nd-mppt').style.left = cx('nd-mp');
+    document.getElementById('nd-mppt2').style.left = cx('nd-mp');
+    document.getElementById('nd-sol2').style.left = cx('nd-shore');
+    document.getElementById('nd-load').style.left = cx('nd-mp');
+  }
+  // Solar card centered vertically on the MPPT graphic, so that pipe runs level.
+  const m = document.querySelector('#nd-mppt .dimg').getBoundingClientRect(), sol = document.getElementById('nd-sol');
+  sol.style.top = (m.top - cr.top + m.height / 2 - sol.querySelector('.nb').offsetHeight / 2) + 'px';
+  const m2 = document.querySelector('#nd-mppt2 .dimg').getBoundingClientRect(), sol2 = document.getElementById('nd-sol2');
+  sol2.style.top = (m2.top - cr.top + m2.height / 2 - sol2.querySelector('.nb').offsetHeight / 2) + 'px';
+  // Shore card level with the MultiPlus graphic.
+  const mp = document.querySelector('#nd-mp .dimg').getBoundingClientRect(), shore = document.getElementById('nd-shore');
+  shore.style.top = (mp.top - cr.top + mp.height / 2 - shore.querySelector('.nb').offsetHeight / 2) + 'px';
+  [['bsym-12s', 'nd-ld12s'], ['bsym-bt', 'nd-ldbt'], ['bsym-12h', 'nd-ld12h']].forEach(([b, l]) => {
+    const br = document.getElementById(b).getBoundingClientRect(), el = document.getElementById(l);
+    el.style.top = (br.top - cr.top + br.height / 2 - el.querySelector('.nb').offsetHeight / 2) + 'px';
+  });
+}
+
+function buildFlowSimExtras() {
+  renderDeviceLeds();
+  const f = vsimFlags();
+  const b48 = ctr('nd-48v'), sol = ctr('nd-sol'), s12 = ctr('nd-12s'), bt = ctr('nd-bt');
+  const or3 = ctr('nd-or3'), alt = ctr('nd-alt');
+  const seg = (a, b, col, on, n = 1) => {
+    fline(a.x, a.y, b.x, b.y, on ? col : '#334455', !on);
+    if (on) for (let k = 0; k < n; k++) fpart(a.x, a.y, b.x, b.y, col);
+  };
+  const mppt = ctr('nd-mppt');
+  seg(sol, mppt, '#facc15', f.solar, 2);
+  seg(mppt, b48, '#3db87a', f.solar, 2);
+  const mppt2 = ctr('nd-mppt2');
+  seg(ctr('nd-sol2'), mppt2, '#facc15', f.solar2, 2);
+  seg(mppt2, b48, '#3db87a', f.solar2, 2);
+  const h12 = ctr('nd-12h');
+  seg(s12, ctr('nd-ld12s'), '#c084fc', dcLoadActive('12s'), 2);
+  seg(bt, ctr('nd-ldbt'), '#c084fc', dcLoadActive('bt'), 2);
+  seg(h12, ctr('nd-ld12h'), '#c084fc', dcLoadActive('12h'), 1);
+  seg(alt, s12, '#facc15', f.alt, 2);
+  seg(alt, or3, '#facc15', f.orion); // Orion 12|48 runs off the alternator
+  seg(or3, b48, '#3db87a', f.orion);
+  // Cyrix: reports nothing -- closed while the engine runs, open otherwise.
+  // Unknown (no engine signal) draws the old dashed link with no state.
+  const cyrixClosed = victronSimData.engine_running === undefined ? null : !!victronSimData.engine_running;
+  // Engine off: the Orion lines above already show it feeding both batteries,
+  // so this link only matters while the engine runs (diesel -> thruster).
+  seg(s12, bt, '#3db87a', cyrixClosed === true, cyrixClosed && f.thrCharge ? 2 : 0);
+  addFlowHitLines();
+  applyFlowIntensity();
+}
+
+// ─── Pipe width / dot speed / dot density follow power ───
+// Watts per pipe (either direction), from the same values as the hover
+// details; estimates where nothing measures that wire. null = unknown ->
+// the pipe keeps its default look.
+const pos = v => typeof v === 'number' && !isNaN(v) ? Math.max(0, v) : null;
+const mulW = (v, i) => typeof v === 'number' && typeof i === 'number' ? Math.max(0, v * i) : null;
+function orionAltInW(d) { return typeof d.orion_alt_output_power === 'number' ? d.orion_alt_output_power / 0.88 : null; }
+function orionHouseW(d) {
+  const load = pos(d.load_12h_w), chg = d.i_12v > 0 ? mulW(d.v_12v, d.i_12v) : 0;
+  return load === null ? (chg || null) : load + (chg || 0);
+}
+function orionThrusterOut(d) {
+  if (d.engine_running) return { bt: 0, s12: 0 };
+  return { bt: d.shunt_thruster_current > 0 ? mulW(d.shunt_thruster_voltage, d.shunt_thruster_current) : 0,
+           s12: d.shunt_diesel_current > 0 ? mulW(d.shunt_diesel_voltage, d.shunt_diesel_current) : 0 };
+}
+const FLOW_WATTS = {
+  'nd-shore|nd-mp':   d => pos(d.grid),
+  'nd-mp|nd-48v':     d => (d.grid || 0) > 10 ? pos((d.grid || 0) - (d.ac_load || 0)) : pos(d.ac_load),
+  'nd-mp|nd-load':    d => pos(d.ac_load),
+  'nd-sol|nd-mppt':   d => pos(d.mppt_pv_power),
+  'nd-mppt|nd-48v':   d => mulW(d.mppt_bat_voltage, d.mppt_bat_current),
+  'nd-sol2|nd-mppt2': d => pos(d.mppt_bimini_pv_power),
+  'nd-mppt2|nd-48v':  d => mulW(d.mppt_bimini_bat_voltage, d.mppt_bimini_bat_current),
+  'nd-alt|nd-or3':    d => orionAltInW(d),
+  'nd-or3|nd-48v':    d => pos(d.orion_alt_output_power),
+  'nd-alt|nd-12s':    d => {
+    const alt = mulW(d.shunt_diesel_voltage, d.engine_alternator_current);
+    return alt === null ? null : Math.max(0, alt - (orionAltInW(d) || 0));
+  },
+  'nd-48v|nd-or1':    d => { const w = orionHouseW(d); return w === null ? null : w / 0.9; },
+  'nd-or1|nd-12h':    d => orionHouseW(d),
+  'nd-48v|nd-or2':    d => { const o = orionThrusterOut(d); return o.bt === null && o.s12 === null ? null : ((o.bt || 0) + (o.s12 || 0)) / 0.9; },
+  'nd-or2|nd-bt':     d => orionThrusterOut(d).bt,
+  'nd-or2|nd-12s':    d => orionThrusterOut(d).s12,
+  'nd-12s|nd-bt':     d => d.engine_running && d.shunt_thruster_current > 0 ? mulW(d.shunt_thruster_voltage, d.shunt_thruster_current) : null,
+  'nd-12s|nd-ld12s':  d => pos(d.load_12s_w),
+  'nd-bt|nd-ldbt':    d => pos(d.load_bt_w),
+  'nd-12h|nd-ld12h':  d => pos(d.load_12h_w),
+};
+// 0 at ~10W, 1 at ~5kW (log scale)
+const flowNorm = w => Math.max(0, Math.min(1, Math.log10(Math.max(w, 10) / 10) / Math.log10(500)));
+
+function applyFlowIntensity() {
+  if (!document.getElementById('nd-48v')) return;
+  const key = (a, b) => `${a.x.toFixed(1)},${a.y.toFixed(1)}|${b.x.toFixed(1)},${b.y.toFixed(1)}`;
+  const lookup = {};
+  Object.keys(FLOW_WATTS).forEach(link => {
+    const [a, b] = link.split('|');
+    if (!document.getElementById(a) || !document.getElementById(b)) return;
+    const pa = ctr(a), pb = ctr(b);
+    lookup[key(pa, pb)] = link; lookup[key(pb, pa)] = link;
+  });
+  const watts = {};
+  Object.entries(FLOW_WATTS).forEach(([link, fn]) => { try { watts[link] = fn(victronData); } catch (e) { watts[link] = null; } });
+
+  // Pipe width: 1.5px at a trickle up to ~24px at ~5kW (~13px on phones)
+  const maxExtra = canvas.getBoundingClientRect().width < 600 ? 11.5 : 22.5;
+  svg.querySelectorAll('line:not(.flow-hit)').forEach(l => {
+    if (l.getAttribute('stroke-dasharray')) return;
+    const link = lookup[key({ x: +l.getAttribute('x1'), y: +l.getAttribute('y1') }, { x: +l.getAttribute('x2'), y: +l.getAttribute('y2') })];
+    const w = link ? watts[link] : null;
+    if (w === null || w === undefined) return;
+    const n = flowNorm(w);
+    l.setAttribute('stroke-width', (1.5 + maxExtra * Math.pow(n, 1.5)).toFixed(2)); // curve widens the gap between small and big flows
+    l.setAttribute('stroke-linecap', 'round');
+    l.setAttribute('opacity', (0.35 + 0.3 * n).toFixed(2));
+  });
+
+  // Dot speed + density (only pipes that already have dots, i.e. active ones)
+  const byLink = {};
+  parts.forEach(p => {
+    if (p.el.parentNode !== svg) return;
+    const link = p.link || (p.link = lookup[key({ x: p.x1, y: p.y1 }, { x: p.x2, y: p.y2 })]);
+    if (link) (byLink[link] = byLink[link] || []).push(p);
+  });
+  Object.entries(byLink).forEach(([link, ps]) => {
+    const w = watts[link];
+    if (w === null || w === undefined) return;
+    const n = flowNorm(w), want = 1 + Math.round(4 * n), spd = 0.0015 + 0.0075 * n;
+    const tmpl = ps[0];
+    while (ps.length < want) {                       // add dots, spread along the pipe
+      const c = tmpl.el.cloneNode();
+      svg.appendChild(c);
+      const np = { el: c, x1: tmpl.x1, y1: tmpl.y1, x2: tmpl.x2, y2: tmpl.y2, t: (tmpl.t + ps.length / want) % 1, spd, link };
+      parts.push(np); ps.push(np);
+    }
+    while (ps.length > want) {                       // drop extras
+      const gone = ps.pop(); gone.el.remove(); parts.splice(parts.indexOf(gone), 1);
+    }
+    const r = (3.5 + (maxExtra > 12 ? 4 : 2) * Math.pow(n, 1.5)).toFixed(1); // dots grow with the pipe
+    ps.forEach((p, k) => { p.spd = spd * (0.92 + 0.16 * ((k * 37) % 10) / 10); p.el.setAttribute('r', r); });
+  });
+}
+
+// ─── Hover details on flow lines ───
+// An invisible, wider line over each connection catches hover (mouse) or tap
+// (touch) and shows what's flowing through it. "≈" marks values inferred
+// from a battery monitor rather than measured on that wire.
+const fmtN = (v, unit, dec = 1) => typeof v === 'number' && !isNaN(v) ? `${v.toFixed(dec)} ${unit}` : null;
+const fmtSigned = (v, unit, dec = 1) => typeof v === 'number' && !isNaN(v) ? `${v > 0 ? '+' : ''}${v.toFixed(dec)} ${unit}` : null;
+const NR = 'not reported';
+function powerOf(v, i) { return typeof v === 'number' && typeof i === 'number' ? fmtN(v * i, 'W', 0) : null; }
+
+const FLOW_LINKS = [
+  ['nd-shore', 'nd-mp', d => ({ title: 'Shore → MultiPlus (AC in)', rows: [
+    ['Voltage', fmtN(d.mp_voltage_in, 'VAC', 0)], ['Current', fmtN(d.mp_current_in, 'A')], ['Power', fmtN(d.grid, 'W', 0)]] })],
+  ['nd-mp', 'nd-48v', d => ({ title: (d.current || 0) < -0.5 ? '48V Bank → MultiPlus (inverting)' : 'MultiPlus ↔ 48V Bank', rows: [
+    ['Voltage', fmtN(d.voltage, 'V', 2)], ['Current', fmtSigned(d.current, 'A')], ['Power', fmtSigned(d.power, 'W', 0)],
+    ['Note', 'Battery total -- includes solar & Orions']] })],
+  ['nd-mp', 'nd-load', d => ({ title: 'MultiPlus → AC Loads', rows: [
+    ['Voltage', fmtN(d.mp_voltage_out, 'VAC', 0)], ['Current', fmtN(d.mp_current_out, 'A')], ['Power', fmtN(d.ac_load, 'W', 0)]] })],
+  ['nd-sol', 'nd-mppt', d => ({ title: 'Solar Arch → MPPT 150/35', rows: [
+    ['Voltage', fmtN(d.mppt_pv_voltage, 'V')],
+    ['Current', typeof d.mppt_pv_voltage === 'number' && d.mppt_pv_voltage > 1 && typeof d.mppt_pv_power === 'number'
+      ? '≈ ' + fmtN(d.mppt_pv_power / d.mppt_pv_voltage, 'A', 2) : null],
+    ['Power', fmtN(d.mppt_pv_power, 'W', 0)]] })],
+  ['nd-mppt', 'nd-48v', d => ({ title: 'MPPT 150/35 (arch) → 48V Bank', rows: [
+    ['Voltage', fmtN(d.mppt_bat_voltage, 'V', 2)], ['Current', fmtN(d.mppt_bat_current, 'A')],
+    ['Power', powerOf(d.mppt_bat_voltage, d.mppt_bat_current)], ['State', d.mppt_state]] })],
+  ['nd-sol2', 'nd-mppt2', d => ({ title: 'Solar Bimini → MPPT 100/20', rows: [
+    ['Voltage', fmtN(d.mppt_bimini_pv_voltage, 'V')],
+    ['Current', typeof d.mppt_bimini_pv_voltage === 'number' && d.mppt_bimini_pv_voltage > 1 && typeof d.mppt_bimini_pv_power === 'number'
+      ? '≈ ' + fmtN(d.mppt_bimini_pv_power / d.mppt_bimini_pv_voltage, 'A', 2) : null],
+    ['Power', fmtN(d.mppt_bimini_pv_power, 'W', 0)]] })],
+  ['nd-mppt2', 'nd-48v', d => ({ title: 'MPPT 100/20 (bimini) → 48V Bank', rows: [
+    ['Voltage', fmtN(d.mppt_bimini_bat_voltage, 'V', 2)], ['Current', fmtN(d.mppt_bimini_bat_current, 'A')],
+    ['Power', powerOf(d.mppt_bimini_bat_voltage, d.mppt_bimini_bat_current)], ['State', d.mppt_bimini_state]] })],
+  ['nd-48v', 'nd-or1', d => ({ title: '48V Bank → Orion (house)', rows: [
+    ['Voltage', fmtN(d.orion_house_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_house_state]] })],
+  ['nd-or1', 'nd-12h', d => ({ title: 'Orion → 12V House', rows: [
+    ['Voltage', fmtN(d.orion_house_output_voltage, 'V', 2)], ['Current', NR],
+    ['Battery current', fmtSigned(d.i_12v, 'A')], ['State', d.orion_house_state]] })],
+  ['nd-48v', 'nd-or2', d => ({ title: '48V Bank → Orion (thruster)', rows: [
+    ['Voltage', fmtN(d.orion_thruster_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_thruster_state]] })],
+  ['nd-or2', 'nd-bt', d => ({ title: 'Orion → Bow Thruster battery', rows: [
+    ['Voltage', fmtN(d.orion_thruster_output_voltage, 'V', 2)],
+    ['Current', !d.engine_running && (d.shunt_thruster_current || 0) > 0 ? '≈ ' + fmtN(d.shunt_thruster_current, 'A') : NR],
+    ['State', d.orion_thruster_state], ['Off reason', d.orion_thruster_off_reason !== 'None' ? d.orion_thruster_off_reason : null]] })],
+  ['nd-or2', 'nd-12s', d => ({ title: 'Orion → 12V Diesel (via Cyrix)', rows: [
+    ['Voltage', fmtN(d.orion_thruster_output_voltage, 'V', 2)],
+    ['Current', !d.engine_running && (d.shunt_diesel_current || 0) > 0 ? '≈ ' + fmtN(d.shunt_diesel_current, 'A') : NR],
+    ['State', d.orion_thruster_state]] })],
+  ['nd-alt', 'nd-12s', d => ({ title: 'Alternator → 12V Diesel', rows: [
+    ['Engine', d.engine_state], ['Voltage', fmtN(d.shunt_diesel_voltage, 'V', 2)],
+    ['Alternator output', d.engine_alternator_current !== undefined ? '≈ ' + fmtN(d.engine_alternator_current, 'A') : null],
+    ['Into battery', fmtSigned(d.shunt_diesel_current, 'A')]] })],
+  ['nd-alt', 'nd-or3', d => {
+    const vin = d.orion_alt_input_voltage, pin = (d.orion_alt_output_power || 0) / 0.88;
+    return { title: 'Alternator → Orion 12|48', rows: [
+      ['Voltage', fmtN(vin, 'V', 2)],
+      ['Current', typeof vin === 'number' && pin > 0 ? '≈ ' + fmtN(pin / vin, 'A') : (d.orion_alt_state === 'Off' ? '0 A' : null)],
+      ['Power', pin > 0 ? '≈ ' + fmtN(pin, 'W', 0) : null], ['State', d.orion_alt_state]] };
+  }],
+  ['nd-or3', 'nd-48v', d => ({ title: 'Orion 12|48 → 48V Bank', rows: [
+    ['Voltage', fmtN(d.orion_alt_output_voltage, 'V', 2)], ['Current', fmtN(d.orion_alt_output_current, 'A')],
+    ['Power', fmtN(d.orion_alt_output_power, 'W', 0)], ['State', d.orion_alt_state]] })],
+  ['nd-12s', 'nd-bt', d => ({ title: 'Cyrix: 12V Diesel ↔ Bow Thruster', rows: [
+    ['Cyrix', d.engine_running === undefined ? 'unknown' : d.engine_running ? 'closed (engine running)' : 'open'],
+    ['Diesel voltage', fmtN(d.shunt_diesel_voltage, 'V', 2)], ['Thruster voltage', fmtN(d.shunt_thruster_voltage, 'V', 2)],
+    ['Current', d.engine_running && (d.shunt_thruster_current || 0) > 0 ? '≈ ' + fmtN(d.shunt_thruster_current, 'A') : d.engine_running ? NR : '0 A']] })],
+  ['nd-12s', 'nd-ld12s', d => ({ title: '12V Diesel → Engine / starter', rows: [
+    ['Voltage', fmtN(d.shunt_diesel_voltage, 'V', 2)], ['Current', d.load_12s_a !== undefined ? '≈ ' + fmtN(d.load_12s_a, 'A') : null],
+    ['Power', d.load_12s_w !== undefined ? '≈ ' + fmtN(d.load_12s_w, 'W', 0) : null]] })],
+  ['nd-bt', 'nd-ldbt', d => ({ title: 'Bow Thruster battery → Thruster', rows: [
+    ['Voltage', fmtN(d.shunt_thruster_voltage, 'V', 2)], ['Current', d.load_bt_a !== undefined ? '≈ ' + fmtN(d.load_bt_a, 'A') : null],
+    ['Power', d.load_bt_w !== undefined ? '≈ ' + fmtN(d.load_bt_w, 'W', 0) : null]] })],
+  ['nd-12h', 'nd-ld12h', d => ({ title: '12V House → 12V Loads', rows: [
+    ['Voltage', fmtN(d.v_12v, 'V', 2)], ['Current', d.load_12h_a !== undefined ? '≈ ' + fmtN(d.load_12h_a, 'A') : null],
+    ['Power', d.load_12h_w !== undefined ? '≈ ' + fmtN(d.load_12h_w, 'W', 0) : null]] })],
+];
+
+let flowTip = null, flowTipLink = null;
+function flowTipEl() {
+  if (!flowTip) {
+    flowTip = document.createElement('div');
+    flowTip.className = 'flow-tip';
+    canvas.appendChild(flowTip);
+  }
+  return flowTip;
+}
+function renderFlowTip() {
+  if (!flowTipLink) return;
+  const info = flowTipLink[2](victronData);
+  const rows = info.rows.filter(([k, v]) => v != null || ['Voltage', 'Current', 'Power'].includes(k)).map(([k, v]) => `<div class="ft-row"><span>${k}</span><span>${v ?? '--'}</span></div>`).join('');
+  flowTipEl().innerHTML = `<div class="ft-title">${info.title}</div>${rows}${info.hint ? `<div class="ft-hint">${info.hint}</div>` : ''}`;
+}
+function showFlowTip(link, e) {
+  flowTipLink = link;
+  renderFlowTip();
+  const tip = flowTipEl(), cr = canvas.getBoundingClientRect();
+  tip.style.display = 'block';
+  let x = e.clientX - cr.left + 14, y = e.clientY - cr.top + 14;
+  if (x + tip.offsetWidth > cr.width) x = Math.max(0, e.clientX - cr.left - tip.offsetWidth - 14);
+  if (y + tip.offsetHeight > cr.height) y = Math.max(0, e.clientY - cr.top - tip.offsetHeight - 14);
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+function hideFlowTip() {
+  flowTipLink = null;
+  if (flowTip) flowTip.style.display = 'none';
+}
+function addFlowHitLines() {
+  FLOW_LINKS.forEach(link => {
+    const a = document.getElementById(link[0]), b = document.getElementById(link[1]);
+    if (!a || !b) return;
+    const p = ctr(link[0]), q = ctr(link[1]);
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', p.x); l.setAttribute('y1', p.y); l.setAttribute('x2', q.x); l.setAttribute('y2', q.y);
+    l.setAttribute('class', 'flow-hit');
+    l.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') showFlowTip(link, e); });
+    l.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideFlowTip(); });
+    l.addEventListener('click', e => { e.stopPropagation(); flowTipLink === link ? hideFlowTip() : showFlowTip(link, e); });
+    svg.appendChild(l);
+  });
+}
+// Touch: tap anywhere else closes it. Live values: refresh while open.
+document.addEventListener('click', e => { if (flowTipLink && !e.target.classList?.contains('flow-hit')) hideFlowTip(); });
+setInterval(() => { if (flowTipLink) renderFlowTip(); }, 1000);
+
+// Hover a card/device (mouse only): its live readings, same fields as its pop-up.
+function fmtTipVal(v, unit, isText) {
+  if (v === undefined || v === null || v === '') return '--';
+  if (isText || typeof v !== 'number') return String(v);
+  const n = Math.abs(v) >= 100 || Number.isInteger(v) ? v.toFixed(0) : v.toFixed(2).replace(/\.?0+$/, '');
+  return unit ? `${n} ${unit}` : n;
+}
+document.querySelectorAll('#fcanvas .nd[onclick]').forEach(nd => {
+  const m = nd.getAttribute('onclick').match(/openNodeModal\('([^']+)'\)/);
+  if (!m) return;
+  const key = m[1];
+  const link = [nd.id, null, d => {
+    const def = NODE_DEFS[key];
+    return { title: def.title, hint: 'Click for details & history',
+             rows: (def.liveFields || []).map(f => [f.label, fmtTipVal(d[f.key], f.unit, f.isText)]) };
+  }];
+  nd.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && NODE_DEFS[key]) showFlowTip(link, e); });
+  nd.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideFlowTip(); });
+  nd.addEventListener('click', () => hideFlowTip());
+});
+
+// ─── Victron Bluetooth (Orion-Tr Smart via victron_ble_bridge.py) ───
+// Keys come from /api/victron/ble as orion_house_* / orion_thruster_*. The
+// broadcast has state + voltages only -- no current.
+const ORION_BLE_FIELDS = n => [
+  { key: `${n}_state`,          label: 'State',          unit: '',    color: '#5a8ab0', isText: true },
+  { key: `${n}_off_reason`,     label: 'Off Reason',     unit: '',    color: '#6b82a0', isText: true },
+  { key: `${n}_input_voltage`,  label: 'Input (48V)',    unit: 'V',   color: '#e8a030' },
+  { key: `${n}_output_voltage`, label: 'Output (12V)',   unit: 'V',   color: '#2dd4bf' },
+  { key: `${n}_charger_error`,  label: 'Error',          unit: '',    color: '#6b82a0', isText: true },
+  { key: `${n}_rssi`,           label: 'Bluetooth Signal', unit: 'dBm', color: '#6b82a0' },
+];
+NODE_DEFS.orion1.liveFields = ORION_BLE_FIELDS('orion_house');
+NODE_DEFS.orion2.liveFields = ORION_BLE_FIELDS('orion_thruster');
+
+// Real state if the bridge has reported this Orion, else the caller's fallback guess.
+function orionBleActive(name, fallback) {
+  const code = victronSimData[`${name}_state_code`];
+  return code === undefined ? fallback : [3, 4, 5, 6, 7, 11, 246, 247].includes(code);
+}
+
+function renderOrionBle() {
+  const d = victronSimData;
+  [['orion_house', 'v-or1'], ['orion_thruster', 'v-or2']].forEach(([n, id]) => {
+    setText(id, d[`${n}_state`] !== undefined ? d[`${n}_state`] : '48→12V');
+  });
+}
+
+// ─── Battery symbols + device LEDs ───
+// Vertical bar-graph battery: fill height = SOC, color by level, SOC number
+// at the bottom, lightning bolt while charging. Drawn in a 60x100 viewBox and
+// scaled by the .bsym box size.
+function batteryColor(soc) {
+  return soc < 20 ? '#e5383b' : soc < 55 ? '#f7941d' : soc < 85 ? '#8dc63f' : '#39b54a';
+}
+function batterySvg(soc, charging) {
+  const known = typeof soc === 'number' && !isNaN(soc);
+  const pct = known ? Math.max(0, Math.min(100, soc)) : 0;
+  const ix = 8, iy = 15, iw = 44, ih = 77, numH = 20;
+  let fillH = ih * pct / 100;
+  if (pct > 0) fillH = Math.max(fillH, numH + 2); // like the reference: low SOC still gets a pill behind the number
+  const col = batteryColor(pct);
+  const numOnFill = known && pct > 0;
+  const txt = known ? Math.round(pct) : '--';
+  const fs = String(txt).length >= 3 ? 17 : 21;
+  return `<svg viewBox="0 0 60 100" preserveAspectRatio="xMidYMid meet">
+    <rect x="21" y="1" width="18" height="8" rx="3" fill="#c9d4e3"/>
+    <rect x="3" y="8" width="54" height="90" rx="11" fill="#0a0e1a" stroke="#c9d4e3" stroke-width="4"/>
+    ${fillH > 0 ? `<rect x="${ix}" y="${iy + ih - fillH}" width="${iw}" height="${fillH}" rx="6" fill="${col}"/>` : ''}
+    ${charging ? `<path d="M34 22 L20 50 L29 50 L25 72 L41 42 L31 42 Z" fill="#fff" stroke="#0a0e1a" stroke-width="1.2" stroke-linejoin="round"/>` : ''}
+    <text x="30" y="${iy + ih - 4}" text-anchor="middle" font-size="${fs}" font-weight="800"
+      font-family="system-ui,-apple-system,Segoe UI,sans-serif" fill="${numOnFill ? '#fff' : '#c9d4e3'}">${txt}</text>
+  </svg>`;
+}
+// DC loads can't be measured directly -- a battery monitor only sees net
+// current. Shown as the battery's discharge: accurate while nothing is
+// charging that battery, 0 (unknown) while it is.
+function computeDcLoads() {
+  const d = victronData;
+  [['12s', d.shunt_diesel_current, d.shunt_diesel_voltage],
+   ['bt', d.shunt_thruster_current, d.shunt_thruster_voltage],
+   ['12h', d.i_12v, d.v_12v]].forEach(([k, i, v]) => {
+    if (typeof i !== 'number' && !(k === '12h' && typeof d.house_load_current === 'number')) { delete d[`load_${k}_a`]; delete d[`load_${k}_w`]; setText(`v-ld${k}`, '--W'); return; }
+    let a = Math.max(0, -i), w = typeof v === 'number' ? a * v : undefined;
+    // House: the simulator's per-appliance load (the Orion carries it while the battery floats)
+    if (k === '12h' && typeof d.house_load_current === 'number') {
+      a = d.house_load_current;
+      w = typeof v === 'number' ? a * v : d.house_load_power;
+    }
+    d[`load_${k}_a`] = Math.round(a * 10) / 10;
+    if (w !== undefined) d[`load_${k}_w`] = Math.round(w); else delete d[`load_${k}_w`];
+    setText(`v-ld${k}`, w !== undefined ? (w >= 1000 ? `${(w / 1000).toFixed(1)}kW` : `${Math.round(w)}W`) : `${a.toFixed(1)}A`);
+  });
+}
+function dcLoadActive(k) { return (victronData[`load_${k}_a`] || 0) > 0.5; }
+const DC_LOAD_FIELDS = k => [
+  { key: `load_${k}_w`, label: 'Load Power',   unit: 'W', color: '#c084fc' },
+  { key: `load_${k}_a`, label: 'Load Current', unit: 'A', color: '#c084fc' },
+];
+Object.assign(NODE_DEFS, {
+  load12s: { icon: '⚙️', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M7,4V6H10V8H7L5,10V13H3V10H1V18H3V15H5V18H8L10,20H18V16H20V19H23V9H20V12H18V8H12V6H15V4H7Z"/></svg>`, title: 'Diesel Battery Load (starter / engine)', liveFields: DC_LOAD_FIELDS('12s'), chartSeries: [] },
+  loadbt:  { icon: '⚓', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z"/></svg>`, title: 'Bow Thruster Load',                       liveFields: DC_LOAD_FIELDS('bt'),  chartSeries: [] },
+  load12h: { icon: '💡', iconHtml: `<svg class="ni-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></svg>`, title: '12V House Loads',                         liveFields: DC_LOAD_FIELDS('12h'), chartSeries: [] },
+});
+
+// Pop-up history for devices VRM doesn't record: served by /api/electrical/history
+// (electrical_history.py samples these keys every 20s).
+const ELEC_HISTORY = {
+  bat12s:     [['shunt_diesel_soc', 'SOC', '%', '#e8a030'], ['shunt_diesel_voltage', 'Voltage', 'V', '#4a9fd4'], ['shunt_diesel_current', 'Current', 'A', '#3db87a']],
+  bowthrust:  [['shunt_thruster_soc', 'SOC', '%', '#e8a030'], ['shunt_thruster_voltage', 'Voltage', 'V', '#4a9fd4'], ['shunt_thruster_current', 'Current', 'A', '#3db87a']],
+  solar:      [['mppt_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_pv_voltage', 'PV Voltage', 'V', '#4a9fd4']],
+  mppt:       [['mppt_bat_current', 'Charge Current', 'A', '#3db87a'], ['mppt_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bat_voltage', 'Battery Voltage', 'V', '#e8a030']],
+  solar2:     [['mppt_bimini_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bimini_pv_voltage', 'PV Voltage', 'V', '#4a9fd4']],
+  mppt2:      [['mppt_bimini_bat_current', 'Charge Current', 'A', '#3db87a'], ['mppt_bimini_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bimini_bat_voltage', 'Battery Voltage', 'V', '#e8a030']],
+  orionAlt:   [['orion_alt_output_power', 'Output Power', 'W', '#3db87a'], ['orion_alt_output_current', 'Output Current', 'A', '#3db87a'], ['orion_alt_input_voltage', 'Input Voltage', 'V', '#facc15']],
+  orion1:     [['orion_house_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_house_input_voltage', 'Input Voltage', 'V', '#e8a030']],
+  orion2:     [['orion_thruster_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_thruster_input_voltage', 'Input Voltage', 'V', '#e8a030']],
+  alternator: [['engine_alternator_current', 'Output (est.)', 'A', '#facc15'], ['engine_running', 'Engine Running', '', '#6b82a0']],
+  load12s:    [['load_12s_w', 'Load Power', 'W', '#c084fc']],
+  loadbt:     [['load_bt_w', 'Load Power', 'W', '#c084fc']],
+  load12h:    [['load_12h_w', 'Load Power', 'W', '#c084fc']],
+};
+Object.entries(ELEC_HISTORY).forEach(([node, list]) => {
+  NODE_DEFS[node].history = 'elec';
+  NODE_DEFS[node].chartSeries = list.map(([code, label, unit, color]) => ({ code, label, unit, color }));
+});
+
+function renderBatterySymbols() {
+  computeDcLoads();
+  const d = victronData;
+  const set = (id, soc, cur) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = batterySvg(soc, (cur || 0) > 0.5);
+  };
+  set('bsym-48v', d.soc, d.current);
+  set('bsym-12h', d.soc_12v, d.i_12v);
+  set('bsym-12s', d.shunt_diesel_soc, d.shunt_diesel_current);
+  set('bsym-bt', d.shunt_thruster_soc, d.shunt_thruster_current);
+  if (d.voltage !== undefined) setText('v-48v', `${d.voltage.toFixed(1)}V · ${d.current >= 0 ? '+' : ''}${(d.current || 0).toFixed(1)}A`);
+}
+renderBatterySymbols(); // empty outlines until the first data arrives
+
+// Device status LEDs: Multiplus (mains / inverter / charger) and each Orion
+// (amber Bulk/Absorption, green Float, dark Off).
+function renderDeviceLeds() {
+  const d = victronData, fs = lastFlowState;
+  const led = (id, col) => { const el = document.getElementById(id); if (el) el.setAttribute('fill', col); };
+  const OFF = '#2a3444';
+  led('mp-led-mains', fs.shoreOn ? '#3db87a' : OFF);
+  led('mp-led-inv', !fs.shoreOn && (d.ac_load || 0) > 10 ? '#3db87a' : OFF);
+  led('mp-led-chg', fs.charging ? '#e8a030' : OFF);
+  const orionCol = st => st === 'Float' || st === 'Storage' ? '#3db87a'
+    : st && st !== 'Off' && st !== 'Unavailable' ? '#e8a030' : OFF;
+  led('led-or1', orionCol(d.orion_house_state));
+  led('led-or2', orionCol(d.orion_thruster_state));
+  led('led-or3', orionCol(d.orion_alt_state));
+  led('led-mppt', orionCol(d.mppt_state));
+  led('led-mppt2', orionCol(d.mppt_bimini_state));
+}
+// ─── end Victron sim extras ─────────────────────────────────────────────────
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 function setText(id, val) {
@@ -2530,7 +3312,7 @@ function updateStatusSummary() {
 // ─── Flow diagram ─────────────────────────────────────────────────────────────
 function ctr(id, canvasEl) {
   const el = document.getElementById(id);
-  const nb = el.querySelector('.nb') || el.querySelector('.picon') || el;
+  const nb = el.querySelector('.nb') || el.querySelector('.dimg') || el.querySelector('.picon') || el;
   const cr = (canvasEl || canvas).getBoundingClientRect();
   const er = nb.getBoundingClientRect();
   return { x: er.left - cr.left + er.width / 2, y: er.top - cr.top + er.height / 2 };
@@ -2560,7 +3342,7 @@ function fitElectricalCanvas() {
   const legend = document.querySelector('#page-electrical .leg');
   const legendSpace = legend ? legend.getBoundingClientRect().height + 12 : 0; // + its margin-top
   const infoBox = document.querySelector('#page-electrical .wm-info-box');
-  const infoBoxSpace = infoBox ? infoBox.getBoundingClientRect().height + 10 : 0; // + its margin-top
+  const infoBoxSpace = infoBox && infoBox.offsetParent ? infoBox.getBoundingClientRect().height + 10 : 0; // + its margin-top (0 when hidden)
   const available = window.innerHeight - top - legendSpace - infoBoxSpace - 40; // flow-wrap/body padding + safety margin
   canvasEl.style.height = Math.max(420, available) + 'px';
 }
@@ -2568,14 +3350,15 @@ function fitElectricalCanvas() {
 function buildFlow(shoreOn, batCharge, batDischarge) {
   svg.innerHTML = ''; parts.length = 0;
   cancelAnimationFrame(raf);
+  alignLoadCards(); // Victron sim extras (siloed): position columns/rows before any pipe is drawn
   const shore = ctr('nd-shore'), mp = ctr('nd-mp'), b48 = ctr('nd-48v');
   const sol = ctr('nd-sol'), or1 = ctr('nd-or1'), or2 = ctr('nd-or2');
   const h12 = ctr('nd-12h'), s12 = ctr('nd-12s'), bt = ctr('nd-bt'), load = ctr('nd-load');
 
   if (shoreOn) {
-    fline(shore.x, shore.y, mp.x, mp.y, '#4a9fd4', false);
-    fpart(shore.x, shore.y, mp.x, mp.y, '#4a9fd4');
-    fpart(shore.x, shore.y, mp.x, mp.y, '#4a9fd4');
+    fline(shore.x, shore.y, mp.x, mp.y, '#facc15', false); // power sources are gold
+    fpart(shore.x, shore.y, mp.x, mp.y, '#facc15');
+    fpart(shore.x, shore.y, mp.x, mp.y, '#facc15');
   } else {
     fline(shore.x, shore.y, mp.x, mp.y, '#334455', true);
   }
@@ -2594,26 +3377,33 @@ function buildFlow(shoreOn, batCharge, batDischarge) {
 
   fline(mp.x, mp.y, load.x, load.y, '#c084fc', false);
   fpart(mp.x, mp.y, load.x, load.y, '#c084fc');
-  fline(sol.x, sol.y, b48.x, b48.y, '#639922', true);
 
   const dcdcActive = shoreOn || batCharge || batDischarge;
-  if (dcdcActive) {
+  // Victron Bluetooth (siloed): real Orion state when the bridge is reporting, else the old guess
+  const or1On = orionBleActive('orion_house', dcdcActive), or2On = orionBleActive('orion_thruster', dcdcActive);
+  if (or1On) {
     fline(b48.x, b48.y, or1.x, or1.y, '#5a8ab0', false);
     fpart(b48.x, b48.y, or1.x, or1.y, '#5a8ab0');
-    fline(or1.x, or1.y, h12.x, h12.y, '#2dd4bf', false);
-    fpart(or1.x, or1.y, h12.x, h12.y, '#2dd4bf');
-    fline(b48.x, b48.y, or2.x, or2.y, '#5a8ab0', false);
-    fpart(b48.x, b48.y, or2.x, or2.y, '#5a8ab0');
-    fline(or2.x, or2.y, s12.x, s12.y, '#f97316', false);
-    fpart(or2.x, or2.y, s12.x, s12.y, '#f97316');
+    fline(or1.x, or1.y, h12.x, h12.y, '#3db87a', false);
+    fpart(or1.x, or1.y, h12.x, h12.y, '#3db87a');
   } else {
     fline(b48.x, b48.y, or1.x, or1.y, '#334455', true);
     fline(or1.x, or1.y, h12.x, h12.y, '#334455', true);
+  }
+  if (or2On) {
+    fline(b48.x, b48.y, or2.x, or2.y, '#5a8ab0', false);
+    fpart(b48.x, b48.y, or2.x, or2.y, '#5a8ab0');
+    // lower Orion charges the thruster battery, and the diesel battery through the Cyrix
+    fline(or2.x, or2.y, bt.x, bt.y, '#3db87a', false);
+    fpart(or2.x, or2.y, bt.x, bt.y, '#3db87a');
+    fline(or2.x, or2.y, s12.x, s12.y, '#3db87a', false);
+    fpart(or2.x, or2.y, s12.x, s12.y, '#3db87a');
+  } else {
     fline(b48.x, b48.y, or2.x, or2.y, '#334455', true);
+    fline(or2.x, or2.y, bt.x, bt.y, '#334455', true);
     fline(or2.x, or2.y, s12.x, s12.y, '#334455', true);
   }
-  fline(s12.x, s12.y, bt.x, bt.y, '#c084fc', true);
-
+  buildFlowSimExtras(); // Victron sim extras (siloed) -- also draws the Diesel<->Thruster Cyrix link
   animFlow();
 }
 
@@ -4042,6 +4832,7 @@ async function fetchVictron() {
     const res = await fetch('/api/victron');
     const d = await res.json();
     victronData = d;
+    Object.assign(victronData, victronSimData); // Victron sim extras (siloed) -- keep sim keys across VRM refreshes
 
     const shoreOn = (d.grid || 0) > 10;
     const charging = (d.current || 0) > 0.5;
@@ -4060,10 +4851,7 @@ async function fetchVictron() {
     if (d.soc !== undefined) {
       const soc = d.soc;
       const col = socColor(soc);
-      document.getElementById('bat-fill-48').style.height = soc + '%';
-      document.getElementById('bat-fill-48').style.background = col;
-      document.getElementById('bat-soc-text').textContent = soc.toFixed(0) + '%';
-      document.getElementById('bat-soc-text').style.color = soc > 20 ? '#fff' : col;
+      renderBatterySymbols(); // battery symbols (siloed, in Victron sim extras)
     }
 
     // Overview tab's House Battery cards -- same fields as above, just a
@@ -4239,6 +5027,8 @@ function openNodeModal(nodeKey) {
   closePenModalUI();
 
   document.getElementById('modal-icon').textContent = def.icon;
+  if (def.iconHtml) document.getElementById('modal-icon').innerHTML = def.iconHtml; // SVG icons (engine, propeller, sources)
+  document.getElementById('modal-icon').classList.toggle('src-icon', ['shore', 'solar', 'solar2', 'alternator'].includes(nodeKey));
   document.getElementById('modal-title').textContent = def.title;
   document.getElementById('modal').classList.add('open');
 
@@ -4276,6 +5066,7 @@ function openNodeModal(nodeKey) {
   if (def.chartSeries && def.chartSeries.length > 0) {
     penModalOpen = true;
     penSource = 'vrm';
+    if (def.history === 'elec') { penSource = 'db'; penEndpoint = '/api/electrical/history'; } // Electrical history (siloed)
     penMetrics = {};
     def.chartSeries.forEach(s => { penMetrics[s.code] = { label: s.label, unit: s.unit, color: s.color }; });
     activePens = new Set([def.chartSeries[0].code]);
@@ -8714,6 +9505,7 @@ fetchTanksAndBilge();
 queryRelay1State();
 setInterval(ifVisible(fetchData), 60000);
 setInterval(ifVisible(fetchVictron), 30000);
+setInterval(ifVisible(() => { if (currentPage === 'electrical') fetchVictronSim(); }), 3000); // Victron sim extras (siloed)
 setInterval(ifVisible(fetchTanksAndBilge), 5000);
 setInterval(checkDestinationArrival, 5000);
 setInterval(ifVisible(() => { if (currentPage === 'mqtt') fetchMqtt(); }), 3000);
@@ -8728,6 +9520,7 @@ setInterval(ifVisible(() => { if (currentPage === 'watermaker') fetchWatermakerL
 // just yanks the chart (and whatever point you're hovering/reading) out from
 // under you every 10s for no benefit at that zoomed-out a scale.
 const TREND_AUTOREFRESH_ENDPOINTS = new Set(['/api/watermaker/history', '/api/tanks/history', '/api/engine/history']);
+TREND_AUTOREFRESH_ENDPOINTS.add('/api/electrical/history'); // Electrical history (siloed): keep 10m/1h charts moving
 const TREND_AUTOREFRESH_DURATIONS = new Set(['10m', '1h']);
 setInterval(ifVisible(() => { if (penModalOpen && TREND_AUTOREFRESH_ENDPOINTS.has(penEndpoint) && TREND_AUTOREFRESH_DURATIONS.has(currentDuration)) loadPenHistory(true); }), 10000);
 setInterval(ifVisible(() => { if (currentPage === 'anchor') fetchAnchorLive(); }), 3000);

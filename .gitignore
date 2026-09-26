@@ -4,3 +4,5 @@ mob_marks.json
 __pycache__/
 *.pyc
 chart_data/
+.venv-ble/
+electrical_history.db*
