@@ -352,9 +352,20 @@ def get_vrm_data():
             result[f"{per_instance[r['code']]}_{suffix}"] = val
     # 'ms' (mapped to mp_state above) is the Cerbo GX's serial number, not the
     # MultiPlus -- the VE.Bus state (Bulk / Absorption / Float / Inverting ...) is 'S'.
+    # MultiPlus DC side on its own (the battery's current is the net of every
+    # charger/load on the 48V bus): CI/CV from the VE.Bus device, vp = signed
+    # VE.Bus charge power (negative = inverting from the battery).
+    mp_dc = {('VE.Bus System', 'CI'): 'mp_dc_current', ('VE.Bus System', 'CV'): 'mp_dc_voltage',
+             ('System overview', 'vp'): 'mp_dc_power'}
     for r in data.get('records', []):
         if r.get('code') == 'S' and r.get('Device') == 'VE.Bus System':
             result['mp_state'] = r.get('formattedValue', '')
+        key = mp_dc.get((r.get('Device'), r.get('code')))
+        if key:
+            try:
+                result[key] = float(r.get('rawValue'))
+            except (TypeError, ValueError):
+                pass
     # ─── end VRM battery monitors by instance ───────────────────────────────
 
     # Stash raw records for diagnostics endpoint

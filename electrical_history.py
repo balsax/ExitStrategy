@@ -75,6 +75,8 @@ def _snapshot(mqtt_state, mqtt_lock):
             out[f'load_{k}_w'] = max(0.0, -out[i_key]) * out[v_key]
     if 'house_load_power' in out:
         out['load_12h_w'] = out['house_load_power']
+    if 'dc48_load_power' in out:
+        out['load_48_w'] = out['dc48_load_power']
     return out
 
 

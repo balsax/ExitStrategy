@@ -44,6 +44,8 @@ What it models (everything is a best guess -- tune the constants below):
     through the Cyrix) with the engine off, and is locked out by its
     remote input while the engine runs (so the Orions never loop power
     48V -> 12V -> 48V).
+  - 48V DC loads (dc48_load): watermaker runs + a 48V A/C compressor
+    cycling. Total only (nothing will meter them individually yet).
   - 12V house loads (house_load): a fridge compressor cycling on/off, a
     laptop charging, always-on nav gear, and small lights/pumps/electronics.
     Only the total is published (nothing meters individual appliances);
@@ -140,6 +142,13 @@ LAPTOP_A = 3.5                          # 12V laptop charger
 NAV_A = 2.2                             # plotter, instruments, VHF + AIS standby
 OTHER_A = (0.2, 2.5)                    # lights, water pump bursts, phone chargers
 
+# ── 48V DC loads (watts) ────────────────────────────────────────────────────
+WATERMAKER_W = 650.0
+WATERMAKER_ON_S, WATERMAKER_OFF_S = (240, 480), (600, 1200)   # demo pace
+AC_W = 750.0                            # 48V air conditioner, compressor running
+AC_ON_S, AC_OFF_S = (240, 420), (180, 360)
+AC_FAN_W = 45.0                         # fan only between compressor cycles
+
 
 def get_secrets():
     secrets = {}
@@ -206,6 +215,8 @@ class Sim:
         self.house_orion_state, self.house_orion_left = 'Float', 0.0
         self.fridge_on, self.fridge_left = True, random.uniform(*FRIDGE_ON_S)
         self.other_a = 0.8
+        self.wm_on, self.wm_left = False, random.uniform(*WATERMAKER_OFF_S) / 4
+        self.ac_on, self.ac_left = True, random.uniform(*AC_ON_S)
 
     def step(self, dt):
         now = datetime.now()
@@ -410,6 +421,19 @@ class Sim:
         total = sum(loads.values())
         # Only the total is published -- nothing on the boat meters individual appliances.
         out['house_load'] = {'current': round(total, 2), 'power': round(total * house_out_v)}
+
+        # ── 48V DC loads: watermaker + A/C (total only) ──
+        self.wm_left -= dt
+        if self.wm_left <= 0:
+            self.wm_on = not self.wm_on
+            self.wm_left = random.uniform(*(WATERMAKER_ON_S if self.wm_on else WATERMAKER_OFF_S))
+        self.ac_left -= dt
+        if self.ac_left <= 0:
+            self.ac_on = not self.ac_on
+            self.ac_left = random.uniform(*(AC_ON_S if self.ac_on else AC_OFF_S))
+        w48 = (WATERMAKER_W * random.uniform(0.95, 1.05) if self.wm_on else 0.0) \
+            + (AC_W * random.uniform(0.93, 1.05) if self.ac_on else AC_FAN_W)
+        out['dc48_load'] = {'power': round(w48), 'current': round(w48 / bat48_v, 2)}
 
         out['mppt'] = {
             'state': mppt_state,
