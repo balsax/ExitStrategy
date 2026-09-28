@@ -2241,7 +2241,11 @@ def _ncds_files():
 
 @app.route('/api/charts/ncds/meta')
 def ncds_meta():
-    files = _ncds_files()
+    return _mbtiles_meta(_ncds_files())
+
+def _mbtiles_meta(files):
+    """Union metadata across a set of MBTiles files -- shared by the NCDS
+    base and the temporary o-charts base below."""
     if not files:
         return jsonify({'available': False})
     # NOAA's regions tile the coast without gaps, so a request may land in
@@ -2401,7 +2405,11 @@ NCDS_OVERZOOM_MAX_LEVELS = 8  # how far up the ancestor chain to search before g
 
 @app.route('/api/charts/ncds/tiles/<int:z>/<int:x>/<int:y>.png')
 def ncds_tile(z, x, y):
-    files = _ncds_files()
+    return _mbtiles_tile(_ncds_files(), z, x, y)
+
+def _mbtiles_tile(files, z, x, y):
+    """One XYZ tile out of a set of MBTiles files, with ancestor over-zoom
+    for gaps -- shared by the NCDS base and the temporary o-charts base."""
     if not files:
         return '', 404
 
@@ -2439,6 +2447,27 @@ def ncds_tile(z, x, y):
         return Response(buf.getvalue(), mimetype='image/png')
 
     return '', 404
+
+# ─── TEMPORARY: o-charts base (decrypted OpenCPN CRB2 set) ──────────────────
+# Same MBTiles serving as NCDS above, just a different folder. The .mbtiles
+# are produced offline by tools/ocharts/charts_to_mbtiles.py from charts
+# decrypted with oesenc-export (licensed o-charts install, Windows) and
+# copied here by hand -- gitignored under chart_data/ like everything else.
+# Remove this block + the "o-charts" radio in index.html when done testing.
+OCHARTS_DIR = '/home/mikemc/dashboard-dev/chart_data/ocharts'
+
+def _ocharts_files():
+    if not os.path.isdir(OCHARTS_DIR):
+        return []
+    return sorted(glob.glob(os.path.join(OCHARTS_DIR, '*.mbtiles')))
+
+@app.route('/api/charts/ocharts/meta')
+def ocharts_meta():
+    return _mbtiles_meta(_ocharts_files())
+
+@app.route('/api/charts/ocharts/tiles/<int:z>/<int:x>/<int:y>.png')
+def ocharts_tile(z, x, y):
+    return _mbtiles_tile(_ocharts_files(), z, x, y)
 
 @app.route('/api/charts/cells')
 def chart_cells():

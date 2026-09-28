@@ -1308,6 +1308,8 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
         <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
+        <!-- TEMPORARY: o-charts test base, hidden until /api/charts/ocharts/meta reports tiles -- see loadOchartsBase() -->
+        <label id="chart-base-ocharts-opt" style="display:none" title="Temporary: rendered from decrypted o-charts (CRB2)"><input type="radio" name="chart-base-source" value="OCharts"> o-charts (temp)</label>
       </div>
       <div class="chart-layer-toggles" id="chart-base-theme">
         <label><input type="radio" name="chart-base-theme" value="Light" checked> ☀️ Light</label>
@@ -6984,6 +6986,7 @@ let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, s
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
 let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
+let chartOchartsLayer = null;   // TEMPORARY o-charts test base -- see loadOchartsBase()
 let chartActiveBaseLayer = null; // whichever of the two is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
@@ -7415,7 +7418,7 @@ document.addEventListener('keydown', (e) => {
 function updateChartBase() {
   const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
   const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
-  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
+  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer, OCharts: chartOchartsLayer }[source];
   if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
   if (next !== chartActiveBaseLayer) {
     if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
@@ -7788,6 +7791,7 @@ async function initChartMap() {
   });
 
   await loadNcdsBase();
+  loadOchartsBase();
   loadMobMarks();
   loadWindVelocity().then(checkWindRegionForViewport); // in case the chart opened outside WIND_HOME_BBOX
   try {
@@ -8701,6 +8705,33 @@ async function loadNcdsBase() {
     if (!selectedSource || selectedSource.value === 'Chart') updateChartBase();
   } catch (e) {
     console.error('NCDS base layer failed to load:', e);
+  }
+}
+
+// TEMPORARY: o-charts test base -- tiles rendered offline from decrypted
+// o-charts (tools/ocharts/charts_to_mbtiles.py) into chart_data/ocharts/,
+// served by /api/charts/ocharts/* exactly like NCDS. The radio stays hidden
+// unless tiles exist; if it was the saved choice but nothing is there any
+// more, fall back to Chart so the map isn't left blank. Delete this, the
+// radio label and the OCharts entry in updateChartBase() when done testing.
+async function loadOchartsBase() {
+  const selected = () => (document.querySelector('#chart-base-source input:checked') || {}).value;
+  try {
+    const res = await fetch('/api/charts/ocharts/meta');
+    const d = await res.json();
+    if (!d.available) throw new Error('no o-charts mbtiles in chart_data/ocharts');
+    chartOchartsLayer = L.tileLayer('/api/charts/ocharts/tiles/{z}/{x}/{y}.png', {
+      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxZoom,
+      attribution: 'o-charts (personal use, not for navigation)',
+    });
+    document.getElementById('chart-base-ocharts-opt').style.display = '';
+    if (selected() === 'OCharts') updateChartBase();
+  } catch (e) {
+    console.info('o-charts base unavailable:', e.message);
+    if (selected() === 'OCharts') {
+      const chartRb = document.querySelector('#chart-base-source input[value="Chart"]');
+      if (chartRb) { chartRb.checked = true; updateChartBase(); }
+    }
   }
 }
 

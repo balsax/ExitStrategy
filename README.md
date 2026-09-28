@@ -74,6 +74,13 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
   python3 chart_tools.py sync US5TPAEF US5TPAFG US4FL1PQ US3FL1EE     # vector overlay cells (home port area)
   ```
   Currently downloaded: US East Coast (Maine–South Florida), the full Gulf of Mexico, and the Caribbean/Puerto Rico/USVI region (`ncds_01a` through `ncds_14`, `ncds_09`) — 17 regions, ~8.1GB in `chart_data/ncds/` (gitignored, not in version control). See the docstring at the top of the file for how to look up the NCDS region or ENC cell(s) covering a different location.
+- **`tools/ocharts/`** (temporary) — renders a licensed o-charts set (e.g. CRB2 Caribbean) into MBTiles for a test "o-charts (temp)" base option on the Chart tab. The `.oesu` charts must first be decrypted on the Windows machine with hornang's `oesenc-export` (needs the licensed OpenCPN + o-charts install); these scripts only read the decrypted output. Requires `matplotlib`.
+  ```
+  python chart_inventory.py <decrypted_dir> --bbox 18.2,18.8,-64.9,-64.2   # which charts cover the BVI
+  python view_chart.py <chart.oesu> --depths                                # eyeball one chart
+  python charts_to_mbtiles.py <dir_of_charts> ocharts_bvi.mbtiles          # render tiles
+  ```
+  Copy the `.mbtiles` into `chart_data/ocharts/` (gitignored); `dashboard_api.py` serves it at `/api/charts/ocharts/*` with the same code as NCDS, and the radio only appears when a file is there. Simplified rendering — not for navigation.
 
 ## Database logging & trend rollups
 
