@@ -3323,4 +3323,8 @@ if __name__ == '__main__':
     # tightly zoomed-in view needing a handful of tiles, but a zoomed-out
     # view needing dozens queues up behind itself and can look like tiles
     # just aren't rendering, even though every individual request is fast.
-    app.run(host='0.0.0.0', port=5003, debug=DEBUG_MODE, threaded=True)
+    # reloader_interval: the reloader re-lists the project tree (chart_data/raw,
+    # chart_data/processed, .venv-ble) on every check, ~0.18 s of CPU each; the
+    # default 1 s cost ~18% of a core. Edits now take up to 5 s to reload.
+    # Ignored when DEBUG_MODE is False (no reloader).
+    app.run(host='0.0.0.0', port=5003, debug=DEBUG_MODE, threaded=True, reloader_interval=5)
