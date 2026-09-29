@@ -1946,11 +1946,6 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 <script>var _mediaBootHash = location.hash;  // showPage() rewrites the hash during boot; capture it first</script>
 <div class="page" id="page-media">
   <div class="section"><span>Media</span></div>
-  <div class="media-bar">
-    <span class="media-spacer"></span>
-    <button class="dur-btn" onclick="mediaReload()">Reload</button>
-    <a class="media-link" id="media-open-link" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
-  </div>
   <div class="media-embed-wrap" id="media-embed-wrap"></div>
 </div>
 <!-- ══════════════════ end Media (Boat Radio) page ══════════════════ -->
@@ -10131,7 +10126,6 @@ let mediaLoaded = false;
 
 async function mediaLoad() {
   const wrap = document.getElementById('media-embed-wrap');
-  document.getElementById('media-open-link').href = radioBase + '/';
   if (location.protocol === 'https:') {
     wrap.innerHTML = '<div class="media-msg">Boat Radio is only available on the boat network.<br>' +
       'Open the dashboard at its local address (e.g. <b>http://192.168.200.20:8080</b>) to use it.</div>';
@@ -10144,7 +10138,7 @@ async function mediaLoad() {
     clearTimeout(t);
   } catch (e) {
     wrap.innerHTML = '<div class="media-msg">Can\'t reach Boat Radio at <b>' + radioBase + '</b>.<br>' +
-      'Check that the <code>pianobar-web</code> service is running, then press Reload.<br>' +
+      'Check that the <code>pianobar-web</code> service is running, then open this tab again.<br>' +
       '<small>(If it is, the Pi\'s firewall may be blocking port ' + RADIO_PORT + '.)</small></div>';
     return;
   }
@@ -10272,6 +10266,61 @@ const fitPageObserver = new ResizeObserver(entries => {
 FIT_TO_WINDOW_PAGES.forEach(p => fitPageObserver.observe(document.getElementById('page-' + p)));
 applyUiScale();
 // ─── end screen-size UI scaling siloed addition ──────────────────────────────
+
+// ─── Diagnostics fit-to-window (siloed addition) ─────────────────────────────
+// Keeps the Diagnostics tab inside the window at the --ui scale. On the
+// sub-tabs with a scrolling list (MQTT, NMEA 2000 trees, Access Log) the list
+// box is sized to end at the window bottom, so an expanded tree scrolls inside
+// it rather than the page (the CSS 65vh cap got enlarged along with the tab).
+// Server Health and Simulators are shrunk like fitPageToWindow does.
+// To back out: delete this block.
+const DIAG_SCROLL_BOXES = { mqtt: 'mqtt-tree', canbus: 'canbus-tree', access: 'access-log-table' };
+const DIAG_MIN_BOX = 150;
+function fitDiagToWindow() {
+  const el = document.getElementById('page-mqtt');
+  Object.values(DIAG_SCROLL_BOXES).forEach(id => document.getElementById(id).style.maxHeight = '');
+  if (currentPage !== 'mqtt' || innerWidth < 600) {
+    el.style.zoom = ''; el.style.removeProperty('--ui-inv'); return;
+  }
+  let z = uiScale;
+  el.style.zoom = z;
+  const boxId = DIAG_SCROLL_BOXES[diagSubTab];
+  if (boxId) {
+    const box = document.getElementById(boxId);
+    box.style.overflowY = 'auto';
+    // First guess from the box's on-screen top, then trim whatever still
+    // spills past the bottom (padding/margins below the box).
+    let px = Math.max(DIAG_MIN_BOX, (innerHeight - (box.getBoundingClientRect().top + scrollY)) / z);
+    box.style.maxHeight = px + 'px';
+    for (let i = 0; i < 3; i++) {
+      const over = document.documentElement.scrollHeight - innerHeight;
+      if (over <= 0 || px <= DIAG_MIN_BOX) break;
+      px = Math.max(DIAG_MIN_BOX, px - over / z - 1);
+      box.style.maxHeight = px + 'px';
+    }
+  } else {
+    for (let i = 0; i < 5; i++) {
+      const over = document.documentElement.scrollHeight - innerHeight;
+      if (over <= 0 || z <= FIT_MIN_SCALE) break;
+      const h = el.getBoundingClientRect().height;
+      z = Math.max(FIT_MIN_SCALE, z * (h - over) / h - 0.005);
+      el.style.zoom = z;
+    }
+  }
+  el.style.setProperty('--ui-inv', (1 / z).toFixed(4));
+}
+addEventListener('resize', fitDiagToWindow);
+const _showPageBeforeDiagFit = showPage;
+showPage = function(page) { _showPageBeforeDiagFit(page); fitDiagToWindow(); };
+const _showDiagSubBeforeDiagFit = showDiagSub;
+showDiagSub = function(tab) { _showDiagSubBeforeDiagFit(tab); fitDiagToWindow(); };
+// Refit when content changes size (health data arriving, toggling System
+// status, a tree growing past or shrinking under the box height).
+new ResizeObserver(() => {
+  if (currentPage === 'mqtt') requestAnimationFrame(fitDiagToWindow);
+}).observe(document.getElementById('page-mqtt'));
+fitDiagToWindow();
+// ─── end Diagnostics fit-to-window siloed addition ───────────────────────────
 </script>
 </body>
 </html>
