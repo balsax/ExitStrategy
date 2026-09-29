@@ -29,11 +29,11 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 | Watermaker | RO system gauges, start/stop/flush, manual device control, trend history | `boat/watermaker/*`, MariaDB |
 | Engine | Compartment temp/humidity, cooling fan control (mode/setpoints/timeout) in a modal, engine telemetry placeholders | `boat/engine/fan/*` (real), `boat/nav/engine/*` (not yet wired) |
 | Anchor Watch | Click-to-place drop point, live distance/bearing, drag/depth/GPS-staleness alarms (ntfy push + GPIO buzzer, works with no tab open), 15-min server-recorded trail | `boat/nav/gps/*`, `boat/nav/depth` |
-| Chart | NOAA nautical chart — pre-rendered NCDS base tiles (real paper-chart symbology, served straight out of NOAA's own MBTiles, switchable to Streets/Dark) + a clickable ENC vector overlay (soundings, buoys/beacons/lights, bridges, wrecks/obstructions), zoom-gated layer toggles, AIS traffic (target plotting, heading vectors, server-recorded tracks — replaces the old standalone AIS tab), and a "My Vessel & Autopilot" info panel (heading/COG/SOG; autopilot not wired) | `chart_data/ncds/` (MBTiles), `chart_data/processed/` (GeoJSON), `boat/ais/<mmsi>/*` |
+| Chart | NOAA nautical chart — pre-rendered NCDS base tiles (real paper-chart symbology, served straight out of NOAA's own MBTiles, switchable to O-Charts/Streets/Dark) + a clickable ENC vector overlay (soundings, buoys/beacons/lights, bridges, wrecks/obstructions), zoom-gated layer toggles, AIS traffic (target plotting, heading vectors, server-recorded tracks — replaces the old standalone AIS tab), and a "My Vessel & Autopilot" info panel (heading/COG/SOG; autopilot not wired) | `chart_data/ncds/` (MBTiles), `~/ocharts/exported/` (O-Charts), `chart_data/processed/` (GeoJSON), `boat/ais/<mmsi>/*` |
 | Weather | Local conditions (BME680) + NWS forecast + active marine alert banner (Small Craft Advisory, Gale Warning, etc.) sub-tab; live Windy.com wind map sub-tab (re-centers on GPS on open) | BME680, api.weather.gov, embed.windy.com |
 | MQTT Diagnostics | Collapsible tree of every live MQTT topic, search, connection status | `boat/#`, `N/#` |
 
-## Dev/test tools (not deployed as services)
+## Dev/test tools
 
 - **`gps_simulator.py`** — simulates a boat swinging at anchor (optionally dragging) on `boat/nav/gps/*`, `boat/nav/heading`, `boat/nav/depth`. Unblocks anchor watch / AIS / weather dev without real GPS hardware.
   ```
@@ -55,6 +55,14 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
   ```
 
 - **`victron_simulator.py`** — stands in for DC-side Victron gear that isn't installed yet: SmartShunt 500A (diesel start battery), SmartShunt 1000A (bow thruster battery), SmartSolar MPPT 150/35 (48V bank), an Orion 12|48 charging the 48V bank off the diesel alternator, and the two existing Orion-Tr Smart 48/12 chargers (same fields `victron_ble_bridge.py` will publish, until the Pi is aboard to pair with them). Models engine starts, alternator charging, thruster bursts and time-of-day solar. Publishes to `boat/sim/victron/<device>/<field>` (ignored by `mqtt_logger.py`); `/api/victron/sim` feeds it to the Electrical tab, and it drops out on its own ~30s after the script stops. Real units will report through VRM instead.
+
+  Runs as the systemd user service `victron-simulator` (unit file `victron-simulator.service` in this repo, linked into `~/.config/systemd/user`; lingering is on, so it starts at boot without a login). Turn it on/off from **Diagnostics → Simulators → Victron (Electrical)**: ON is `enable --now`, OFF is `disable --now`, so the choice survives reboots. The routes behind that button are a siloed block in `dashboard_api.py`. `disable` also removes the linked unit's symlink, so re-enable it by full path:
+  ```
+  systemctl --user enable --now ~/dashboard-dev/victron-simulator.service   # on (and at boot)
+  systemctl --user disable --now victron-simulator                           # off (and at boot)
+  journalctl --user -u victron-simulator -f                                  # logs
+  ```
+  For one-off runs with options, turn the service off first so two copies don't publish at once:
   ```
   python3 victron_simulator.py                       # engine runs every so often, solar follows the clock
   python3 victron_simulator.py --engine on --daylight
@@ -74,6 +82,14 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
   python3 chart_tools.py sync US5TPAEF US5TPAFG US4FL1PQ US3FL1EE     # vector overlay cells (home port area)
   ```
   Currently downloaded: US East Coast (Maine–South Florida), the full Gulf of Mexico, and the Caribbean/Puerto Rico/USVI region (`ncds_01a` through `ncds_14`, `ncds_09`) — 17 regions, ~8.1GB in `chart_data/ncds/` (gitignored, not in version control). See the docstring at the top of the file for how to look up the NCDS region or ENC cell(s) covering a different location.
+
+- **`ochart_tiles.py`** (+ `osenc_parse.py`) — the Chart tab's **O-Charts** base source. Draws map tiles on demand from the decrypted O-charts Caribbean set in `~/ocharts/exported` (338 `.oesu` charts, OSENC v201): depth-shaded water, land, contours, buildings, roads. Aids to navigation, lights, bridges, hazards (wrecks, obstructions, underwater rocks), fairway/restricted/caution areas and soundings are *not* drawn into the tiles: while O-Charts is the base, `/api/charts/ocharts/features` serves them as GeoJSON into the Chart tab's normal overlay checkboxes (clickable, same icons as the NOAA overlay; soundings from zoom 14, thinned to one per screen cell, shallowest kept). For each tile the most detailed charts that fit the zoom are layered over coarser ones, each clipped to its own coverage. Nothing to pre-build: a new tile takes about a second and is then cached in `chart_data/ocharts_cache/v<N>/` (delete it, or bump `RENDER_VERSION`, after changing the look); parsed charts are cached in `chart_data/ocharts_cache/parsed/`. Routes are the siloed `/api/charts/ocharts/*` block in `dashboard_api.py`.
+  ```
+  python3 ochart_tiles.py index                     # list charts: scale, name, extent
+  python3 ochart_tiles.py tile 15 10503 14677 t.png # draw one tile (Road Town)
+  nice -n 19 python3 ochart_prerender.py            # pre-draw zooms 6-11 (~24k tiles; skips cached ones, safe to stop/re-run)
+  ```
+  After bumping `RENDER_VERSION`, re-run `ochart_prerender.py` so zoomed-out panning stays instant.
 
 ## Database logging & trend rollups
 

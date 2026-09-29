@@ -1,0 +1,18 @@
+# Victron DC-side simulator for the dev Electrical tab (see victron_simulator.py).
+# Enabled/disabled from Diagnostics -> Simulators, so its on/off state survives reboots.
+[Unit]
+Description=Victron DC-side simulator (dev dashboard Electrical tab)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mikemc/dashboard-dev
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/mikemc/dashboard-dev/victron_simulator.py
+# The script catches KeyboardInterrupt for a clean MQTT disconnect
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -2463,6 +2463,43 @@ def chart_layer(cell, layer):
         return jsonify({'error': 'unknown cell'}), 404
     return send_from_directory(cell_dir, layer)
 
+# ─── O-Charts base layer (siloed addition) ─────────────────────────────────
+# Third base source for the Chart tab, drawn on demand from the decrypted
+# O-charts files in ~/ocharts/exported by ochart_tiles.py (and cached on disk
+# under chart_data/ocharts_cache). Nothing here touches the NCDS code above;
+# to back it out, delete this block, ochart_tiles.py and osenc_parse.py.
+import ochart_tiles
+
+@app.route('/api/charts/ocharts/meta')
+def ocharts_meta():
+    return jsonify(ochart_tiles.index_summary())
+
+@app.route('/api/charts/ocharts/tiles/<int:z>/<int:x>/<int:y>.png')
+def ocharts_tile(z, x, y):
+    data = ochart_tiles.get_tile(z, x, y)
+    if data is ochart_tiles.BUSY:
+        return '', 503   # waited too long behind other tiles; the page retries it
+    if data is None:
+        return '', 404
+    resp = Response(data, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+# Aids/lights/bridges/hazards/areas/soundings for the current view -- fed into
+# the Chart tab's existing overlay checkboxes while O-Charts is the base.
+@app.route('/api/charts/ocharts/features')
+def ocharts_features():
+    try:
+        z = int(request.args['z'])
+        west, south, east, north = (float(request.args[k]) for k in ('west', 'south', 'east', 'north'))
+    except (KeyError, ValueError):
+        return jsonify({'error': 'z, west, south, east, north required'}), 400
+    data = ochart_tiles.features_for_view(z, west, south, east, north)
+    if data is None:
+        return jsonify({'error': 'view too large'}), 400
+    return jsonify(data)
+# ─── end O-Charts siloed addition ──────────────────────────────────────────
+
 # ─── MOB / man overboard marks (siloed addition) ───────────────────────────
 MOB_MARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mob_marks.json')
 MOB_MARKS_LOCK = threading.Lock()
@@ -2867,6 +2904,112 @@ def victron_sim():
     return jsonify(out)
 # ─── end Victron simulator siloed addition ──────────────────────────────────
 
+# ─── Critical battery push alerts (12V / diesel / thruster) siloed addition ─
+# tank_battery_monitor_loop above already pushes for the 48V house bank
+# (VRM 'soc'); this covers the other three batteries, critical level only,
+# with the same ntfy notify-on-trip + repeat-every-30-min pattern. Thresholds
+# match the header chips in static-src/index.html (BATTERY_ALERTS).
+# Diesel/thruster only exist as victron_simulator.py topics until the real
+# SmartShunts are installed; simulated readings push only from the dev
+# server (DEBUG_MODE) and are titled "SIM:", so prod never sends fake alarms.
+CRIT_BATTERY_MONITOR_INTERVAL_S = 60
+CRIT_BATTERIES = [
+    # key, label, crit %, source, soc field, alarm field
+    ('bat12',     '12V house battery',    30.0, 'vrm', 'soc_12v',            None),  # assumed AGM
+    ('batdiesel', 'Diesel start battery', 30.0, 'sim', 'shunt_diesel/soc',   'shunt_diesel/alarm'),
+    ('batthrust', 'Bow thruster battery', 30.0, 'sim', 'shunt_thruster/soc', 'shunt_thruster/alarm'),
+]
+_crit_battery_notified_at = {k[0]: 0 for k in CRIT_BATTERIES}
+
+def _sim_value(topics, field, cutoff):
+    rec = topics.get(VICTRON_SIM_PREFIX + field)
+    try:
+        if rec and datetime.fromisoformat(rec['time']).timestamp() >= cutoff:
+            return rec['value']
+    except (KeyError, ValueError):
+        pass
+    return None
+
+def crit_battery_monitor_loop():
+    while True:
+        time.sleep(CRIT_BATTERY_MONITOR_INTERVAL_S)
+        try:
+            now = time.time()
+            vrm = vrm_cached()
+            with mqtt_lock:
+                topics = dict(mqtt_state['topics'])
+            cutoff = now - VICTRON_SIM_STALE_S
+            for key, label, crit, source, soc_field, alarm_field in CRIT_BATTERIES:
+                if source == 'sim' and not globals().get('DEBUG_MODE'):
+                    continue
+                if source == 'vrm':
+                    soc, alarm = vrm.get(soc_field), None
+                else:
+                    soc = _sim_value(topics, soc_field, cutoff)
+                    alarm = _sim_value(topics, alarm_field, cutoff) if alarm_field else None
+                try:
+                    soc = float(soc) if soc is not None else None
+                except ValueError:
+                    soc = None
+                alarm = alarm if alarm and alarm != 'None' else None
+                tripped = alarm is not None or (soc is not None and soc <= crit)
+                if not tripped:
+                    _crit_battery_notified_at[key] = 0
+                    continue
+                if now - _crit_battery_notified_at[key] <= TANK_BATTERY_NOTIFY_REPEAT_S:
+                    continue
+                prefix = 'SIM: ' if source == 'sim' else ''
+                if alarm:
+                    msg = f'🔋 {label}: {alarm}' + (f' ({soc:.0f}% SOC).' if soc is not None else '.')
+                else:
+                    msg = f'🔋 {label} is at {soc:.0f}% -- at or below the {crit:.0f}% critical threshold.'
+                send_ntfy(f'{prefix}{label} critically low', msg, tags='warning')
+                _crit_battery_notified_at[key] = now
+        except Exception as e:
+            print(f'crit_battery_monitor_loop: {e}', flush=True)  # never let one bad reading kill the thread
+# ─── end Critical battery push alerts siloed addition ───────────────────────
+
+# ─── Bluetooth device list (Diagnostics > Server Health) siloed addition ───
+# Paired/connected devices as bluetoothd knows them, via `bluetoothctl`
+# (runs fine as this user, no sudo). Devices that were only seen in a scan
+# (never paired, not connected) are counted but not listed.
+def _bluetoothctl(*args):
+    result = subprocess.run(['bluetoothctl', *args], capture_output=True, text=True, timeout=5)
+    return result.stdout
+
+@app.route('/api/system/bluetooth')
+def system_bluetooth():
+    try:
+        known = re.findall(r'^Device ([0-9A-F:]{17}) ?(.*)$', _bluetoothctl('devices'), re.M)
+    except (OSError, subprocess.SubprocessError) as e:
+        return jsonify({'available': False, 'error': str(e), 'devices': [], 'unpaired_seen': 0})
+    devices, unpaired = [], 0
+    for mac, name in known:
+        try:
+            info = _bluetoothctl('info', mac)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        field = lambda k: (re.search(rf'^\s*{k}: (.*)$', info, re.M) or [None, None])[1]
+        paired, connected = field('Paired') == 'yes', field('Connected') == 'yes'
+        if not (paired or connected):
+            unpaired += 1
+            continue
+        battery = re.search(r'Battery Percentage: 0x[0-9a-f]+ \((\d+)\)', info)
+        rssi = re.search(r'RSSI: (?:0x[0-9a-f]+ \()?(-?\d+)', info)  # "-62" or "0xffffffc2 (-62)"
+        devices.append({
+            'mac': mac,
+            'name': field('Alias') or field('Name') or name or mac,
+            'type': field('Icon'),
+            'paired': paired,
+            'connected': connected,
+            'trusted': field('Trusted') == 'yes',
+            'rssi': int(rssi.group(1)) if rssi else None,
+            'battery': int(battery.group(1)) if battery else None,
+        })
+    devices.sort(key=lambda d: (not d['connected'], d['name'].lower()))
+    return jsonify({'available': True, 'devices': devices, 'unpaired_seen': unpaired})
+# ─── end Bluetooth device list siloed addition ──────────────────────────────
+
 # ─── Victron Bluetooth (Orion-Tr Smart) siloed addition ─────────────────────
 # victron_ble_bridge.py reads the Orions' Bluetooth "Instant Readout"
 # broadcasts (they have no VE.Direct port, so VRM never sees them) and
@@ -2925,6 +3068,58 @@ def electrical_history_route():
         return jsonify({'series': {k: {'times': [], 'values': [], 'error': str(e)} for k in keys}})
 # ─── end Electrical history siloed addition ─────────────────────────────────
 
+# ─── Victron simulator as a user service — siloed addition ───────────────────
+# victron_simulator.py runs as the systemd *user* service victron-simulator
+# (unit file victron-simulator.service in this dir) so it survives reboots.
+# This adds it to Diagnostics -> Simulators by wrapping simulators_status()
+# and giving it its own start/stop routes (a literal path segment outranks
+# the <name> rule). ON = enable --now, OFF = disable --now, so the choice
+# also sticks across reboots. disable removes the linked unit's symlink too,
+# which is why start enables it by full path. The unit always lives in the
+# dev copy (it runs the dev script), so the path is fixed rather than based on
+# SIMULATOR_DIR, which is ~ in production. Delete this block to remove.
+VICTRON_SIM_UNIT_PATH = os.path.expanduser('~/dashboard-dev/victron-simulator.service')
+
+def _victron_sim_systemctl(*args):
+    uid = os.getuid()
+    env = dict(os.environ, XDG_RUNTIME_DIR=f'/run/user/{uid}',
+               DBUS_SESSION_BUS_ADDRESS=f'unix:path=/run/user/{uid}/bus')
+    return subprocess.run(['systemctl', '--user', *args], capture_output=True, text=True, timeout=15, env=env)
+
+def _victron_sim_entry():
+    try:
+        out = _victron_sim_systemctl('show', 'victron-simulator', '-p', 'ActiveState', '-p', 'MainPID').stdout
+        props = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
+    except (OSError, subprocess.SubprocessError):
+        props = {}
+    running = props.get('ActiveState') == 'active'
+    pid = int(props.get('MainPID') or 0)
+    return {'name': 'victron', 'label': 'Victron (Electrical)', 'running': running, 'pid': pid if running and pid else None}
+
+_simulators_status_before_victron = app.view_functions['simulators_status']
+
+def _simulators_status_with_victron():
+    data = _simulators_status_before_victron().get_json()
+    data['simulators'].append(_victron_sim_entry())
+    return jsonify(data)
+
+app.view_functions['simulators_status'] = _simulators_status_with_victron
+
+@app.route('/api/simulators/victron/start', methods=['POST'])
+def victron_sim_service_start():
+    r = _victron_sim_systemctl('enable', '--now', VICTRON_SIM_UNIT_PATH)
+    if r.returncode != 0:
+        return jsonify({'error': r.stderr.strip() or 'systemctl enable failed'}), 500
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/simulators/victron/stop', methods=['POST'])
+def victron_sim_service_stop():
+    r = _victron_sim_systemctl('disable', '--now', 'victron-simulator')
+    if r.returncode != 0:
+        return jsonify({'error': r.stderr.strip() or 'systemctl disable failed'}), 500
+    return jsonify({'status': 'ok'})
+# ─── end Victron simulator service ───────────────────────────────────────────
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})
@@ -2941,6 +3136,7 @@ if __name__ == '__main__':
         threading.Thread(target=ais_trail_monitor_loop, daemon=True).start()
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
+        threading.Thread(target=crit_battery_monitor_loop, daemon=True).start()  # 12V/diesel/thruster critical push (siloed)
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
         electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser

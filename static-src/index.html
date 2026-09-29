@@ -397,6 +397,18 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 @keyframes marine-alert-pulse-minor{0%,100%{background:#3a2400}50%{background:#5a3810}}
 @media (max-width:760px){.marine-alert-chip{max-width:160px}}
 
+/* Header alert area (siloed): marine chip + battery/anchor/bilge chips from
+   setHeaderAlert(), centered in the header's spare space */
+.header-alerts{display:flex;align-items:center;justify-content:center;gap:8px;flex:1;min-width:0;margin:0 12px;overflow:hidden}
+.header-alerts .marine-alert-chip{flex-shrink:1;min-width:0}
+.hdr-alert-more{font-size:12px;font-weight:600;color:#ff9b9b;background:#1a0d0d;border:1px solid #a02020;border-radius:8px;padding:6px 10px;cursor:default;white-space:nowrap}
+@media (max-width:760px){
+  .header{flex-wrap:wrap}
+  .header-alerts{order:3;flex-basis:100%;margin:8px 0 0;flex-wrap:wrap;justify-content:flex-start}
+  .header-alerts:not(:has(.active)){display:none}
+  .header-alerts .marine-alert-chip{max-width:100%}
+}
+
 /* Full detail card — Weather tab only, same alerts, no truncation */
 .marine-alert-detail{display:none;flex-direction:column;gap:6px;background:#3a0d0d;border:1px solid #a02020;border-radius:10px;padding:.75rem 1rem;margin-bottom:1rem;color:#ff9b9b}
 .marine-alert-detail.active{display:flex}
@@ -707,8 +719,11 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       <p>Bavaria 36 · Harborage Marina, St. Pete</p>
     </div>
   </div>
-  <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather'); showWeatherSubTab('conditions')" title="">
-    <span>⚠️</span><span id="marine-alert-banner-title"></span>
+  <div class="header-alerts">
+    <div class="marine-alert-chip" id="marine-alert-banner" onclick="showPage('weather'); showWeatherSubTab('conditions')" title="">
+      <span>⚠️</span><span id="marine-alert-banner-title"></span>
+    </div>
+    <span id="hdr-alerts" style="display:contents"></span>
   </div>
   <div class="header-right">
     <button class="header-mob-btn" onclick="markMOB()">🛟 MOB</button>
@@ -1307,6 +1322,7 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
+        <label><input type="radio" name="chart-base-source" value="OCharts"> O-Charts</label>
         <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
       </div>
       <div class="chart-layer-toggles" id="chart-base-theme">
@@ -2037,6 +2053,10 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
           <div class="mlive-label">Bluetooth</div>
           <div class="mlive-val" id="sys-bt-val">--</div>
         </div>
+      </div>
+      <div class="wm-info-label" style="margin:16px 0 8px">Bluetooth Devices <span id="bt-dev-summary" style="color:#4a5f7a;font-weight:normal"></span></div>
+      <div class="access-log-table" id="bt-dev-table">
+        <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
 
@@ -4935,11 +4955,48 @@ async function fetchThrottleEvents() {
 }
 
 let sysSparkInterval = null;
+// Bluetooth device list (siloed): paired/connected devices from
+// /api/system/bluetooth (bluetoothctl), refreshed with the sparklines.
+async function fetchBluetoothDevices() {
+  const container = document.getElementById('bt-dev-table');
+  const summary = document.getElementById('bt-dev-summary');
+  try {
+    const d = await (await fetch('/api/system/bluetooth')).json();
+    if (!d.available) {
+      summary.textContent = '';
+      container.innerHTML = '<div class="mqtt-empty">bluetoothctl not available</div>';
+      return;
+    }
+    const devs = d.devices || [];
+    const nConn = devs.filter(x => x.connected).length;
+    summary.textContent = `· ${nConn} connected, ${devs.length} paired` +
+      (d.unpaired_seen ? `, ${d.unpaired_seen} other nearby seen` : '');
+    if (devs.length === 0) {
+      container.innerHTML = '<div class="mqtt-empty">No paired or connected devices</div>';
+      return;
+    }
+    container.innerHTML = devs.map(x => {
+      const status = x.connected ? '<span style="color:#3db87a">● Connected</span>'
+        : '<span style="color:#8fa3bd">○ Paired</span>';
+      const extra = [x.type, x.battery !== null ? `${x.battery}% batt` : null,
+        x.rssi !== null ? `${x.rssi} dBm` : null].filter(Boolean).join(' · ');
+      return `<div class="access-log-row">
+        <span class="access-log-ip">${escapeHtml(x.name)}</span>
+        <span class="access-log-device">${escapeHtml(x.mac)}${extra ? ' · ' + escapeHtml(extra) : ''}</span>
+        <span class="access-log-time">${status}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="mqtt-empty">Failed to load Bluetooth devices</div>';
+  }
+}
+
 function updateSysSparklinePolling(tab) {
   if (tab === 'system') {
     fetchSystemSparklines();
     fetchThrottleEvents();
-    if (!sysSparkInterval) sysSparkInterval = setInterval(ifVisible(() => { fetchSystemSparklines(); fetchThrottleEvents(); }), 30000);
+    fetchBluetoothDevices();
+    if (!sysSparkInterval) sysSparkInterval = setInterval(ifVisible(() => { fetchSystemSparklines(); fetchThrottleEvents(); fetchBluetoothDevices(); }), 30000);
   } else if (sysSparkInterval) {
     clearInterval(sysSparkInterval);
     sysSparkInterval = null;
@@ -6984,6 +7041,7 @@ let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, s
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
 let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
+let chartOChartsLayer = null;   // O-Charts siloed addition -- see loadOChartsBase()
 let chartActiveBaseLayer = null; // whichever of the two is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
@@ -7191,7 +7249,7 @@ const CHART_LAYER_LABELS = {
   SOUNDG: 'Sounding',
   BOYLAT: 'Lateral Buoy', BOYCAR: 'Cardinal Buoy', BOYSAW: 'Safe Water Buoy', BOYSPP: 'Special Purpose Buoy', BOYISD: 'Isolated Danger Buoy',
   BCNLAT: 'Lateral Beacon', BCNCAR: 'Cardinal Beacon', BCNSAW: 'Safe Water Beacon', BCNSPP: 'Special Purpose Beacon', BCNISD: 'Isolated Danger Beacon',
-  LIGHTS: 'Light', BRIDGE: 'Bridge', WRECKS: 'Wreck', OBSTRN: 'Obstruction',
+  LIGHTS: 'Light', BRIDGE: 'Bridge', WRECKS: 'Wreck', OBSTRN: 'Obstruction', UWTROC: 'Underwater Rock',
   FAIRWY: 'Fairway', RESARE: 'Restricted Area', CTNARE: 'Caution Area',
 };
 // S-57 stores every depth/height/clearance attribute in meters (DSPM_DUNI=1
@@ -7263,7 +7321,7 @@ function chartAidLayer(geo, layerKey, shape, forcedColor) {
 const CHART_TOGGLE_GROUPS = {
   'Aids to Navigation': ['BOYLAT', 'BOYCAR', 'BOYSAW', 'BOYSPP', 'BOYISD', 'BCNLAT', 'BCNCAR', 'BCNSAW', 'BCNSPP', 'BCNISD', 'LIGHTS'],
   'Bridges': ['BRIDGE'],
-  'Hazards': ['WRECKS', 'OBSTRN'],
+  'Hazards': ['WRECKS', 'OBSTRN', 'UWTROC'], // UWTROC: only O-Charts supplies it
   'Fairways / Areas': ['FAIRWY', 'RESARE', 'CTNARE'],
 };
 // layer key -> toggle group label, so a single cell's layer can be found and
@@ -7329,6 +7387,7 @@ const CHART_LAYER_STYLERS = {
   BRIDGE: geo => L.geoJSON(geo, { pointToLayer: (f, latlng) => L.marker(latlng, { icon: chartBridgeIcon() }), onEachFeature: chartOnEachFeature('BRIDGE') }),
   WRECKS: geo => L.geoJSON(geo, { pointToLayer: (f, latlng) => L.marker(latlng, { icon: chartHazardIcon() }), onEachFeature: chartOnEachFeature('WRECKS') }),
   OBSTRN: geo => L.geoJSON(geo, { pointToLayer: (f, latlng) => L.marker(latlng, { icon: chartHazardIcon() }), onEachFeature: chartOnEachFeature('OBSTRN') }),
+  UWTROC: geo => L.geoJSON(geo, { pointToLayer: (f, latlng) => L.marker(latlng, { icon: chartHazardIcon() }), onEachFeature: chartOnEachFeature('UWTROC') }),
   FAIRWY: geo => L.geoJSON(geo, { style: () => ({ color: '#4a9fd4', weight: 1, dashArray: '4,4', fillOpacity: 0 }), onEachFeature: chartOnEachFeature('FAIRWY') }),
   RESARE: geo => L.geoJSON(geo, { style: () => ({ color: '#c23bce', weight: 1, dashArray: '4,4', fillOpacity: .06, fillColor: '#c23bce' }), onEachFeature: chartOnEachFeature('RESARE') }),
   CTNARE: geo => L.geoJSON(geo, { style: () => ({ color: '#e08a2e', weight: 1, dashArray: '4,4', fillOpacity: .06, fillColor: '#e08a2e' }), onEachFeature: chartOnEachFeature('CTNARE') }),
@@ -7415,7 +7474,7 @@ document.addEventListener('keydown', (e) => {
 function updateChartBase() {
   const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
   const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
-  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
+  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer, OCharts: chartOChartsLayer }[source];
   if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
   if (next !== chartActiveBaseLayer) {
     if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
@@ -7788,6 +7847,7 @@ async function initChartMap() {
   });
 
   await loadNcdsBase();
+  loadOChartsBase();
   loadMobMarks();
   loadWindVelocity().then(checkWindRegionForViewport); // in case the chart opened outside WIND_HOME_BBOX
   try {
@@ -8703,6 +8763,117 @@ async function loadNcdsBase() {
     console.error('NCDS base layer failed to load:', e);
   }
 }
+
+// ─── O-Charts base layer (siloed addition) ───────────────────────────────────
+// Third base source: tiles drawn on demand by the server from the decrypted
+// O-charts files (see the "O-Charts base layer" block in dashboard_api.py and
+// ochart_tiles.py). A tile the server hasn't drawn before takes a second or
+// two; after that it comes from the server's cache. Outside O-charts
+// coverage the server returns 404 and that tile stays blank.
+async function loadOChartsBase() {
+  try {
+    const res = await fetch('/api/charts/ocharts/meta');
+    const d = await res.json();
+    if (!d.available) {
+      console.warn('O-Charts base chart: no chart files found');
+      return;
+    }
+    chartOChartsLayer = L.tileLayer('/api/charts/ocharts/tiles/{z}/{x}/{y}.png', {
+      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxZoom,
+      attribution: 'O-charts',
+    });
+    // The server answers 503 when a tile waited too long behind others being
+    // drawn; try it again a couple of times if it's still on screen.
+    chartOChartsLayer.on('tileerror', e => {
+      const tries = (e.tile._ochartsRetries || 0) + 1;
+      if (tries > 3) return;
+      e.tile._ochartsRetries = tries;
+      setTimeout(() => {
+        if (chartMap.hasLayer(chartOChartsLayer) && e.tile.isConnected) {
+          e.tile.src = chartOChartsLayer.getTileUrl(e.coords) + '?retry=' + tries;
+        }
+      }, 3000 * tries);
+    });
+    const selectedSource = document.querySelector('#chart-base-source input:checked');
+    if (selectedSource && selectedSource.value === 'OCharts') updateChartBase();
+  } catch (e) {
+    console.error('O-Charts base layer failed to load:', e);
+  }
+}
+
+// While O-Charts is the base, the overlay checkboxes (Aids to Navigation,
+// Bridges, Hazards, Fairways / Areas, Soundings) show O-Charts features from
+// /api/charts/ocharts/features instead of the NOAA cells -- the server picks
+// the same charts the tiles use, so symbols line up with the chart under them.
+// Same stylers and groups as the NOAA cells, so they look and click the same.
+// refreshChartViewport/updateChartBase are wrapped rather than edited.
+let ochartsOverlayLayers = [];   // [{ group, layer }] currently on the map
+let ochartsOverlaySeq = 0;       // drops responses that arrive after a newer pan
+let ochartsOverlayWasActive = null;
+function ochartsBaseActive() {
+  const s = document.querySelector('#chart-base-source input:checked');
+  return !!s && s.value === 'OCharts';
+}
+function clearOChartsOverlay() {
+  ochartsOverlayLayers.forEach(({ group, layer }) => group.removeLayer(layer));
+  ochartsOverlayLayers = [];
+}
+async function refreshOChartsOverlay() {
+  const seq = ++ochartsOverlaySeq;
+  const z = chartMap.getZoom();
+  if (z < CHART_CELL_MIN_ZOOM) {
+    clearOChartsOverlay();
+    chartStatusParts.vector = `zoom in past ${CHART_CELL_MIN_ZOOM} for detail`;
+    updateChartStatus();
+    return;
+  }
+  const b = chartMap.getBounds().pad(CHART_VIEWPORT_PADDING);
+  chartStatusParts.vector = 'Loading O-Charts features…';
+  updateChartStatus();
+  let d;
+  try {
+    const q = new URLSearchParams({ z, west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+    const res = await fetch('/api/charts/ocharts/features?' + q);
+    d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.status);
+  } catch (e) {
+    if (seq === ochartsOverlaySeq) { chartStatusParts.vector = 'O-Charts features unavailable'; updateChartStatus(); }
+    console.error('O-Charts features failed:', e);
+    return;
+  }
+  if (seq !== ochartsOverlaySeq || !ochartsBaseActive()) return;
+  const next = [];
+  let count = 0;
+  for (const [key, geo] of Object.entries(d.layers || {})) {
+    const group = key === 'SOUNDG' ? chartSoundingsGroup : chartOverlayGroups[CHART_LAYER_TO_GROUP[key]];
+    if (!group || !CHART_LAYER_STYLERS[key]) continue;
+    next.push({ group, layer: CHART_LAYER_STYLERS[key](geo) });
+    count += geo.features.length;
+  }
+  clearOChartsOverlay();
+  next.forEach(({ group, layer }) => group.addLayer(layer));
+  ochartsOverlayLayers = next;
+  chartStatusParts.vector = `${count} O-Charts features in view`;
+  updateChartStatus();
+}
+const _refreshChartViewportBeforeOCharts = refreshChartViewport;
+refreshChartViewport = async function() {
+  if (ochartsBaseActive()) {
+    Array.from(chartLoadedCells.keys()).forEach(unloadCellFromMap);
+    return refreshOChartsOverlay();
+  }
+  ochartsOverlaySeq++;   // ignore any O-Charts response still in flight
+  clearOChartsOverlay();
+  return _refreshChartViewportBeforeOCharts();
+};
+const _updateChartBaseBeforeOCharts = updateChartBase;
+updateChartBase = function() {
+  _updateChartBaseBeforeOCharts();
+  const active = ochartsBaseActive();
+  if (chartMap && ochartsOverlayWasActive !== null && active !== ochartsOverlayWasActive) refreshChartViewport();
+  ochartsOverlayWasActive = active;
+};
+// ─── end O-Charts siloed addition ────────────────────────────────────────────
 
 // Wind overlay -- siloed addition, /api/wind/manifest + /api/wind/velocity in
 // dashboard_api.py (NOAA GFS, see wind_grid.py). Same "attach only if its
@@ -9687,6 +9858,109 @@ fetchData();
 fetchVictron();
 fetchTanksAndBilge();
 queryRelay1State();
+// ─── Header alerts (siloed) ────────────────────────────────────────────────────
+// Other alerts share the header's spare space with the NWS marine chip:
+// setHeaderAlert(id, {text, level: 'crit'|'warn', page, title}) or (id, null).
+// Most severe first; at most HDR_ALERT_MAX chips, then a "+N" chip.
+const headerAlerts = {};
+const HDR_ALERT_MAX = 2;
+
+function setHeaderAlert(id, alert) {
+  const prev = headerAlerts[id];
+  if (!alert && !prev) return;
+  if (alert && prev && alert.text === prev.text && alert.level === prev.level) return;
+  if (alert) headerAlerts[id] = alert; else delete headerAlerts[id];
+  renderHeaderAlerts();
+}
+
+function renderHeaderAlerts() {
+  const box = document.getElementById('hdr-alerts');
+  if (!box) return;
+  const list = Object.values(headerAlerts).sort((a, b) => (a.level === 'crit' ? 0 : 1) - (b.level === 'crit' ? 0 : 1));
+  const shown = list.slice(0, HDR_ALERT_MAX);
+  box.innerHTML = shown.map((a, i) =>
+    `<div class="marine-alert-chip active${a.level === 'crit' ? '' : ' minor'}" data-i="${i}" title="${escapeHtml(a.title || a.text)}">
+      <span>${a.icon || '⚠️'}</span><span>${escapeHtml(a.text)}</span></div>`).join('') +
+    (list.length > shown.length
+      ? `<span class="hdr-alert-more" title="${escapeHtml(list.slice(HDR_ALERT_MAX).map(a => a.text).join('\n'))}">+${list.length - shown.length}</span>` : '');
+  box.querySelectorAll('.marine-alert-chip').forEach(el => {
+    const a = shown[+el.dataset.i];
+    if (a.page) el.onclick = () => showPage(a.page);
+  });
+}
+
+// Low-battery thresholds (% SOC), kept in step with the server's ntfy pushes
+// (48V: tank_battery_monitor_loop; others: CRIT_BATTERIES in dashboard_api.py).
+// LiFePO4 tolerates deep discharge, so it warns late; lead-acid/AGM is damaged below ~50%, and a start battery
+// under ~50% may not crank the diesel. The 12V house chemistry isn't
+// recorded anywhere yet -- assumed AGM; lower its numbers if it's lithium.
+// Diesel/thruster data comes from victron_simulator.py until the real
+// shunts are installed (they'll report through VRM instead).
+const BATTERY_ALERTS = [
+  { id: 'bat48',      name: '48V house bank',      soc: 'soc',                warn: 30, crit: 20 },  // 200Ah LiFePO4; matches the server's ntfy push thresholds
+  { id: 'bat12',      name: '12V house battery',   soc: 'soc_12v',            warn: 50, crit: 30 },  // assumed AGM
+  { id: 'batdiesel',  name: 'Diesel start battery', soc: 'shunt_diesel_soc',   warn: 50, crit: 30, alarm: 'shunt_diesel_alarm' },
+  { id: 'batthrust',  name: 'Bow thruster battery', soc: 'shunt_thruster_soc', warn: 50, crit: 30, alarm: 'shunt_thruster_alarm' },
+];
+let hdrVictronSim = {};
+
+async function updateBatteryAlerts() {
+  try {
+    hdrVictronSim = await (await fetch('/api/victron/sim')).json();
+  } catch (e) { /* keep last values */ }
+  const d = Object.assign({}, victronData, hdrVictronSim);
+  BATTERY_ALERTS.forEach(b => {
+    const soc = d[b.soc] !== undefined && d[b.soc] !== null ? parseFloat(d[b.soc]) : NaN;
+    const alarm = b.alarm && d[b.alarm] && d[b.alarm] !== 'None' ? d[b.alarm] : null;
+    let alert = null;
+    if (alarm) alert = { level: 'crit', text: `${b.name}: ${alarm}` };
+    else if (!isNaN(soc) && soc <= b.crit) alert = { level: 'crit', text: `${b.name} critically low — ${soc.toFixed(0)}%` };
+    else if (!isNaN(soc) && soc <= b.warn) alert = { level: 'warn', text: `${b.name} low — ${soc.toFixed(0)}%` };
+    if (alert) Object.assign(alert, { icon: '🔋', page: 'electrical',
+      title: `${alert.text} (warns at ${b.warn}%, critical at ${b.crit}%)` });
+    setHeaderAlert(b.id, alert);
+  });
+}
+
+async function updateBilgeAlert() {
+  try {
+    const t = (await getMqttTopics()).topics || {};
+    const rec = t['boat/nav/bilge/pump_on'];
+    setHeaderAlert('bilge', rec && parseFloat(rec.value) > 0
+      ? { level: 'warn', icon: '💧', text: 'Bilge pump running', page: 'overview' } : null);
+  } catch (e) { /* keep last state */ }
+}
+
+// Anchor watch alarms: mirror the Anchor tab's banners into the header, and
+// keep polling anchor position while a watch is set even on other tabs, so
+// dragging is noticed wherever the dashboard is open.
+const _hdrHandleAnchorAlarm = handleAnchorAlarm;
+handleAnchorAlarm = function (outside) {
+  _hdrHandleAnchorAlarm(outside);
+  setHeaderAlert('anchor', outside ? { level: 'crit', icon: '⚓', text: 'DRAGGING — outside swing radius', page: 'anchor' } : null);
+};
+const _hdrHandleDepthAlarm = handleDepthAlarm;
+handleDepthAlarm = function (shallow) {
+  _hdrHandleDepthAlarm(shallow);
+  setHeaderAlert('depth', shallow ? { level: 'warn', icon: '⚓', text: 'Shallow water at anchor', page: 'anchor' } : null);
+};
+const _hdrHandleGpsAlarm = handleGpsAlarm;
+handleGpsAlarm = function (lost) {
+  _hdrHandleGpsAlarm(lost);
+  setHeaderAlert('gps', lost ? { level: 'warn', icon: '📡', text: 'GPS signal lost (anchor watch)', page: 'anchor' } : null);
+};
+fetchAnchorState().catch(() => {});
+setInterval(ifVisible(() => {
+  if (currentPage !== 'anchor' && anchorState.active) fetchAnchorLive();
+  if (!anchorState.active) { setHeaderAlert('anchor', null); setHeaderAlert('depth', null); setHeaderAlert('gps', null); }
+}), 5000);
+
+setTimeout(updateBatteryAlerts, 3000);   // after the first fetchVictron()
+setInterval(ifVisible(updateBatteryAlerts), 30000);
+setInterval(ifVisible(updateBilgeAlert), 10000);
+updateBilgeAlert();
+// ─── end Header alerts ─────────────────────────────────────────────────────────
+
 setInterval(ifVisible(fetchData), 60000);
 setInterval(ifVisible(fetchVictron), 30000);
 setInterval(ifVisible(() => { if (currentPage === 'electrical') fetchVictronSim(); }), 3000); // Victron sim extras (siloed)
@@ -9772,12 +10046,23 @@ async function mediaLoad() {
 
 function mediaReload() { mediaLoaded = false; mediaLoad(); }
 
+// Wide screens: size the frame to end at the bottom of the window (the radio page lays itself
+// out to fit), so there's no page scroll around it. Narrow screens keep the CSS height.
+function mediaFit() {
+  const wrap = document.getElementById('media-embed-wrap');
+  if (currentPage !== 'media') return;
+  if (innerWidth <= 820) { wrap.style.height = ''; return; }
+  const top = wrap.getBoundingClientRect().top + scrollY;
+  wrap.style.height = Math.max(460, innerHeight - top - 16) + 'px';
+}
+addEventListener('resize', mediaFit);
+
 // Loaded lazily on first open. Leaving the tab keeps the iframe alive, so a "listen on
 // this device" stream carries on playing while you look at the chart or weather.
 const _showPageBeforeMedia = showPage;
 showPage = function(page) {
   _showPageBeforeMedia(page);
-  if (page === 'media' && !mediaLoaded) mediaLoad();
+  if (page === 'media') { mediaFit(); if (!mediaLoaded) mediaLoad(); }
 };
 if (_mediaBootHash === '#media') showPage('media');
 // ─── end Media (Boat Radio) siloed addition ──────────────────────────────────
