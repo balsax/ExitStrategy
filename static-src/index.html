@@ -10061,8 +10061,10 @@ setInterval(ifVisible(() => {
 
 setTimeout(updateBatteryAlerts, 3000);   // after the first fetchVictron()
 setInterval(ifVisible(updateBatteryAlerts), 30000);
-setInterval(ifVisible(updateBilgeAlert), 10000);
-updateBilgeAlert();
+// Bilge pump header chip removed 2026-09-29 (user asked); the Overview Bilge Pump
+// card still shows it. To restore, uncomment:
+// setInterval(ifVisible(updateBilgeAlert), 10000);
+// updateBilgeAlert();
 // ─── end Header alerts ─────────────────────────────────────────────────────────
 
 setInterval(ifVisible(fetchData), 60000);
