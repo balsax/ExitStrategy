@@ -278,6 +278,43 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .pilotchart-tab{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #5a3a8a;color:#a78bfa;background:#0a0e1a;transition:filter .15s}
 .pilotchart-tab:hover{filter:brightness(1.3)}
 .pilotchart-tab.active{background:#5a3a8a;color:#f0eaff}
+/* Reference library (Documents sub-tab) */
+.reflib{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:760px){.reflib{grid-template-columns:1fr}}
+.reflib-side{display:flex;flex-direction:column;gap:8px}
+.reflib-search{width:100%;box-sizing:border-box}
+.reflib-nav{display:flex;flex-direction:column;gap:6px}
+.reflib-pub{display:flex;flex-direction:column;gap:3px;text-align:left;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;padding:10px 12px;cursor:pointer;color:#e0e6f0;transition:border-color .15s,background .15s}
+.reflib-pub:hover{border-color:#2a3a5a}
+.reflib-pub.active{border-color:#a78bfa;background:#1a1433}
+.reflib-pub-title{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600}
+.reflib-pub-count{font-size:11px;font-weight:500;color:#6b82a0;background:#0a0e1a;border-radius:10px;padding:1px 8px}
+.reflib-pub-blurb{font-size:12px;color:#8fa3bd;line-height:1.35}
+.reflib-main{margin-bottom:0}
+.reflib-head{margin-bottom:14px}
+.reflib-title{font-size:20px;font-weight:600;color:#f0eaff}
+.reflib-blurb{font-size:13px;color:#8fa3bd;margin-top:3px}
+.reflib-group{margin-top:14px}
+.reflib-group:first-of-type{margin-top:4px}
+.reflib-group-head{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
+.reflib-group-title{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a78bfa}
+.reflib-group-sub{font-size:12px;color:#6b82a0}
+.reflib-docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.reflib-docs.months{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:1000px){.reflib-docs.months{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.reflib-doc{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0a0e1a;border:.5px solid #2a3a5a;border-radius:8px;color:#e0e6f0;text-decoration:none;transition:border-color .15s,background .15s}
+.reflib-doc:hover{border-color:#a78bfa;background:#120f24}
+.reflib-doc.month{justify-content:space-between}
+.reflib-doc.current{border-color:#3db87a;background:#0d2a1f}
+.reflib-doc.current .reflib-doc-note{color:#3db87a}
+.reflib-doc-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.reflib-doc-label{font-size:14px;font-weight:500;line-height:1.3}
+.reflib-doc-note{font-size:11px;color:#6b82a0;margin-top:1px}
+.reflib-num{flex:none;width:26px;height:26px;border-radius:6px;background:#1a1433;color:#a78bfa;font-size:12px;font-weight:700;display:grid;place-items:center}
+.reflib-icon{flex:none;font-size:16px}
+.reflib-open{flex:none;color:#4a5f7a;font-size:13px}
+.reflib-doc:hover .reflib-open{color:#a78bfa}
+.reflib-empty{color:#6b82a0;font-size:13px;padding:10px 0}
 .pilotchart-region-sub{color:#6b82a0;font-size:12px;margin:0 0 12px}
 .reference-doc-grid a.wm-btn .reference-doc-sub{display:block;margin-top:2px}
 .celnav-form-grid{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap}
@@ -288,6 +325,8 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .celnav-results .chart-me-row span:last-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#e0e6f0}
 .starchart-svg-wrap{width:100%;max-width:440px;cursor:pointer}
 .starchart-svg-wrap svg{width:100%;height:auto;display:block}
+.starchart-placeholder{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;border:1px dashed #2a3a5a;border-radius:50%;color:#6b82a0;font-size:13px;line-height:1.4}
+.starchart-placeholder b{color:#a0b0c0;font-size:15px}
 .modal.modal-starchart{max-width:920px}
 .starchart-svg-wrap-modal{margin-top:10px;text-align:center;max-width:840px;margin-left:auto;margin-right:auto}
 .starchart-svg-wrap-modal svg{width:100%;height:auto;display:block}
@@ -706,6 +745,41 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 .soc-bar-bg{height:18px;background:#1e2d4a;border-radius:6px;overflow:hidden;position:relative}
 .soc-bar-fill{height:100%;border-radius:6px;transition:width .8s ease,background .5s ease;display:flex;align-items:center;justify-content:flex-end;padding-right:8px}
 .soc-bar-label{font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+
+/* Bluetooth card: connected devices listed inside the Server Health card */
+.bt-card-summary{font-size:11px;color:#6b82a0;margin-top:2px}
+.mlive:has(> .bt-card-list){display:flex;flex-direction:column}
+/* flex-basis 0: the list fills whatever height the row's other cards give it, scrolling past that, instead of stretching the row */
+.bt-card-list{margin-top:8px;flex:1 1 0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.bt-card-row{flex:none;display:flex;align-items:baseline;gap:8px;padding:3px 8px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:6px}
+.bt-card-name{font-size:13px;color:#e0e6f0;display:flex;min-width:0;flex:1 1 auto;align-items:center;gap:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bt-card-name::before{content:'';flex:none;width:7px;height:7px;border-radius:50%;background:#3db87a}
+.bt-card-sub{font-size:11px;color:#6b82a0;flex:0 1 auto;min-width:0;text-align:right;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bt-card-empty{font-size:12px;color:#4a5f7a}
+
+/* ─── Screen-size UI scaling (siloed addition) ─────────────────────────────
+   --ui is set by applyUiScale() at the end of the script: 1 at the 1280x800
+   layout these tabs were built at, up to 2x on big screens, never below 0.8,
+   phones always 1. Electrical scales itself (--fs), so it's left out. Maps
+   (the chart, Windy) and the Media frame stay at native size so they stay
+   sharp; things positioned in map pixels (scale bar, wind tooltip) and the
+   star-chart tooltip (placed at raw mouse coordinates) are left unscaled too.
+   To back out: delete this block and the matching script block. */
+.header, .nav, .dest-arrived-banner, .modal-overlay > *,
+.page:not(#page-electrical):not(#page-chart):not(#page-media),
+#page-chart > .chart-controls-row,
+#page-chart .chart-map-wrap > :not(#chart-map):not(#chart-wind-tooltip):not(#chart-scale-bar),
+#page-chart .chart-wind-time-row,
+#page-media > :not(#media-embed-wrap) { zoom: var(--ui, 1); }
+#windy-embed, #starchart-tooltip { zoom: var(--ui-inv, 1); }
+/* Pop-ups that live inside a scaled tab (Reference's star chart and sextant
+   instructions) would get that tab's scale on top of their own; undo the
+   tab's (--ui-inv is 1/its scale) so they end up at exactly --ui. */
+.page .modal-overlay > * { zoom: calc(var(--ui, 1) * var(--ui-inv, 1)); }
+/* A pop-up's 90vh height cap is enlarged along with it; divide by the scale
+   so a scaled pop-up still ends inside the window (and scrolls past that). */
+.modal-overlay > .modal { max-height: calc(90vh / var(--ui, 1)); }
+/* ─── end screen-size UI scaling ─────────────────────────────────────────── */
 
 </style>
 </head>
@@ -1322,7 +1396,6 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <div class="chart-layer-toggles" id="chart-base-source">
         <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
-        <label><input type="radio" name="chart-base-source" value="OCharts"> O-Charts</label>
         <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
       </div>
       <div class="chart-layer-toggles" id="chart-base-theme">
@@ -1741,35 +1814,15 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <button class="subnavbtn" id="refsub-nav-celestial" onclick="showReferenceSubTab('celestial')">Celestial Navigation</button>
   </div>
 
+  <!-- Documents: library layout -- publications on the left, one open at a
+       time on the right, plus a search across everything (see REF_LIBRARY). -->
   <div class="ref-subpage active" id="refsub-docs">
-  <div class="flow-wrap">
-    <div class="section">Pilot Charts — NGA Atlas of Pilot Charts</div>
-    <p class="reference-doc-note">Monthly climatological charts (wind, currents, wave heights, pressure, storm tracks) by ocean region. Opens the PDF in a new tab.</p>
-    <div class="pilotchart-tabs" id="pilotchart-region-tabs"></div>
-    <p class="pilotchart-region-sub" id="pilotchart-region-sub"></p>
-    <div class="reference-doc-grid" id="pilotchart-month-grid"></div>
-  </div>
-  <div class="flow-wrap">
-    <div class="section">Sailing Directions — Detailed Coastal &amp; Passage Guidance</div>
-    <p class="reference-doc-note">Text-based port, hazard, and routing detail that pilot charts don't cover -- a level down from the ocean-basin climatology above. Opens the PDF in a new tab.</p>
-    <div class="pilotchart-tabs" id="sailingdir-tabs"></div>
-    <p class="pilotchart-region-sub" id="sailingdir-sub"></p>
-    <div class="reference-doc-grid" id="sailingdir-grid"></div>
-  </div>
-  <div class="flow-wrap">
-    <div class="section">List of Lights — Lighthouses, Buoys &amp; Fog Signals</div>
-    <p class="reference-doc-note">Identifies navigational lights by characteristic, range, and structure -- for night approaches and confirming a position fix. Opens the PDF in a new tab.</p>
-    <div class="pilotchart-tabs" id="lol-tabs"></div>
-    <p class="pilotchart-region-sub" id="lol-sub"></p>
-    <div class="reference-doc-grid" id="lol-grid"></div>
-  </div>
-  <div class="flow-wrap">
-    <div class="section">Navigation Rules &amp; Chart No. 1</div>
-    <p class="reference-doc-note">Rules of the road, and the symbol/abbreviation legend for reading paper and electronic charts. Opens the PDF in a new tab.</p>
-    <div class="reference-doc-grid">
-      <a class="wm-btn wm-btn-manual" href="/api/reference/navigation_rules/nav_rules.pdf" target="_blank">Navigation Rules Handbook<br><span class="reference-doc-sub">COLREGs &amp; Inland (USCG)</span></a>
-      <a class="wm-btn wm-btn-manual" href="/api/reference/chart_no1/chart_no1.pdf" target="_blank">Chart No. 1<br><span class="reference-doc-sub">Symbols, Abbreviations &amp; Terms</span></a>
+  <div class="reflib">
+    <div class="reflib-side">
+      <input type="search" class="mqtt-search reflib-search" id="reflib-search" placeholder="Search all documents…" oninput="reflibRender()">
+      <div class="reflib-nav" id="reflib-nav"></div>
     </div>
+    <div class="flow-wrap reflib-main" id="reflib-main"></div>
   </div>
   </div>
 
@@ -2052,11 +2105,9 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
         <div class="mlive">
           <div class="mlive-label">Bluetooth</div>
           <div class="mlive-val" id="sys-bt-val">--</div>
+          <div class="bt-card-summary" id="bt-dev-summary"></div>
+          <div class="bt-card-list" id="bt-dev-table"><div class="bt-card-empty">Loading…</div></div>
         </div>
-      </div>
-      <div class="wm-info-label" style="margin:16px 0 8px">Bluetooth Devices <span id="bt-dev-summary" style="color:#4a5f7a;font-weight:normal"></span></div>
-      <div class="access-log-table" id="bt-dev-table">
-        <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
 
@@ -4955,8 +5006,8 @@ async function fetchThrottleEvents() {
 }
 
 let sysSparkInterval = null;
-// Bluetooth device list (siloed): paired/connected devices from
-// /api/system/bluetooth (bluetoothctl), refreshed with the sparklines.
+// Bluetooth devices (siloed): connected devices listed inside the Bluetooth card,
+// from /api/system/bluetooth (bluetoothctl), refreshed with the sparklines.
 async function fetchBluetoothDevices() {
   const container = document.getElementById('bt-dev-table');
   const summary = document.getElementById('bt-dev-summary');
@@ -4964,30 +5015,27 @@ async function fetchBluetoothDevices() {
     const d = await (await fetch('/api/system/bluetooth')).json();
     if (!d.available) {
       summary.textContent = '';
-      container.innerHTML = '<div class="mqtt-empty">bluetoothctl not available</div>';
+      container.innerHTML = '<div class="bt-card-empty">bluetoothctl not available</div>';
       return;
     }
     const devs = d.devices || [];
-    const nConn = devs.filter(x => x.connected).length;
-    summary.textContent = `· ${nConn} connected, ${devs.length} paired` +
-      (d.unpaired_seen ? `, ${d.unpaired_seen} other nearby seen` : '');
-    if (devs.length === 0) {
-      container.innerHTML = '<div class="mqtt-empty">No paired or connected devices</div>';
+    const conn = devs.filter(x => x.connected);
+    summary.textContent = `${conn.length} connected · ${devs.length} paired` +
+      (d.unpaired_seen ? ` · ${d.unpaired_seen} other nearby` : '');
+    if (conn.length === 0) {
+      container.innerHTML = '<div class="bt-card-empty">No devices connected</div>';
       return;
     }
-    container.innerHTML = devs.map(x => {
-      const status = x.connected ? '<span style="color:#3db87a">● Connected</span>'
-        : '<span style="color:#8fa3bd">○ Paired</span>';
+    container.innerHTML = conn.map(x => {
       const extra = [x.type, x.battery !== null ? `${x.battery}% batt` : null,
         x.rssi !== null ? `${x.rssi} dBm` : null].filter(Boolean).join(' · ');
-      return `<div class="access-log-row">
-        <span class="access-log-ip">${escapeHtml(x.name)}</span>
-        <span class="access-log-device">${escapeHtml(x.mac)}${extra ? ' · ' + escapeHtml(extra) : ''}</span>
-        <span class="access-log-time">${status}</span>
+      return `<div class="bt-card-row" title="${escapeHtml(x.mac)}">
+        <span class="bt-card-name">${escapeHtml(x.name)}</span>
+        <span class="bt-card-sub">${escapeHtml(extra || x.mac)}</span>
       </div>`;
     }).join('');
   } catch (e) {
-    container.innerHTML = '<div class="mqtt-empty">Failed to load Bluetooth devices</div>';
+    container.innerHTML = '<div class="bt-card-empty">Failed to load devices</div>';
   }
 }
 
@@ -7041,7 +7089,6 @@ let chartSoundingsGroup = null;      // persistent L.layerGroup for soundings, s
 let chartMoveTimer = null;
 let chartNcdsLayer = null;      // created once /api/charts/ncds/meta resolves — see loadNcdsBase()
 let chartStreetsLayer = null;   // dark theme applies on top of this too -- see updateChartBase
-let chartOChartsLayer = null;   // O-Charts siloed addition -- see loadOChartsBase()
 let chartActiveBaseLayer = null; // whichever of the two is currently attached to the map
 
 // IHO S-57 Appendix A COLOUR attribute codes — comma-separated on multi-tone
@@ -7474,7 +7521,7 @@ document.addEventListener('keydown', (e) => {
 function updateChartBase() {
   const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
   const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
-  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer, OCharts: chartOChartsLayer }[source];
+  const next = { Chart: chartNcdsLayer, Streets: chartStreetsLayer }[source];
   if (!next) return; // e.g. "Chart" picked before NCDS finished loading -- nothing to attach yet
   if (next !== chartActiveBaseLayer) {
     if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
@@ -7847,7 +7894,6 @@ async function initChartMap() {
   });
 
   await loadNcdsBase();
-  loadOChartsBase();
   loadMobMarks();
   loadWindVelocity().then(checkWindRegionForViewport); // in case the chart opened outside WIND_HOME_BBOX
   try {
@@ -8591,19 +8637,40 @@ async function stopTrip() {
   } catch (e) { alert('Failed to stop trip'); }
 }
 
+// The whole trail is fetched once per trip, then only points after the last
+// timestamp already drawn (/points_after), and a poll is skipped while the
+// previous one is still running -- re-sending the full trail every 5 s piled
+// up requests and pegged the Pi once a trip had been recording for weeks.
+let chartActiveTripLoadedId = null;  // trip whose full trail is already drawn
+let chartActiveTripLastTs = null;    // timestamp of its newest drawn point
+let chartActiveTripFetching = false;
 async function fetchActiveTripPoints() {
-  if (!chartActiveTripId) return;
+  if (!chartActiveTripId || chartActiveTripFetching) return;
+  chartActiveTripFetching = true;
+  const id = chartActiveTripId;
   try {
-    const d = await (await fetch(`/api/trips/${chartActiveTripId}/points`)).json();
-    const pts = (d.points || []).map(p => [p.lat, p.lon]);
-    if (!chartTripPolylines[chartActiveTripId]) {
-      chartTripPolylines[chartActiveTripId] = L.polyline(pts, { color: '#e05050', weight: 3, opacity: 0.8 });
-      chartTripTrackGroup.addLayer(chartTripPolylines[chartActiveTripId]);
+    const incremental = chartActiveTripLoadedId === id && chartActiveTripLastTs && chartTripPolylines[id];
+    const url = incremental
+      ? `/api/trips/${id}/points_after?after=${encodeURIComponent(chartActiveTripLastTs)}`
+      : `/api/trips/${id}/points_display`;   // thinned for long trips -- see dashboard_api.py
+    const d = await (await fetch(url)).json();
+    if (d.error) return;   // keep last-known trail on screen
+    const points = d.points || [];
+    const pts = points.map(p => [p.lat, p.lon]);
+    if (!chartTripPolylines[id]) {
+      chartTripPolylines[id] = L.polyline(pts, { color: '#e05050', weight: 3, opacity: 0.8 });
+      chartTripTrackGroup.addLayer(chartTripPolylines[id]);
+    } else if (incremental) {
+      pts.forEach(p => chartTripPolylines[id].addLatLng(p));
     } else {
-      chartTripPolylines[chartActiveTripId].setLatLngs(pts);
+      chartTripPolylines[id].setLatLngs(pts);
     }
+    chartActiveTripLoadedId = id;
+    if (points.length) chartActiveTripLastTs = points[points.length - 1].t;
   } catch (e) {
     // transient fetch failure — keep last-known trail on screen
+  } finally {
+    chartActiveTripFetching = false;
   }
 }
 
@@ -8613,7 +8680,7 @@ async function toggleTripVisibility(id) {
     delete chartTripPolylines[id];
   } else {
     try {
-      const d = await (await fetch(`/api/trips/${id}/points`)).json();
+      const d = await (await fetch(`/api/trips/${id}/points_display`)).json();   // thinned for long trips
       const pts = (d.points || []).map(p => [p.lat, p.lon]);
       chartTripPolylines[id] = L.polyline(pts, { color: '#2dd4bf', weight: 3, opacity: 0.8 });
       chartTripTrackGroup.addLayer(chartTripPolylines[id]);
@@ -8749,9 +8816,14 @@ async function loadNcdsBase() {
     // already constrain what's shown, and Leaflet's own bounds-clipping on
     // a tile layer is a known source of tiles silently not being requested
     // right at a viewport's edge.
-    chartNcdsLayer = L.tileLayer('/api/charts/ncds/tiles/{z}/{x}/{y}.png', {
-      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxNativeZoom,
+    // Merged NOAA + O-Charts tiles (siloed addition, see the "Merged NOAA +
+    // O-Charts base" block in dashboard_api.py) -- the server upscales NOAA
+    // itself past its native zoom, so every zoom is requested. Was:
+    // '/api/charts/ncds/tiles/{z}/{x}/{y}.png' with maxNativeZoom: d.maxNativeZoom.
+    chartNcdsLayer = L.tileLayer('/api/charts/merged/tiles/{z}/{x}/{y}.png', {
+      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: 18,
     });
+    chartNcdsLayer.on('tileerror', mergedRetryTile);
     let loaded = 0, errored = 0;
     chartNcdsLayer.on('tileload', () => { loaded++; });
     chartNcdsLayer.on('tileerror', e => { errored++; console.error('NCDS tile failed:', e.coords, e.error); });
@@ -8764,116 +8836,78 @@ async function loadNcdsBase() {
   }
 }
 
-// ─── O-Charts base layer (siloed addition) ───────────────────────────────────
-// Third base source: tiles drawn on demand by the server from the decrypted
-// O-charts files (see the "O-Charts base layer" block in dashboard_api.py and
-// ochart_tiles.py). A tile the server hasn't drawn before takes a second or
-// two; after that it comes from the server's cache. Outside O-charts
-// coverage the server returns 404 and that tile stays blank.
-async function loadOChartsBase() {
-  try {
-    const res = await fetch('/api/charts/ocharts/meta');
-    const d = await res.json();
-    if (!d.available) {
-      console.warn('O-Charts base chart: no chart files found');
-      return;
+// ─── Merged NOAA + O-Charts chart (siloed addition) ──────────────────────────
+// The "Chart" base is now NOAA drawn over O-Charts, merged on the server (see
+// the "Merged NOAA + O-Charts base" block in dashboard_api.py): NOAA wherever
+// it has the area, O-Charts filling the gaps (e.g. BVI). The overlay
+// checkboxes likewise show the NOAA cells as before, plus O-Charts features
+// from /api/charts/merged/features outside those cells.
+// refreshChartViewport is wrapped rather than edited.
+try {   // the O-Charts radio is gone -- a saved choice of it now means Chart
+  if (localStorage.getItem('chartBaseSource') === 'OCharts') localStorage.setItem('chartBaseSource', 'Chart');
+} catch (e) {}
+
+// A tile the server hasn't drawn from O-Charts before takes a second or two;
+// it answers 503 when one waited too long behind others, so try again a
+// couple of times if it's still on screen.
+function mergedRetryTile(e) {
+  const tries = (e.tile._mergedRetries || 0) + 1;
+  if (tries > 3) return;
+  e.tile._mergedRetries = tries;
+  setTimeout(() => {
+    if (chartNcdsLayer && chartMap.hasLayer(chartNcdsLayer) && e.tile.isConnected) {
+      e.tile.src = chartNcdsLayer.getTileUrl(e.coords) + '?retry=' + tries;
     }
-    chartOChartsLayer = L.tileLayer('/api/charts/ocharts/tiles/{z}/{x}/{y}.png', {
-      minZoom: d.minZoom, maxZoom: 18, maxNativeZoom: d.maxZoom,
-      attribution: 'O-charts',
-    });
-    // The server answers 503 when a tile waited too long behind others being
-    // drawn; try it again a couple of times if it's still on screen.
-    chartOChartsLayer.on('tileerror', e => {
-      const tries = (e.tile._ochartsRetries || 0) + 1;
-      if (tries > 3) return;
-      e.tile._ochartsRetries = tries;
-      setTimeout(() => {
-        if (chartMap.hasLayer(chartOChartsLayer) && e.tile.isConnected) {
-          e.tile.src = chartOChartsLayer.getTileUrl(e.coords) + '?retry=' + tries;
-        }
-      }, 3000 * tries);
-    });
-    const selectedSource = document.querySelector('#chart-base-source input:checked');
-    if (selectedSource && selectedSource.value === 'OCharts') updateChartBase();
-  } catch (e) {
-    console.error('O-Charts base layer failed to load:', e);
-  }
+  }, 3000 * tries);
 }
 
-// While O-Charts is the base, the overlay checkboxes (Aids to Navigation,
-// Bridges, Hazards, Fairways / Areas, Soundings) show O-Charts features from
-// /api/charts/ocharts/features instead of the NOAA cells -- the server picks
-// the same charts the tiles use, so symbols line up with the chart under them.
-// Same stylers and groups as the NOAA cells, so they look and click the same.
-// refreshChartViewport/updateChartBase are wrapped rather than edited.
-let ochartsOverlayLayers = [];   // [{ group, layer }] currently on the map
-let ochartsOverlaySeq = 0;       // drops responses that arrive after a newer pan
-let ochartsOverlayWasActive = null;
-function ochartsBaseActive() {
-  const s = document.querySelector('#chart-base-source input:checked');
-  return !!s && s.value === 'OCharts';
+let mergedOverlayLayers = [];   // [{ group, layer }] currently on the map
+let mergedOverlaySeq = 0;       // drops responses that arrive after a newer pan
+function clearMergedOverlay() {
+  mergedOverlayLayers.forEach(({ group, layer }) => group.removeLayer(layer));
+  mergedOverlayLayers = [];
 }
-function clearOChartsOverlay() {
-  ochartsOverlayLayers.forEach(({ group, layer }) => group.removeLayer(layer));
-  ochartsOverlayLayers = [];
-}
-async function refreshOChartsOverlay() {
-  const seq = ++ochartsOverlaySeq;
+// Returns the number of O-Charts features shown, or null if this refresh was
+// superseded or failed.
+async function refreshMergedOverlay() {
+  const seq = ++mergedOverlaySeq;
   const z = chartMap.getZoom();
-  if (z < CHART_CELL_MIN_ZOOM) {
-    clearOChartsOverlay();
-    chartStatusParts.vector = `zoom in past ${CHART_CELL_MIN_ZOOM} for detail`;
-    updateChartStatus();
-    return;
-  }
+  if (z < CHART_CELL_MIN_ZOOM) { clearMergedOverlay(); return null; }
   const b = chartMap.getBounds().pad(CHART_VIEWPORT_PADDING);
-  chartStatusParts.vector = 'Loading O-Charts features…';
-  updateChartStatus();
   let d;
   try {
     const q = new URLSearchParams({ z, west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
-    const res = await fetch('/api/charts/ocharts/features?' + q);
+    const res = await fetch('/api/charts/merged/features?' + q);
     d = await res.json();
     if (!res.ok) throw new Error(d.error || res.status);
   } catch (e) {
-    if (seq === ochartsOverlaySeq) { chartStatusParts.vector = 'O-Charts features unavailable'; updateChartStatus(); }
     console.error('O-Charts features failed:', e);
-    return;
+    return null;
   }
-  if (seq !== ochartsOverlaySeq || !ochartsBaseActive()) return;
+  if (seq !== mergedOverlaySeq) return null;
   const next = [];
   let count = 0;
   for (const [key, geo] of Object.entries(d.layers || {})) {
+    if (!geo.features.length) continue;
     const group = key === 'SOUNDG' ? chartSoundingsGroup : chartOverlayGroups[CHART_LAYER_TO_GROUP[key]];
     if (!group || !CHART_LAYER_STYLERS[key]) continue;
     next.push({ group, layer: CHART_LAYER_STYLERS[key](geo) });
     count += geo.features.length;
   }
-  clearOChartsOverlay();
+  clearMergedOverlay();
   next.forEach(({ group, layer }) => group.addLayer(layer));
-  ochartsOverlayLayers = next;
-  chartStatusParts.vector = `${count} O-Charts features in view`;
-  updateChartStatus();
+  mergedOverlayLayers = next;
+  return count;
 }
-const _refreshChartViewportBeforeOCharts = refreshChartViewport;
+const _refreshChartViewportBeforeMerge = refreshChartViewport;
 refreshChartViewport = async function() {
-  if (ochartsBaseActive()) {
-    Array.from(chartLoadedCells.keys()).forEach(unloadCellFromMap);
-    return refreshOChartsOverlay();
+  const [, count] = await Promise.all([_refreshChartViewportBeforeMerge(), refreshMergedOverlay()]);
+  if (count && chartMap.getZoom() >= CHART_CELL_MIN_ZOOM) {
+    chartStatusParts.vector += ` + ${count} O-Charts features`;
+    updateChartStatus();
   }
-  ochartsOverlaySeq++;   // ignore any O-Charts response still in flight
-  clearOChartsOverlay();
-  return _refreshChartViewportBeforeOCharts();
 };
-const _updateChartBaseBeforeOCharts = updateChartBase;
-updateChartBase = function() {
-  _updateChartBaseBeforeOCharts();
-  const active = ochartsBaseActive();
-  if (chartMap && ochartsOverlayWasActive !== null && active !== ochartsOverlayWasActive) refreshChartViewport();
-  ochartsOverlayWasActive = active;
-};
-// ─── end O-Charts siloed addition ────────────────────────────────────────────
+// ─── end merged NOAA + O-Charts siloed addition ──────────────────────────────
 
 // Wind overlay -- siloed addition, /api/wind/manifest + /api/wind/velocity in
 // dashboard_api.py (NOAA GFS, see wind_grid.py). Same "attach only if its
@@ -9221,7 +9255,7 @@ if (window.Notification && Notification.permission === 'default') {
   Notification.requestPermission(); // ask early so permission's resolved by the time an arrival happens
 }
 
-// ─── Pilot charts: region tabs (siloed addition) ────────────────────────────
+// ─── Pilot charts: regions (data for the Reference library below) ─────────
 // Each entry needs its 12 monthly PDFs actually present under
 // /home/mikemc/reference_docs/pilot_charts/<pub>_<month>.pdf -- only list a
 // region here once its files are downloaded, so a tab never links to a 404.
@@ -9237,30 +9271,7 @@ const PILOT_CHART_MONTHS = [
   ['may', 'May'], ['jun', 'June'], ['jul', 'July'], ['aug', 'August'],
   ['sep', 'September'], ['oct', 'October'], ['nov', 'November'], ['dec', 'December'],
 ];
-let pilotChartActiveRegion = PILOT_CHART_REGIONS[0].key;
-function pilotChartRenderTabs() {
-  document.getElementById('pilotchart-region-tabs').innerHTML = PILOT_CHART_REGIONS.map(r =>
-    `<button class="pilotchart-tab${r.key === pilotChartActiveRegion ? ' active' : ''}" onclick="pilotChartSelectRegion('${r.key}')">${r.label}</button>`
-  ).join('');
-}
-function pilotChartSelectRegion(key) {
-  pilotChartActiveRegion = key;
-  pilotChartRenderTabs();
-  pilotChartRenderMonths();
-}
-function pilotChartRenderMonths() {
-  const region = PILOT_CHART_REGIONS.find(r => r.key === pilotChartActiveRegion);
-  document.getElementById('pilotchart-region-sub').textContent = `NGA Pub. ${region.pub} — covers ${region.coverage}`;
-  const curMonthIdx = new Date().getUTCMonth(); // highlight this month for a quick "what's relevant now" cue
-  document.getElementById('pilotchart-month-grid').innerHTML = PILOT_CHART_MONTHS.map(([abbr, name], i) => `
-    <a class="wm-btn ${i === curMonthIdx ? 'wm-btn-start' : 'wm-btn-manual'}" href="/api/reference/pilot_charts/${region.pub}_${abbr}.pdf" target="_blank">
-      ${name}${i === curMonthIdx ? '<span class="reference-doc-sub">This month</span>' : ''}
-    </a>`).join('');
-}
-pilotChartRenderTabs();
-pilotChartRenderMonths();
-
-// ─── Sailing directions: chapter/volume picker (siloed addition) ───────────
+// ─── Sailing directions: volumes/chapters (data for the Reference library) ─
 // One level more detailed than the pilot charts above -- text-based port,
 // hazard, and routing info rather than monthly ocean-basin climatology.
 // Coast Pilot 5 ships as one file per chapter already, so it gets a real
@@ -9297,53 +9308,145 @@ const SAILING_DIRECTIONS_DOCS = [
     chapters: [['pub148', 'Open Pub. 148']],
   },
 ];
-let sailingDirActiveDoc = SAILING_DIRECTIONS_DOCS[0].key;
-function sailingDirRenderTabs() {
-  document.getElementById('sailingdir-tabs').innerHTML = SAILING_DIRECTIONS_DOCS.map(d =>
-    `<button class="pilotchart-tab${d.key === sailingDirActiveDoc ? ' active' : ''}" onclick="sailingDirSelect('${d.key}')">${d.label}</button>`
-  ).join('');
-}
-function sailingDirSelect(key) {
-  sailingDirActiveDoc = key;
-  sailingDirRenderTabs();
-  sailingDirRenderChapters();
-}
-function sailingDirRenderChapters() {
-  const doc = SAILING_DIRECTIONS_DOCS.find(d => d.key === sailingDirActiveDoc);
-  document.getElementById('sailingdir-sub').textContent = `${doc.source} — covers ${doc.coverage}`;
-  document.getElementById('sailingdir-grid').innerHTML = doc.chapters.map(([file, label]) =>
-    `<a class="wm-btn wm-btn-manual" href="/api/reference/sailing_directions/${file}.pdf" target="_blank">${label}</a>`
-  ).join('');
-}
-sailingDirRenderTabs();
-sailingDirRenderChapters();
-
-// ─── List of Lights: region picker (siloed addition) ────────────────────────
+// ─── List of Lights: regions (data for the Reference library below) ───────
 // Same split as Sailing Directions -- US domestic waters (USCG Light List)
 // vs. international (NGA Pub.) -- each ships as one combined PDF per region.
 const LIST_OF_LIGHTS_REGIONS = [
   { key: 'gulf', label: 'Gulf of Mexico', source: 'USCG Light List, Vol. IV', file: 'gulf', coverage: 'Econfina River, FL to the Rio Grande, TX' },
   { key: 'caribbean', label: 'Caribbean & West Indies', source: 'NGA Pub. 110', file: 'caribbean', coverage: 'Greenland, the East Coasts of North and South America (excluding continental USA except the east coast of Florida), and the West Indies' },
 ];
-let lolActiveRegion = LIST_OF_LIGHTS_REGIONS[0].key;
-function lolRenderTabs() {
-  document.getElementById('lol-tabs').innerHTML = LIST_OF_LIGHTS_REGIONS.map(r =>
-    `<button class="pilotchart-tab${r.key === lolActiveRegion ? ' active' : ''}" onclick="lolSelectRegion('${r.key}')">${r.label}</button>`
-  ).join('');
+
+// ─── Reference library (Documents sub-tab) ─────────────────────────────────
+// Every publication above plus the stand-alone PDFs, as one list: the left
+// column picks a publication, the right pane shows only that one, and the
+// search box looks across all of them (titles, regions and coverage).
+const REF_LIBRARY = [
+  {
+    key: 'pilot', title: 'Pilot Charts', blurb: 'Monthly winds, currents, waves & storm tracks',
+    pickRegion: true,   // 5 regions x 12 months -- one region at a time
+    groups: PILOT_CHART_REGIONS.map(r => ({
+      key: r.key, label: r.label, sub: `NGA Pub. ${r.pub} · ${r.coverage}`, layout: 'months',
+      items: PILOT_CHART_MONTHS.map(([abbr, name], i) => ({
+        label: name, month: i, href: `/api/reference/pilot_charts/${r.pub}_${abbr}.pdf` })),
+    })),
+  },
+  {
+    key: 'sailing', title: 'Sailing Directions', blurb: 'Port, hazard & routing detail for coastal passages',
+    groups: SAILING_DIRECTIONS_DOCS.map(d => ({
+      key: d.key, label: `${d.source} — ${d.label}`, sub: `Covers ${d.coverage}`,
+      layout: d.chapters.length > 1 ? 'chapters' : 'single',
+      items: d.chapters.map(([file, label]) => {
+        const m = label.match(/^Ch (\d+): (.*)$/);
+        return { label: m ? m[2] : `${d.source}: ${d.label}`, num: m ? m[1] : null,
+                 href: `/api/reference/sailing_directions/${file}.pdf` };
+      }),
+    })),
+  },
+  {
+    key: 'lights', title: 'List of Lights', blurb: 'Lights, buoys & fog signals by characteristic',
+    groups: LIST_OF_LIGHTS_REGIONS.map(r => ({
+      key: r.key, label: r.source, sub: `Covers ${r.coverage}`, layout: 'single',
+      items: [{ label: r.label, href: `/api/reference/list_of_lights/${r.file}.pdf` }],
+    })),
+  },
+  {
+    key: 'rules', title: 'Navigation Rules', blurb: 'COLREGs & Inland rules of the road',
+    groups: [{ key: 'rules', label: 'USCG Navigation Rules Handbook', sub: 'International (COLREGs) and US Inland rules, with annexes', layout: 'single',
+      items: [{ label: 'Navigation Rules Handbook', href: '/api/reference/navigation_rules/nav_rules.pdf' }] }],
+  },
+  {
+    key: 'chart1', title: 'Chart No. 1', blurb: 'Chart symbols, abbreviations & terms',
+    groups: [{ key: 'chart1', label: 'NOAA / NGA Chart No. 1', sub: 'The legend for reading paper and electronic charts', layout: 'single',
+      items: [{ label: 'Chart No. 1', href: '/api/reference/chart_no1/chart_no1.pdf' }] }],
+  },
+  {
+    key: 'pub249', title: 'Sight Reduction Tables', blurb: 'Pub. 249 for celestial sights',
+    groups: [{ key: 'pub249', label: 'NGA Pub. 249 — Sight Reduction Tables for Air Navigation', sub: 'Also on the Celestial Navigation tab, with the sight calculator', layout: 'single',
+      items: [
+        { label: 'Vol. 1 — Selected Stars', note: 'All latitudes', href: '/api/reference/celestial_navigation/Pub249_Vol1.pdf' },
+        { label: 'Vol. 2 — Sun, Moon, Planets', note: 'Latitude 0°–40°', href: '/api/reference/celestial_navigation/Pub249_Vol2.pdf' },
+        { label: 'Vol. 3 — Sun, Moon, Planets', note: 'Latitude 39°–89°', href: '/api/reference/celestial_navigation/Pub249_Vol3.pdf' },
+      ] }],
+  },
+];
+const reflibPrefs = {
+  get: (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+let reflibPub = reflibPrefs.get('reflib.pub', 'pilot');
+let reflibRegion = reflibPrefs.get('reflib.pilotRegion', PILOT_CHART_REGIONS[0].key);
+if (!REF_LIBRARY.some(p => p.key === reflibPub)) reflibPub = 'pilot';
+
+function reflibCount(pub) { return pub.groups.reduce((n, g) => n + g.items.length, 0); }
+function reflibSelect(key) {
+  reflibPub = key; reflibPrefs.set('reflib.pub', key);
+  document.getElementById('reflib-search').value = '';
+  reflibRender();
 }
-function lolSelectRegion(key) {
-  lolActiveRegion = key;
-  lolRenderTabs();
-  lolRenderGrid();
+function reflibSelectRegion(key) {
+  reflibRegion = key; reflibPrefs.set('reflib.pilotRegion', key);
+  reflibRender();
 }
-function lolRenderGrid() {
-  const region = LIST_OF_LIGHTS_REGIONS.find(r => r.key === lolActiveRegion);
-  document.getElementById('lol-sub').textContent = `${region.source} — covers ${region.coverage}`;
-  document.getElementById('lol-grid').innerHTML =
-    `<a class="wm-btn wm-btn-manual" href="/api/reference/list_of_lights/${region.file}.pdf" target="_blank">Open ${region.label}</a>`;
+function reflibItemHTML(it, group, pub) {
+  const thisMonth = group.layout === 'months' && it.month === new Date().getMonth();
+  const num = it.num ? `<span class="reflib-num">${it.num}</span>` : '<span class="reflib-icon">📄</span>';
+  const note = thisMonth ? 'This month' : (it.note || '');
+  return `<a class="reflib-doc${thisMonth ? ' current' : ''}${group.layout === 'months' ? ' month' : ''}" href="${it.href}" target="_blank" rel="noopener">
+    ${group.layout === 'months' ? '' : num}
+    <span class="reflib-doc-text"><span class="reflib-doc-label">${escapeHtml(it.label)}</span>${note ? `<span class="reflib-doc-note">${escapeHtml(note)}</span>` : ''}</span>
+    <span class="reflib-open">↗</span>
+  </a>`;
 }
-lolRenderTabs();
-lolRenderGrid();
+function reflibGroupHTML(group, pub) {
+  return `<div class="reflib-group">
+    <div class="reflib-group-head"><span class="reflib-group-title">${escapeHtml(group.label)}</span><span class="reflib-group-sub">${escapeHtml(group.sub)}</span></div>
+    <div class="reflib-docs ${group.layout}">${group.items.map(it => reflibItemHTML(it, group, pub)).join('')}</div>
+  </div>`;
+}
+function reflibRender() {
+  const q = document.getElementById('reflib-search').value.trim().toLowerCase();
+  document.getElementById('reflib-nav').innerHTML = REF_LIBRARY.map(p => `
+    <button class="reflib-pub${!q && p.key === reflibPub ? ' active' : ''}" onclick="reflibSelect('${p.key}')">
+      <span class="reflib-pub-title">${p.title}<span class="reflib-pub-count">${reflibCount(p)}</span></span>
+      <span class="reflib-pub-blurb">${p.blurb}</span>
+    </button>`).join('');
+  const main = document.getElementById('reflib-main');
+
+  if (q) {   // search: every matching document, grouped by publication
+    const words = q.split(/\s+/);
+    const hits = [];
+    REF_LIBRARY.forEach(pub => pub.groups.forEach(group => {
+      const own = it => `${it.label} ${it.note || ''}`.toLowerCase();
+      let items = group.items.filter(it => {
+        const hay = `${pub.title} ${group.label} ${group.sub} ${own(it)}`.toLowerCase();
+        return words.every(w => hay.includes(w));
+      });
+      // Prefer documents whose own title matches: "virgin" should find
+      // Ch 14 Virgin Islands, not all 14 chapters of a volume whose coverage
+      // mentions the Virgin Islands. With no such title match, the whole
+      // matching group stays (e.g. "caribbean" lists that region's months).
+      const specific = items.filter(it => words.some(w => own(it).includes(w)));
+      if (specific.length) items = specific;
+      if (items.length) hits.push({ pub, group: { ...group, label: `${pub.title} · ${group.label}`, items } });
+    }));
+    main.innerHTML = `<div class="reflib-head"><div class="reflib-title">Search results</div>
+      <div class="reflib-blurb">${hits.reduce((n, h) => n + h.group.items.length, 0)} documents match “${escapeHtml(q)}”</div></div>` +
+      (hits.length ? hits.map(h => reflibGroupHTML(h.group, h.pub)).join('') : '<div class="reflib-empty">Nothing matches. Try a place, month or publication name.</div>');
+    return;
+  }
+
+  const pub = REF_LIBRARY.find(p => p.key === reflibPub);
+  let groups = pub.groups, picker = '';
+  if (pub.pickRegion) {
+    if (!groups.some(g => g.key === reflibRegion)) reflibRegion = groups[0].key;
+    picker = `<div class="pilotchart-tabs">${groups.map(g =>
+      `<button class="pilotchart-tab${g.key === reflibRegion ? ' active' : ''}" onclick="reflibSelectRegion('${g.key}')">${g.label}</button>`).join('')}</div>`;
+    groups = groups.filter(g => g.key === reflibRegion);
+  }
+  main.innerHTML = `<div class="reflib-head"><div class="reflib-title">${pub.title}</div><div class="reflib-blurb">${pub.blurb} · opens the PDF in a new tab</div></div>` +
+    picker + groups.map(g => reflibGroupHTML(g, pub)).join('');
+}
+reflibRender();
 
 // ─── Sextant sight calculator (siloed addition) ─────────────────────────────
 // Fully offline -- no network call. GHA/Dec for the Sun and the 57 standard
@@ -9688,6 +9791,12 @@ async function starchartAutoRefresh() {
     starchartGenerate();
   } else {
     starchartSetNote('No live GPS position available yet -- tap the chart, then enter a DR position and tap Preview (this keeps retrying automatically once a GPS fix comes in).');
+    // Nothing drawn yet: show a tappable placeholder instead of an empty
+    // (zero-height) box, so the chart doesn't just vanish without GPS.
+    const wrap = document.getElementById('starchart-svg-wrap');
+    if (!wrap.querySelector('svg')) {
+      wrap.innerHTML = '<div class="starchart-placeholder"><b>No GPS position yet</b>Tap to enter a position and preview the sky. The chart appears automatically once a GPS fix comes in.</div>';
+    }
   }
 }
 // The status line is shown both in the compact inline chart and in the
@@ -10066,6 +10175,103 @@ showPage = function(page) {
 };
 if (_mediaBootHash === '#media') showPage('media');
 // ─── end Media (Boat Radio) siloed addition ──────────────────────────────────
+
+// ─── Screen-size UI scaling (siloed addition) ────────────────────────────────
+// Sets --ui for the "Screen-size UI scaling" CSS block: same idea as the
+// Electrical tab's --fs (setFlowScale), applied to the header, nav and the
+// other tabs. The chart map isn't scaled (tiles would go blurry); instead it
+// grows to fill the window, like the Electrical canvas does.
+// showPage is wrapped rather than edited.
+function uiScaleFor(w, h) {
+  return w < 600 ? 1 : Math.max(0.8, Math.min(2, Math.min(w / 1280, h / 800)));
+}
+let uiScale = 1;
+function applyUiScale() {
+  const s = uiScaleFor(innerWidth, innerHeight);
+  const changed = s !== uiScale;
+  uiScale = s;
+  document.documentElement.style.setProperty('--ui', s.toFixed(3));
+  document.documentElement.style.setProperty('--ui-inv', (1 / s).toFixed(4));
+  // Chart.js draws at its unscaled size; render at the scaled resolution so
+  // sparklines stay crisp instead of being stretched.
+  if (changed && window.Chart && Chart.instances) {
+    Chart.defaults.devicePixelRatio = (window.devicePixelRatio || 1) * s;
+    Object.values(Chart.instances).forEach(c => {
+      c.options.devicePixelRatio = Chart.defaults.devicePixelRatio;
+      c.resize();
+    });
+  }
+  // The header grew or shrank, so the fitted tabs need re-measuring.
+  if (currentPage === 'electrical') {
+    fitElectricalCanvas();
+    buildFlow(lastFlowState.shoreOn, lastFlowState.charging, lastFlowState.discharging);
+  }
+  mediaFit();
+  fitChartMap();
+  fitPageToWindow(currentPage);
+}
+
+// Map fills the window down to the bottom edge (no page scroll), desktop only;
+// phones and the Full Screen mode keep their own sizing.
+function fitChartMap() {
+  const wrap = document.querySelector('#page-chart .chart-map-wrap');
+  if (!wrap || currentPage !== 'chart') return;
+  const before = wrap.style.height;
+  if (innerWidth < 600 || document.body.classList.contains('chart-fullscreen-active')) {
+    wrap.style.height = '';
+  } else {
+    const top = wrap.getBoundingClientRect().top + scrollY;
+    const available = innerHeight - top - 40;   // flow-wrap/body padding + safety margin
+    wrap.style.height = Math.max(400, available) + 'px';
+    const over = document.documentElement.scrollHeight - innerHeight;
+    if (over > 0) wrap.style.height = Math.max(400, available - over) + 'px';
+  }
+  if (chartMap && wrap.style.height !== before) chartMap.invalidateSize();
+}
+
+addEventListener('resize', applyUiScale);
+const _showPageBeforeUiScale = showPage;
+showPage = function(page) {
+  _showPageBeforeUiScale(page);
+  if (page === 'chart') fitChartMap();
+  fitPageToWindow(page);
+};
+// Showing/hiding the wind time slider or toggling Full Screen changes what
+// sits below the map -- re-fit after any click on the Chart tab.
+document.getElementById('page-chart').addEventListener('click', () => setTimeout(fitChartMap, 50));
+// Overview, Anchor Watch and Reference have more content than fits at the
+// screen scale, so each is shrunk just enough to end at the bottom of the
+// window (never below FIT_MIN_SCALE -- past that it scrolls rather than
+// getting unreadable). Re-fitted whenever its content changes size, e.g. the
+// forecast arriving or a Reference sub-tab switch.
+const FIT_TO_WINDOW_PAGES = ['overview', 'anchor', 'reference'];
+const FIT_MIN_SCALE = 0.6;
+function fitPageToWindow(page) {
+  if (!FIT_TO_WINDOW_PAGES.includes(page) || page !== currentPage) return;
+  const el = document.getElementById('page-' + page);
+  if (innerWidth < 600) { el.style.zoom = ''; el.style.removeProperty('--ui-inv'); return; }
+  let z = uiScale;
+  el.style.zoom = z;
+  for (let i = 0; i < 5; i++) {
+    const over = document.documentElement.scrollHeight - innerHeight;
+    if (over <= 0 || z <= FIT_MIN_SCALE) break;
+    const h = el.getBoundingClientRect().height;
+    z = Math.max(FIT_MIN_SCALE, z * (h - over) / h - 0.005);
+    el.style.zoom = z;
+  }
+  el.style.setProperty('--ui-inv', (1 / z).toFixed(4));   // keeps the star-chart tooltip unscaled
+}
+const fitPageObserver = new ResizeObserver(entries => {
+  entries.forEach(e => {
+    const page = e.target.id.replace('page-', '');
+    if (page === currentPage) requestAnimationFrame(() => fitPageToWindow(page));
+  });
+});
+// Refitting from scratch always lands on the same zoom for the same content,
+// so the observer settles after one extra call rather than looping.
+FIT_TO_WINDOW_PAGES.forEach(p => fitPageObserver.observe(document.getElementById('page-' + p)));
+applyUiScale();
+// ─── end screen-size UI scaling siloed addition ──────────────────────────────
 </script>
 </body>
 </html>

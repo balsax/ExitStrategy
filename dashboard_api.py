@@ -1983,6 +1983,62 @@ def trip_points_route(trip_id):
     except Exception as e:
         return jsonify({'points': [], 'error': str(e)})
 
+# ─── Incremental trip points (siloed addition) ─────────────────────────────
+# The Chart tab polls the recording trip every 5 s. Re-sending the whole
+# trail each time got slower as the trip grew -- a trip left recording for
+# 17 days (250k points) took ~3 minutes per fetch, the polls piled up and
+# pegged the Pi. The page now fetches the trail once, then only the points
+# after the last timestamp it has, via ?after=<_iso_utc timestamp>.
+@app.route('/api/trips/<int:trip_id>/points_after')
+def trip_points_after_route(trip_id):
+    try:
+        after = datetime.strptime(request.args['after'], '%Y-%m-%dT%H:%M:%S.%fZ')
+    except (KeyError, ValueError):
+        return jsonify({'error': 'after=<YYYY-MM-DDTHH:MM:SS.sssZ> required'}), 400
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT ts, lat, lon FROM trip_points WHERE trip_id=%s AND ts>%s ORDER BY ts",
+                    (trip_id, after))
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({'points': [{'t': _iso_utc(r[0]), 'lat': r[1], 'lon': r[2]} for r in rows]})
+    except Exception as e:
+        return jsonify({'points': [], 'error': str(e)})
+# ─── end incremental trip points siloed addition ───────────────────────────
+
+# ─── Thinned trip points for display (siloed addition) ─────────────────────
+# Drawing a track doesn't need every 5-second point: a trip left recording
+# for days is hundreds of thousands of rows, and pulling them all through
+# Python took minutes. Past TRIP_DISPLAY_MAX_POINTS, MySQL keeps every Nth
+# point (plus the last) so only ~that many rows ever leave the database.
+# /points still returns the full-resolution track.
+TRIP_DISPLAY_MAX_POINTS = 5000
+
+@app.route('/api/trips/<int:trip_id>/points_display')
+def trip_points_display_route(trip_id):
+    try:
+        conn = get_boat_db()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM trip_points WHERE trip_id=%s", (trip_id,))
+        total = cur.fetchone()[0]
+        step = -(-total // TRIP_DISPLAY_MAX_POINTS)  # ceiling division
+        if step <= 1:
+            cur.execute("SELECT ts, lat, lon FROM trip_points WHERE trip_id=%s ORDER BY ts", (trip_id,))
+        else:
+            cur.execute("""
+                SELECT ts, lat, lon FROM (
+                    SELECT ts, lat, lon, ROW_NUMBER() OVER (ORDER BY ts) AS rn
+                    FROM trip_points WHERE trip_id=%s
+                ) t WHERE MOD(rn - 1, %s) = 0 OR rn = %s ORDER BY ts""", (trip_id, step, total))
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({'points': [{'t': _iso_utc(r[0]), 'lat': r[1], 'lon': r[2]} for r in rows],
+                        'total': total, 'thinned': step > 1})
+    except Exception as e:
+        return jsonify({'points': [], 'error': str(e)})
+# ─── end thinned trip points siloed addition ───────────────────────────────
+
 @app.route('/api/trips/start', methods=['POST'])
 def trip_start():
     data = request.get_json(silent=True) or {}
@@ -2499,6 +2555,128 @@ def ocharts_features():
         return jsonify({'error': 'view too large'}), 400
     return jsonify(data)
 # ─── end O-Charts siloed addition ──────────────────────────────────────────
+
+# ─── Merged NOAA + O-Charts base (siloed addition) ─────────────────────────
+# One base layer for the Chart tab: NOAA NCDS drawn on top of O-Charts. NCDS
+# tiles are transparent outside NOAA coverage (e.g. BVI), so wherever NOAA has
+# the area it wins and O-Charts only shows through the gaps. Reuses the NCDS
+# helpers above and ochart_tiles without changing either; to back it out,
+# delete this block and point loadNcdsBase() back at /api/charts/ncds/tiles.
+#
+# NOAA past its native zoom is only trusted a couple of levels deep: in the
+# Bahamas NCDS has nothing but small-scale charts, and a z8 tile blown up to
+# z14 is giant lettering -- there the real O-Charts detail is used instead,
+# and the deep upscale is only a last resort when O-Charts has nothing.
+MERGED_NOAA_OVERZOOM = 2
+
+def _merged_ncds_image(files, z, x, y, max_levels):
+    """NCDS tile (RGBA Image) at z/x/y, upscaled from an ancestor at most
+    max_levels up -- same crop-and-scale as ncds_tile() -- or None."""
+    for k in range(0, max_levels + 1):
+        if z - k < 0:
+            break
+        data = _ncds_lookup_tile(files, z - k, x >> k, y >> k)
+        if data is None:
+            continue
+        img = Image.open(io.BytesIO(data)).convert('RGBA')
+        if k == 0:
+            return img
+        tile_px = 256 >> k
+        left, top = (x & ((1 << k) - 1)) * tile_px, (y & ((1 << k) - 1)) * tile_px
+        return img.resize((256, 256), Image.LANCZOS, box=(left, top, left + tile_px, top + tile_px))
+    return None
+
+def _merged_png(img):
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    resp = Response(buf.getvalue(), mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+@app.route('/api/charts/merged/tiles/<int:z>/<int:x>/<int:y>.png')
+def merged_tile(z, x, y):
+    files = _ncds_files()
+    noaa = _merged_ncds_image(files, z, x, y, MERGED_NOAA_OVERZOOM) if files else None
+    if noaa is not None and noaa.getchannel('A').getextrema()[0] == 255:
+        return _merged_png(noaa)   # NOAA covers the whole tile -- no need to draw O-Charts
+
+    oc = ochart_tiles.get_tile(z, x, y) if ochart_tiles.MIN_ZOOM <= z <= ochart_tiles.MAX_ZOOM else None
+    if oc is ochart_tiles.BUSY:
+        return '', 503   # the page retries it
+    if oc is not None:
+        base = Image.open(io.BytesIO(oc)).convert('RGBA')
+        if noaa is not None:
+            base.alpha_composite(noaa)
+        return _merged_png(base)
+    if noaa is not None:
+        return _merged_png(noaa)
+    if files:
+        deep = _merged_ncds_image(files, z, x, y, NCDS_OVERZOOM_MAX_LEVELS)
+        if deep is not None:
+            return _merged_png(deep)
+    return '', 404
+
+# O-Charts aids/soundings/etc. for the view, minus anything inside a NOAA ENC
+# cell -- the page still loads those cells itself, so NOAA wins the overlap.
+_merged_cell_bounds = None
+
+def _merged_noaa_cell_bounds():
+    global _merged_cell_bounds
+    if _merged_cell_bounds is None:
+        boxes = []
+        if os.path.isdir(CHART_DATA_DIR):
+            for name in os.listdir(CHART_DATA_DIR):
+                try:
+                    with open(os.path.join(CHART_DATA_DIR, name, 'meta.json')) as f:
+                        b = json.load(f).get('bounds')
+                except (OSError, ValueError):
+                    continue
+                if b:
+                    boxes.append((b['west'], b['south'], b['east'], b['north']))
+        _merged_cell_bounds = boxes
+    return _merged_cell_bounds
+
+def _merged_feature_point(geom):
+    """A representative lon/lat for a feature: the point itself, or the middle
+    of a polygon's bounding box."""
+    coords = geom.get('coordinates')
+    if geom.get('type') == 'Point':
+        return coords[0], coords[1]
+    pts = []
+    def walk(c):
+        if c and isinstance(c[0], (int, float)):
+            pts.append(c)
+        else:
+            for sub in c:
+                walk(sub)
+    walk(coords)
+    if not pts:
+        return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+
+@app.route('/api/charts/merged/features')
+def merged_features():
+    try:
+        z = int(request.args['z'])
+        west, south, east, north = (float(request.args[k]) for k in ('west', 'south', 'east', 'north'))
+    except (KeyError, ValueError):
+        return jsonify({'error': 'z, west, south, east, north required'}), 400
+    data = ochart_tiles.features_for_view(z, west, south, east, north)
+    if data is None:
+        return jsonify({'error': 'view too large'}), 400
+    noaa = [b for b in _merged_noaa_cell_bounds()
+            if not (b[0] > east or b[2] < west or b[1] > north or b[3] < south)]
+    if noaa:
+        for fc in data['layers'].values():
+            kept = []
+            for feat in fc['features']:
+                p = _merged_feature_point(feat['geometry'])
+                if p is None or not any(b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3] for b in noaa):
+                    kept.append(feat)
+            fc['features'] = kept
+    return jsonify(data)
+# ─── end merged NOAA + O-Charts siloed addition ─────────────────────────────
 
 # ─── MOB / man overboard marks (siloed addition) ───────────────────────────
 MOB_MARKS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mob_marks.json')
