@@ -10,6 +10,9 @@
 <link rel="manifest" href="/static/manifest.json" crossorigin="use-credentials">
 <meta name="theme-color" content="#0a0e1a">
 <meta name="mobile-web-app-capable" content="yes">
+<!-- The page is already dark: stop Chrome's "darken websites" (Android dark mode) from
+     recolouring it -- it turned the logo's white box black. -->
+<meta name="color-scheme" content="only light">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon-anchor.svg">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -37,6 +40,7 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;margin-bottom:1rem}
 .header-left{display:flex;align-items:center;gap:12px}
 .header-left img{height:52px;background:white;border-radius:6px;padding:4px 8px}
+@media (prefers-color-scheme:dark){.header-left img{background:#c9d0da}}   /* softer light gray in device dark mode */
 .htitle h1{font-size:15px;font-weight:500;color:#e0e6f0}
 .htitle p{font-size:12px;color:#6b82a0}
 .live{font-size:12px;color:#4a9fd4;background:#0d1f38;padding:4px 10px;border-radius:6px;border:.5px solid #1e3a5a;display:flex;align-items:center;gap:5px}
