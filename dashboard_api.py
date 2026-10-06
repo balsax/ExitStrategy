@@ -445,6 +445,45 @@ def sensor():
 
     return jsonify(data)
 
+# ─── BME680 last-seen (siloed addition) ─────────────────────────────────────
+# /api/sensor only looks back 1h, so a sensor that has dropped off just shows
+# "--" forever. This reports when the BME680 last wrote anything (up to 30d
+# back) so the Overview/Weather cards can say "offline, last reading ...".
+# The board buffers readings while offline and uploads them late, so this
+# can move backwards-in-age (newer) after a reconnect -- that's expected.
+_bme_last_seen_cache = {'t': 0.0, 'data': None}
+BME_LAST_SEEN_TTL_S = 30
+
+@app.route('/api/sensor/last_seen')
+def sensor_last_seen():
+    now = time.time()
+    if _bme_last_seen_cache['data'] is None or now - _bme_last_seen_cache['t'] > BME_LAST_SEEN_TTL_S:
+        s = get_secrets()
+        flux = f'''from(bucket:"{s['INFLUX_BUCKET']}")
+  |> range(start: -30d)
+  |> filter(fn: (r) => r._measurement == "bme680" and r._field == "temp_f")
+  |> last()
+  |> keep(columns: ["_time"])'''
+        last = None
+        try:
+            header = None
+            for line in query_influx(flux).strip().split('\n'):
+                cols = line.strip().split(',')
+                if '_time' in cols:
+                    header = cols
+                elif header and len(cols) == len(header):
+                    last = cols[header.index('_time')]
+        except Exception as e:
+            return jsonify({'last_seen': None, 'error': str(e)})
+        _bme_last_seen_cache['data'] = {'last_seen': last}
+        _bme_last_seen_cache['t'] = now
+    data = dict(_bme_last_seen_cache['data'])
+    if data['last_seen']:
+        ts = datetime.fromisoformat(data['last_seen'].replace('Z', '+00:00'))
+        data['age_s'] = round(now - ts.timestamp())
+    return jsonify(data)
+# ─── end BME680 last-seen siloed addition ───────────────────────────────────
+
 @app.route('/api/victron')
 def victron():
     data = get_vrm_data()
@@ -831,7 +870,11 @@ def _query_bucketed_from_rollup(cursor, topic_id, start_dt, bucket_seconds):
             ) u
             GROUP BY bucket_ts
             ORDER BY bucket_ts
-        """, (bucket_seconds, bucket_seconds, topic_id, start_minute, covered_to, topic_id, covered_to))
+        """, (bucket_seconds, bucket_seconds, topic_id, start_minute, covered_to,
+              # Raw tail never starts before the requested range: with a stale
+              # rollup (timer not running) covered_to can be days old, and
+              # reading raw from there returned days of extra points.
+              topic_id, max(covered_to, start_minute)))
         return {r[0]: float(r[1]) for r in cursor.fetchall() if r[1] is not None}
     except mysql.connector.Error:
         return None
@@ -3188,6 +3231,1165 @@ def system_bluetooth():
     return jsonify({'available': True, 'devices': devices, 'unpaired_seen': unpaired})
 # ─── end Bluetooth device list siloed addition ──────────────────────────────
 
+# ─── Network status: Ethernet + recovery hotspot (siloed addition) ──────────
+# The Pi's only uplink is eth0 to the boat router. (A Wi-Fi backup client on
+# wlan0 used to live here; removed 2026-10-05 because it joined the same router
+# as eth0 and protected nothing. wlan0 is now only the recovery hotspot and the
+# scanner for the router's auto-rejoin.) Read-only: `ip`, sysfs, resolvectl.
+NETPATH_CACHE_TTL_S = 5
+_netpath_cache = {'t': 0.0, 'data': None}
+
+def _netpath_status():
+    def run(args, timeout=3):
+        try:
+            return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
+        except Exception:
+            return ''
+    try:
+        routes = json.loads(run(['ip', '-j', '-4', 'route', 'show', 'default']) or '[]')
+    except ValueError:
+        routes = []
+    def sysfs(rel):
+        try:
+            with open(f'/sys/class/net/eth0/{rel}') as f:
+                return f.read().strip()
+        except OSError:
+            return None
+    def num(rel):
+        try:
+            return int(sysfs(rel))
+        except (TypeError, ValueError):
+            return None
+    try:
+        addrs = json.loads(run(['ip', '-j', 'addr', 'show', 'dev', 'eth0']) or '[]')
+    except ValueError:
+        addrs = []
+    default = next((r for r in routes if r.get('dev') == 'eth0'), None)
+    gateway = default.get('gateway') if default else None
+    carrier = sysfs('carrier') == '1'
+    gateway_ok = bool(carrier and gateway) and subprocess.run(
+        ['ping', '-n', '-q', '-c', '1', '-W', '1', '-I', 'eth0', gateway], capture_output=True, timeout=3).returncode == 0
+    speed = num('speed')
+    dns = run(['resolvectl', 'dns', 'eth0']).split(':', 1)
+    eth0 = {
+        'mac': sysfs('address'), 'operstate': sysfs('operstate'), 'carrier': carrier,
+        'ipv4': [f"{a['local']}/{a['prefixlen']}" for x in addrs for a in x.get('addr_info', []) if a.get('family') == 'inet'],
+        'ipv6': [f"{a['local']}/{a['prefixlen']}" for x in addrs for a in x.get('addr_info', [])
+                 if a.get('family') == 'inet6' and a.get('scope') == 'global'],
+        'mtu': num('mtu'), 'speed_mbps': speed if speed and speed > 0 else None, 'duplex': sysfs('duplex'),
+        'gateway': gateway, 'gateway_ok': gateway_ok,
+        'dns': dns[1].split() if len(dns) == 2 else [],
+        'rx_bytes': num('statistics/rx_bytes'), 'tx_bytes': num('statistics/tx_bytes'),
+        'rx_errors': num('statistics/rx_errors'), 'tx_errors': num('statistics/tx_errors'),
+        'rx_dropped': num('statistics/rx_dropped'), 'tx_dropped': num('statistics/tx_dropped'),
+    }
+    return {'eth0': eth0,
+            # an eth0-config change waiting for Keep (its revert timer is armed)
+            'eth0_change_pending': run(['systemctl', 'is-active', 'eth0-config-revert.timer']).strip() == 'active',
+            'recovery': _recovery_state()}
+
+# Wi-Fi recovery hotspot (/usr/local/sbin/wifi-recovery, wifi-recovery.service):
+# wlan0 becomes an access point (10.42.0.1) for 10 min after boot or after 5 min
+# with no reachable network. Its controller writes a world-readable state file.
+RECOVERY_HELPER = '/usr/local/sbin/wifi-recovery'
+RECOVERY_STATE_FILE = '/run/wifi-recovery/state.json'
+
+def _recovery_state():
+    if not os.path.exists(RECOVERY_HELPER):
+        return {'installed': False}
+    try:
+        st = json.load(open(RECOVERY_STATE_FILE))
+    except (OSError, ValueError):
+        st = {'active': False}
+    st['installed'] = True
+    st['stale'] = time.time() - st.get('updated', 0) > 120     # controller not running?
+    return st
+
+@app.route('/api/system/recovery', methods=['POST'])
+def system_recovery():
+    action = (request.get_json(silent=True) or {}).get('action')
+    if action not in ('on', 'off'):
+        return jsonify({'ok': False, 'error': 'action must be on or off'}), 400
+    _netpath_cache['data'] = None
+    return jsonify(_root_helper(action, timeout=60, helper=RECOVERY_HELPER))
+
+@app.route('/api/system/netpath')
+def system_netpath():
+    now = time.time()
+    if _netpath_cache['data'] is None or now - _netpath_cache['t'] > NETPATH_CACHE_TTL_S:
+        _netpath_cache['data'] = _netpath_status()
+        _netpath_cache['t'] = now
+    return jsonify(_netpath_cache['data'])
+
+# Root helpers (eth0-config, wifi-recovery) are called through narrow sudoers
+# rules; JSON goes over stdin, the reply is the helper's last stdout line.
+WIFI_SCAN_HELPER = '/usr/local/sbin/wifi-scan'      # scan-only, used by the router auto-rejoin
+
+def _root_helper(cmd, payload=None, timeout=20, helper=None):
+    if not os.path.exists(helper):
+        return {'ok': False, 'error': f'{helper} is not installed'}
+    try:
+        r = subprocess.run(['sudo', '-n', helper, cmd], capture_output=True, text=True, timeout=timeout,
+                           input=json.dumps(payload) if payload is not None else '')
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': 'timed out'}
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        err = r.stderr.strip()
+        if 'password is required' in err or 'not allowed' in err:
+            err = f'sudo rule for {os.path.basename(helper)} is not installed (/etc/sudoers.d/{os.path.basename(helper)})'
+        return {'ok': False, 'error': err[:300] or f'helper exited {r.returncode}'}
+
+# Ethernet (eth0) addressing (Network pop-up). Same pattern: a root helper
+# (/usr/local/sbin/eth0-config) via a narrow sudoers rule. `set` applies the
+# change ~3 s after replying and reverts it after 3 min unless `confirm`
+# arrives -- open the dashboard at the new address and press Keep.
+ETH0_HELPER = '/usr/local/sbin/eth0-config'
+
+@app.route('/api/system/eth0/current')
+def system_eth0_current():
+    return jsonify(_root_helper('current', helper=ETH0_HELPER))
+
+@app.route('/api/system/eth0/config', methods=['POST'])
+def system_eth0_config():
+    body = request.get_json(silent=True) or {}
+    payload = {k: body.get(k) for k in ('mode', 'address', 'gateway', 'dns')}
+    _netpath_cache['data'] = None
+    return jsonify(_root_helper('set', payload, timeout=60, helper=ETH0_HELPER))
+
+@app.route('/api/system/eth0/confirm', methods=['POST'])
+def system_eth0_confirm():
+    _netpath_cache['data'] = None
+    return jsonify(_root_helper('confirm', helper=ETH0_HELPER))
+
+@app.route('/api/system/eth0/revert', methods=['POST'])
+def system_eth0_revert():
+    _netpath_cache['data'] = None
+    return jsonify(_root_helper('revert', timeout=150, helper=ETH0_HELPER))
+# ─── end Internet path siloed addition ──────────────────────────────────────
+
+# ─── Starlink dish status (siloed addition) ─────────────────────────────────
+# Reads the Starlink Mini's local API (192.168.100.1) over normal routing (it
+# used to go through the Wi-Fi backup, removed 2026-10-05). The boat LAN was
+# moved off 192.168.100.0/24 (to 192.168.10.0/24) so the dish address is free.
+# Uses the dish's gRPC-web port (9201, plain HTTP) with a tiny protobuf
+# decoder instead of adding grpcio. Field numbers were read from the dish via
+# gRPC server reflection (api_version 43, software 2026.09.24); a firmware
+# change could renumber fields, in which case values just come back missing.
+import http.client
+import socket
+import struct
+
+STARLINK_DISH_HOST = '192.168.100.1'
+STARLINK_GRPC_WEB_PORT = 9201
+STARLINK_CACHE_TTL_S = 10
+STARLINK_HISTORY_WINDOW_S = 900       # averages over the last 15 min (history is 1 sample/s)
+_starlink_cache = {'t': 0.0, 'data': None}
+
+# Request{get_status} = field 1004, Request{get_history} = field 1007, each an empty message.
+_SL_REQ_STATUS = b'\xe2\x3e\x00'
+_SL_REQ_HISTORY = b'\xfa\x3e\x00'
+
+STARLINK_ENUMS = {
+    'disablement_code': {0: 'UNKNOWN_STATE', 1: 'OKAY', 2: 'NO_ACTIVE_ACCOUNT', 3: 'TOO_FAR_FROM_SERVICE_ADDRESS',
+                         4: 'IN_OCEAN', 6: 'BLOCKED_COUNTRY', 7: 'DATA_OVERAGE_SANDBOX_POLICY', 8: 'CELL_IS_DISABLED',
+                         10: 'ROAM_RESTRICTED', 11: 'UNKNOWN_LOCATION', 12: 'ACCOUNT_DISABLED',
+                         13: 'UNSUPPORTED_VERSION', 14: 'MOVING_TOO_FAST_FOR_POLICY',
+                         15: 'UNDER_AVIATION_FLYOVER_LIMITS', 16: 'BLOCKED_AREA', 17: 'OUTSIDE_HOME_REGION'},
+    'rate_limit': {0: 'UNKNOWN', 1: 'NO_LIMIT', 2: 'POLICY_LIMIT', 3: 'USER_CUSTOM_LIMIT',
+                   5: 'OVERAGE_LIMIT', 6: 'LOW_SPEED_POLICY_LIMIT'},
+    'mobility_class': {0: 'STATIONARY', 1: 'NOMADIC', 2: 'MOBILE'},
+    'software_update_state': {0: 'UNKNOWN', 1: 'IDLE', 2: 'FETCHING', 3: 'PRE_CHECK', 4: 'WRITING',
+                              5: 'POST_CHECK', 6: 'REBOOT_REQUIRED', 7: 'DISABLED', 8: 'FAULTED'},
+}
+# DishAlerts field number -> name (all bools)
+STARLINK_ALERTS = {1: 'motors_stuck', 2: 'thermal_shutdown', 3: 'thermal_throttle', 4: 'unexpected_location',
+                   5: 'mast_not_near_vertical', 6: 'slow_ethernet_speeds', 8: 'install_pending', 9: 'is_heating',
+                   10: 'power_supply_thermal_throttle', 11: 'is_power_save_idle', 14: 'dbf_telem_stale',
+                   16: 'low_motor_current', 17: 'lower_signal_than_predicted', 18: 'slow_ethernet_speeds_100',
+                   19: 'obstruction_map_reset', 20: 'dish_water_detected', 21: 'router_water_detected',
+                   22: 'upsu_router_port_slow', 23: 'no_ethernet_link'}
+
+def _pb_decode(buf):
+    """Minimal protobuf wire decoder: {field_number: [raw values]} (ints for
+    varints, bytes for length-delimited / fixed32 / fixed64)."""
+    out, i, n = {}, 0, len(buf)
+    def varint():
+        nonlocal i
+        shift = result = 0
+        while True:
+            b = buf[i]; i += 1
+            result |= (b & 0x7f) << shift
+            if not b & 0x80:
+                return result
+            shift += 7
+    while i < n:
+        key = varint()
+        field, wt = key >> 3, key & 7
+        if wt == 0:
+            val = varint()
+        elif wt == 1:
+            val = buf[i:i + 8]; i += 8
+        elif wt == 2:
+            ln = varint(); val = buf[i:i + ln]; i += ln
+        elif wt == 5:
+            val = buf[i:i + 4]; i += 4
+        else:
+            break   # groups (3/4) aren't used by this API
+        out.setdefault(field, []).append(val)
+    return out
+
+def _pb_float(d, f):
+    v = d.get(f)
+    if v and isinstance(v[-1], bytes) and len(v[-1]) == 4:
+        return struct.unpack('<f', v[-1])[0]
+    # proto3 omits fields equal to 0, so a missing float in a message that
+    # did arrive means 0.0 (e.g. downlink_bps while idle).
+    return 0.0 if d else None
+
+def _pb_int(d, f, signed=False):
+    v = d.get(f)
+    if not v or not isinstance(v[-1], int):
+        return None
+    x = v[-1]
+    return x - (1 << 64) if signed and x >= 1 << 63 else x
+
+def _pb_str(d, f):
+    v = d.get(f)
+    return v[-1].decode('utf-8', 'replace') if v and isinstance(v[-1], bytes) else None
+
+def _pb_msg(d, f):
+    v = d.get(f)
+    return _pb_decode(v[-1]) if v and isinstance(v[-1], bytes) else {}
+
+def _pb_packed_floats(d, f):
+    vals = []
+    for chunk in d.get(f, []):
+        if isinstance(chunk, bytes):
+            vals.extend(struct.unpack(f'<{len(chunk) // 4}f', chunk[:len(chunk) // 4 * 4]))
+    return vals
+
+def _starlink_call(request_bytes):
+    """One gRPC-web Device/Handle call; returns the decoded Response message."""
+    conn = http.client.HTTPConnection(STARLINK_DISH_HOST, STARLINK_GRPC_WEB_PORT, timeout=5)
+    try:
+        body = b'\x00' + struct.pack('>I', len(request_bytes)) + request_bytes
+        conn.request('POST', '/SpaceX.API.Device.Device/Handle', body,
+                     {'Content-Type': 'application/grpc-web+proto', 'X-Grpc-Web': '1'})
+        resp = conn.getresponse()
+        data = resp.read()
+        if resp.status != 200:
+            raise RuntimeError(f'dish HTTP {resp.status}')
+    finally:
+        conn.close()
+    # grpc-web body: frames of [flag:1][len:4][payload]; flag 0x80 = trailers
+    i, msg = 0, None
+    while i + 5 <= len(data):
+        flag, ln = data[i], struct.unpack('>I', data[i + 1:i + 5])[0]
+        payload = data[i + 5:i + 5 + ln]; i += 5 + ln
+        if flag & 0x80:
+            m = re.search(rb'grpc-status:\s*(\d+)', payload)
+            if m and m.group(1) != b'0':
+                raise RuntimeError('dish grpc-status ' + m.group(1).decode())
+        elif msg is None:
+            msg = payload
+    if msg is None:
+        raise RuntimeError('empty reply from dish')
+    return _pb_decode(msg)
+
+def _starlink_status():
+    st = _pb_msg(_starlink_call(_SL_REQ_STATUS), 2004)          # Response.dish_get_status
+    info, state = _pb_msg(st, 1), _pb_msg(st, 2)
+    obs, alerts_m, align = _pb_msg(st, 1004), _pb_msg(st, 1005), _pb_msg(st, 1027)
+    ready_m, gps = _pb_msg(st, 1019), _pb_msg(st, 1015)
+    def enum(kind, f):
+        v = _pb_int(st, f)
+        return STARLINK_ENUMS[kind].get(v, str(v)) if v is not None else None
+    data = {
+        'online': True,
+        'hardware': _pb_str(info, 2), 'software': _pb_str(info, 3), 'bootcount': _pb_int(info, 8),
+        'uptime_s': _pb_int(state, 1),
+        'pop_ping_latency_ms': _pb_float(st, 1009),
+        'pop_ping_drop_rate': _pb_float(st, 1003),
+        'downlink_bps': _pb_float(st, 1007), 'uplink_bps': _pb_float(st, 1008),
+        'signal_quality': _pb_float(st, 1057),
+        'snr_above_noise_floor': bool(_pb_int(st, 1018)),
+        'snr_persistently_low': bool(_pb_int(st, 1022)),
+        'fraction_obstructed': _pb_float(obs, 1),
+        'currently_obstructed': bool(_pb_int(obs, 5)),
+        'tilt_deg': _pb_float(align, 3),
+        'azimuth_deg': _pb_float(align, 4), 'elevation_deg': _pb_float(align, 5),
+        'desired_azimuth_deg': _pb_float(align, 8), 'desired_elevation_deg': _pb_float(align, 9),
+        'gps_valid': bool(_pb_int(gps, 1)), 'gps_sats': _pb_int(gps, 2),
+        'disablement': enum('disablement_code', 1024),
+        'dl_limit': enum('rate_limit', 1044), 'ul_limit': enum('rate_limit', 1045),
+        'mobility': enum('mobility_class', 1017),
+        'software_update': enum('software_update_state', 1021),
+        'stow_requested': bool(_pb_int(st, 1010)),
+        'treat_as_metered': bool(_pb_int(st, 1056)),
+        'alerts': sorted(name for f, name in STARLINK_ALERTS.items() if _pb_int(alerts_m, f)),
+        'not_ready': sorted(n for f, n in {1: 'cady', 2: 'scp', 3: 'l1l2', 4: 'xphy', 5: 'aap', 6: 'rf'}.items()
+                            if f in ready_m and not _pb_int(ready_m, f)),
+    }
+    try:
+        h = _pb_msg(_starlink_call(_SL_REQ_HISTORY), 2006)       # Response.dish_get_history
+        current = _pb_int(h, 1) or 0
+        def recent(f):
+            ring = _pb_packed_floats(h, f)
+            if not ring:
+                return []
+            L = len(ring)
+            k = min(STARLINK_HISTORY_WINDOW_S, L, current)
+            return [ring[(current - 1 - j) % L] for j in range(k)]
+        lat, drop = recent(1002), recent(1001)
+        dl, ul, pw = recent(1003), recent(1004), recent(1010)
+        avg = lambda a: sum(a) / len(a) if a else None
+        lat_ok = [x for x in lat if x > 0]
+        data['history_15m'] = {
+            'latency_ms_avg': avg(lat_ok),
+            'drop_rate_avg': avg(drop),
+            'downlink_bps_max': max(dl) if dl else None, 'uplink_bps_max': max(ul) if ul else None,
+            'power_w_avg': avg(pw),
+            'samples': len(drop),
+        }
+    except Exception as e:
+        data['history_15m'] = {'error': str(e)}
+    return data
+
+@app.route('/api/starlink/status')
+def starlink_status():
+    now = time.time()
+    if _starlink_cache['data'] is None or now - _starlink_cache['t'] > STARLINK_CACHE_TTL_S:
+        try:
+            data = _starlink_status()
+        except Exception as e:
+            data = {'online': False, 'error': str(e)}
+        data['fetched_at'] = datetime.now(timezone.utc).isoformat()
+        _starlink_cache['data'] = data
+        _starlink_cache['t'] = now
+    return jsonify(_starlink_cache['data'])
+# ─── end Starlink dish status siloed addition ───────────────────────────────
+
+# ─── Boat router (GL.iNet GL-MT3000) internet source (siloed addition) ──────
+# Which uplink the boat router is using right now (Ethernet WAN / Wi-Fi
+# repeater / USB tethering), from its firmware-4.x JSON-RPC API at /rpc.
+# Login is challenge/response: crypt(password, $alg$salt$), then
+# <hash-method>("root:<crypt>:<nonce>") -- the password itself is never sent.
+# The admin password is ROUTER_PASS in /etc/dashboard/secrets.env. Read-only:
+# this only calls get_* methods. Response shapes checked against firmware 4.11.0.
+import hashlib
+
+GLINET_FALLBACK_HOST = '192.168.10.1'
+
+def _glinet_host():
+    # the boat router is the Pi's eth0 gateway (follows subnet changes)
+    try:
+        r = subprocess.run(['ip', '-4', 'route', 'show', 'default', 'dev', 'eth0'], capture_output=True, text=True, timeout=3).stdout.split()
+        if 'via' in r:
+            return r[r.index('via') + 1]
+    except Exception:
+        pass
+    return GLINET_FALLBACK_HOST
+GLINET_CACHE_TTL_S = 15
+GLINET_IFACE_LABELS = {'wan': 'Ethernet WAN', 'wwan': 'Wi-Fi repeater', 'tethering': 'USB tethering',
+                       'modem': 'Cellular', 'secondwan': 'Second WAN'}
+_glinet = {'sid': None, 't': 0.0, 'data': None, 'lock': threading.Lock()}
+
+def _glinet_rpc(method, params, timeout=6):
+    r = requests.post(f'http://{_glinet_host()}/rpc', json={'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}, timeout=timeout)
+    return r.json()
+
+def _glinet_crypt(password, alg, salt):
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            import crypt as _crypt                 # stdlib until Python 3.13
+        return _crypt.crypt(password, f'${alg}${salt}')
+    except ImportError:                            # fall back to openssl; password via stdin, not argv
+        flag = {1: '-1', 5: '-5', 6: '-6'}[int(alg)]
+        r = subprocess.run(['openssl', 'passwd', flag, '-salt', salt, '-stdin'], input=password,
+                           capture_output=True, text=True, timeout=5)
+        return r.stdout.strip()
+
+def _glinet_login():
+    s = get_secrets()
+    password = s.get('ROUTER_PASS') or s.get('GLINET_PASSWORD')
+    if not password:
+        raise RuntimeError('router password not set (ROUTER_PASS in /etc/dashboard/secrets.env)')
+    ch = _glinet_rpc('challenge', {'username': 'root'})['result']
+    cipher = _glinet_crypt(password, ch['alg'], ch['salt'])
+    algo = {'md5': hashlib.md5, 'sha256': hashlib.sha256, 'sha512': hashlib.sha512}.get(ch.get('hash-method', 'md5'), hashlib.md5)
+    res = _glinet_rpc('login', {'username': 'root', 'hash': algo(f"root:{cipher}:{ch['nonce']}".encode()).hexdigest()})
+    if 'result' not in res:
+        raise RuntimeError('router login failed (check ROUTER_PASS)')
+    return res['result']['sid']
+
+def _glinet_call(module, method):
+    """call with the cached session, logging in again once if it has expired."""
+    for attempt in (0, 1):
+        if not _glinet['sid']:
+            _glinet['sid'] = _glinet_login()
+        res = _glinet_rpc('call', [_glinet['sid'], module, method, {}])
+        if 'result' in res:
+            return res['result']
+        if res.get('error', {}).get('code') == -32000 and attempt == 0:      # Access denied: session expired
+            _glinet['sid'] = None
+            continue
+        raise RuntimeError(f"{module}.{method}: {res.get('error', {}).get('message', 'error')}")
+
+def _glinet_status():
+    status = _glinet_call('kmwan', 'get_status')
+    config = _glinet_call('kmwan', 'get_config')
+    metric = {c['interface']: c.get('metric', 99) for c in config.get('interfaces', [])}
+    ifaces = []
+    for i in status.get('interfaces', []):
+        name = i.get('interface')
+        ifaces.append({'interface': name, 'label': GLINET_IFACE_LABELS.get(name, name),
+                       'online': i.get('status_v4') == 0,      # 0 = online (verified against a working WAN)
+                       'status_v4': i.get('status_v4'), 'priority': metric.get(name, 99)})
+    ifaces.sort(key=lambda x: x['priority'])
+    mode = 'load_balance' if config.get('mode') == 1 else 'failover'
+    online = [x for x in ifaces if x['online']]
+    active = online[0]['interface'] if online and mode == 'failover' else None
+    # Starlink in bypass mode hands the router a CGNAT address (100.64.0.0/10),
+    # so label the WAN "Starlink" when that's what is plugged in.
+    try:
+        import ipaddress as _ip
+        _wan_ip = ((_glinet_call('cable', 'get_status') or {}).get('ipv4') or {}).get('ip') or ''
+        if _wan_ip and _ip.ip_interface(_wan_ip).ip in _ip.ip_network('100.64.0.0/10'):
+            for x in ifaces:
+                if x['interface'] == 'wan':
+                    x['label'] = 'Starlink'
+    except Exception:
+        pass
+    active_label = next((x['label'] for x in ifaces if x['interface'] == active), None)
+    data = {'ok': True, 'mode': mode, 'interfaces': ifaces, 'active': active,
+            'active_label': active_label,
+            'load_balance_over': [x['label'] for x in online] if mode == 'load_balance' else None}
+    try:
+        cable = _glinet_call('cable', 'get_status')
+        v4 = cable.get('ipv4') or {}
+        data['wan'] = {'connected': cable.get('status') == 1, 'protocol': cable.get('protocol'),
+                       'ip': v4.get('ip'), 'gateway': v4.get('gateway'), 'dns': v4.get('dns') or []}
+    except Exception as e:
+        data['wan'] = {'error': str(e)}
+    try:
+        rep = _glinet_call('repeater', 'get_status')
+        rep.pop('portal_info', None)                                       # may hold captive-portal credentials
+        cfg = rep.get('config') or {}                                      # target network (key is never passed on)
+        # firmware 4.11: 0 idle, 3 failed, 4 retrying (observed); state_s isn't always present
+        state = rep.get('state_s') or {0: 'idle', 1: 'connecting', 2: 'connected', 3: 'failed', 4: 'retrying'}.get(rep.get('state'), f"state {rep.get('state')}")
+        data['repeater'] = {'state': state, 'running': rep.get('running'),
+                            'ssid': rep.get('ssid') or cfg.get('ssid'), 'fail_type': rep.get('fail_type') or None}
+    except Exception as e:
+        data['repeater'] = {'error': str(e)}
+    try:
+        teth = _glinet_call('tethering', 'get_status')
+        data['tethering'] = {'status': teth.get('status'), 'devices': len(teth.get('devices') or [])}
+    except Exception as e:
+        data['tethering'] = {'error': str(e)}
+    try:
+        info = _glinet_call('system', 'get_info')
+        data['router'] = {'model': (info.get('board_info') or {}).get('model'), 'firmware': info.get('firmware_version')}
+    except Exception:
+        data['router'] = {}
+    return data
+
+@app.route('/api/router/status')
+def router_status():
+    now = time.time()
+    with _glinet['lock']:
+        if _glinet['data'] is None or now - _glinet['t'] > GLINET_CACHE_TTL_S:
+            try:
+                data = _glinet_status()
+            except Exception as e:
+                _glinet['sid'] = None
+                data = {'ok': False, 'error': str(e)}
+            data['fetched_at'] = datetime.now(timezone.utc).isoformat()
+            data['autorejoin'] = _rejoin_public_state()
+            _glinet['data'], _glinet['t'] = data, now
+        return jsonify(_glinet['data'])
+
+# Repeater reconnect + automatic rejoin. GL.iNet firmware stops scanning for
+# repeater networks while another uplink (Ethernet/Starlink) has internet, so
+# once a hotspot/marina Wi-Fi drops it never comes back on its own. These send
+# repeater.connect (WRITE) for a network already saved on the router, using the
+# password the router itself returns for it -- it never reaches the browser.
+# Auto-rejoin scans with the Pi's own Wi-Fi (wifi-fallback-config scan), not the
+# router's radio, so the boat Wi-Fi isn't disturbed just to look. A connect
+# attempt does briefly move the router's radio onto the upstream channel.
+REJOIN_FIRST_CHECK_S = 30         # first check soon after (re)start
+REJOIN_INTERVAL_S = 60             # then check every minute
+REJOIN_STUCK_S = 60                # repeater must be down this long before acting
+REJOIN_BACKOFF_S = [120, 300, 900] # after 1st/2nd/3rd+ consecutive failure on an SSID
+REJOIN_BLIND_RETRY_S = 300         # if the Pi can't see any saved network (other band/channel), let the
+                                   # router scan + connect on its own at most this often
+REJOIN_STABLE_S = 300              # a reconnect only counts as a success once it has stayed up this long
+                                   # (a link that drops sooner counts as a failure, so a flaky
+                                   # hotspot doesn't make the router retune its radio every minute)
+# Network-feature state is shared by the dev (5003) and prod (5001) dashboards:
+# only one of them runs the usage meter / auto-rejoin (flock), so per-copy files
+# would leave the other showing empty usage and default device names.
+NETWORK_STATE_DIR = os.path.expanduser('~/.local/share/exit-strategy')
+os.makedirs(NETWORK_STATE_DIR, exist_ok=True)
+REJOIN_STATE_FILE = os.path.join(NETWORK_STATE_DIR, 'router_autorejoin.json')
+REJOIN_LOCK_FILE = os.path.expanduser('~/.cache/router-autorejoin.lock')   # dev + prod both run this loop; one wins
+_rejoin = {'enabled': True, 'events': [], 'last_attempt': {}, 'failures': {}, 'last_ok': {}, 'down_since': None, 'runner': False, 'last_blind': 0.0}
+
+def _rejoin_load():
+    try:
+        _rejoin['enabled'] = bool(json.load(open(REJOIN_STATE_FILE)).get('enabled', True))
+    except (OSError, ValueError):
+        pass
+
+def _rejoin_public_state():
+    return {'enabled': _rejoin['enabled'], 'runner': _rejoin['runner'], 'events': _rejoin['events'][-8:][::-1]}
+
+def _rejoin_event(kind, text):
+    _rejoin['events'].append({'time': datetime.now(timezone.utc).isoformat(), 'kind': kind, 'text': text})
+    del _rejoin['events'][:-30]
+    print(f'[router-rejoin] {kind}: {text}', flush=True)
+
+def _repeater_connect(ssid=None):
+    """Reconnect the router's repeater to a saved network (default: its configured target).
+    Waits up to ~30 s for it to come up. Returns a result dict."""
+    saved = (_glinet_call('repeater', 'get_saved_ap_list') or {}).get('res') or []
+    if not saved:
+        return {'ok': False, 'error': 'no saved repeater networks on the router'}
+    if ssid is None:
+        target = ((_glinet_call('repeater', 'get_status') or {}).get('config') or {}).get('ssid')
+        ssid = target if any(s.get('ssid') == target for s in saved) else saved[0].get('ssid')
+    ap = next((s for s in saved if s.get('ssid') == ssid), None)
+    if not ap:
+        return {'ok': False, 'error': f'"{ssid}" is not saved on the router'}
+    # Same payload the router's own UI sends when a saved network is clicked
+    # (gl-sdk4-ui-internet, handleConnetSavedAp): the saved entry as returned by
+    # get_saved_ap_list, minus UI-only fields, plus remember=true. Firmware 4.11
+    # rejects extra empty fields like bssid/band/channel with "Invalid params".
+    params = {k: v for k, v in ap.items() if k not in ('hasDfs', 'signal', 'bssidList')}
+    params['remember'] = True
+    with _glinet['lock']:
+        _glinet['data'] = None                          # force fresh status afterwards
+    # Like the router's own UI: refresh the router's scan first (it stops
+    # scanning on its own while another uplink has internet, so a bare
+    # connect can aim at stale data and fail), then connect.
+    try:
+        _glinet_call_params('repeater', 'scan', {'refresh': True}, timeout=60)
+    except Exception:
+        pass                                   # a failed scan shouldn't block the attempt
+    try:
+        _glinet_call_params('repeater', 'connect', params, timeout=30)
+    except Exception as e:
+        return {'ok': False, 'ssid': ssid, 'error': str(e)}
+    # The router's API can stop answering for a few seconds while its radio
+    # retunes, so tolerate errors here and keep polling.
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        time.sleep(3)
+        try:
+            st = _glinet_call('repeater', 'get_status') or {}
+        except Exception:
+            continue
+        if st.get('state_s') == 'connected' or (st.get('running') and st.get('state') == 2):
+            return {'ok': True, 'ssid': ssid}
+        if st.get('state') in (3,) and time.time() > deadline - 30:
+            break
+    return {'ok': False, 'ssid': ssid, 'error': 'the router could not join the network within 60 s'}
+
+def _glinet_call_params(module, method, params, timeout=20):
+    for attempt in (0, 1):
+        if not _glinet['sid']:
+            _glinet['sid'] = _glinet_login()
+        res = _glinet_rpc('call', [_glinet['sid'], module, method, params], timeout=timeout)
+        if 'result' in res:
+            return res['result']
+        if res.get('error', {}).get('code') == -32000 and attempt == 0:
+            _glinet['sid'] = None
+            continue
+        raise RuntimeError(f"{module}.{method}: {res.get('error', {}).get('message', 'error')}")
+
+def router_autorejoin_loop():
+    import fcntl
+    os.makedirs(os.path.dirname(REJOIN_LOCK_FILE), exist_ok=True)
+    lock = open(REJOIN_LOCK_FILE, 'w')
+    while True:                                          # wait until this process holds the lock
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            time.sleep(60)
+    _rejoin['runner'] = True
+    _rejoin_load()
+    first = True
+    while True:
+        time.sleep(REJOIN_FIRST_CHECK_S if first else REJOIN_INTERVAL_S)
+        first = False
+        try:
+            _usage_sample()                      # data-usage ledger (same single runner as auto-rejoin)
+        except Exception as e:
+            print(f'[router-usage] {e}', flush=True)
+        if not _rejoin['enabled']:
+            continue
+        try:
+            status = _glinet_call('kmwan', 'get_status')
+            config = _glinet_call('kmwan', 'get_config')
+            if config.get('mode') != 0:
+                continue                                 # load balance: nothing to prefer
+            prio = sorted(config.get('interfaces', []), key=lambda c: c.get('metric', 99))
+            if not prio or prio[0].get('interface') != 'wwan':
+                continue                                 # repeater isn't the preferred uplink
+            # judge the link by the repeater's own state: the router's internet check
+            # (kmwan) takes a while to mark a fresh connection online
+            rep_st = _glinet_call('repeater', 'get_status') or {}
+            if rep_st.get('running') and rep_st.get('state') == 2:
+                _rejoin['down_since'] = None
+                for s_, t_ in list(_rejoin['last_ok'].items()):
+                    if time.time() - t_ >= REJOIN_STABLE_S:          # held long enough: a real success
+                        _rejoin['failures'].pop(s_, None)
+                        _rejoin['last_ok'].pop(s_, None)
+                continue                                 # repeater already online
+            now = time.time()
+            for s_, t_ in list(_rejoin['last_ok'].items()):       # reconnected but dropped again quickly
+                if now - t_ < REJOIN_STABLE_S:
+                    _rejoin['failures'][s_] = _rejoin['failures'].get(s_, 0) + 1
+                    _rejoin_event('unstable', f'"{s_}" dropped {int(now - t_)} s after reconnecting; backing off')
+                _rejoin['last_ok'].pop(s_, None)
+            _rejoin['down_since'] = _rejoin['down_since'] or now
+            if now - _rejoin['down_since'] < REJOIN_STUCK_S:
+                continue
+            saved = [s.get('ssid') for s in (_glinet_call('repeater', 'get_saved_ap_list') or {}).get('res') or []]
+            r = subprocess.run(['sudo', '-n', WIFI_SCAN_HELPER], capture_output=True, text=True, timeout=45)
+            visible = {n['ssid']: n.get('signal_dbm') or -999 for n in (json.loads(r.stdout or '{}').get('networks') or [])}
+            def backoff(s):
+                n = _rejoin['failures'].get(s, 0)
+                return 0 if n == 0 else REJOIN_BACKOFF_S[min(n, len(REJOIN_BACKOFF_S)) - 1]
+            candidates = sorted((s for s in saved if s in visible and visible[s] > -80
+                                 and now - _rejoin['last_attempt'].get(s, 0) > backoff(s)),
+                                key=lambda s: -visible[s])
+            if not candidates:
+                # The Pi's Wi-Fi may not hear the network (e.g. a hotspot that came back on
+                # 5/6 GHz or a DFS channel). Let the router look for its saved network itself,
+                # but not too often: each attempt briefly retunes the boat's Wi-Fi.
+                target = (rep_st.get('config') or {}).get('ssid')
+                if target in saved and not any(s in visible for s in saved) \
+                        and now - _rejoin['last_blind'] > REJOIN_BLIND_RETRY_S \
+                        and now - _rejoin['last_attempt'].get(target, 0) > backoff(target):
+                    _rejoin['last_blind'] = now
+                    _rejoin['last_attempt'][target] = now
+                    _rejoin_event('attempt', f'"{target}" not visible to the Pi; asking the router to look for it')
+                    res = _repeater_connect(target)
+                    _rejoin_event('connected' if res.get('ok') else 'failed',
+                                  f'"{target}" connected' if res.get('ok') else f'"{target}": {res.get("error")}')
+                    if res.get('ok'):
+                        _rejoin['down_since'] = None
+                        _rejoin['last_ok'][target] = time.time()
+                continue
+            ssid = candidates[0]
+            _rejoin['last_attempt'][ssid] = now
+            _rejoin_event('attempt', f'"{ssid}" is in range ({visible[ssid]} dBm) but the repeater is down; reconnecting')
+            res = _repeater_connect(ssid)
+            _rejoin_event('connected' if res.get('ok') else 'failed',
+                          f'"{ssid}" connected' if res.get('ok') else f'"{ssid}": {res.get("error")}')
+            if res.get('ok'):
+                _rejoin['down_since'] = None
+                _rejoin['last_ok'][ssid] = time.time()   # success is confirmed after REJOIN_STABLE_S
+            else:
+                _rejoin['failures'][ssid] = _rejoin['failures'].get(ssid, 0) + 1
+        except Exception as e:
+            _glinet['sid'] = None
+            _rejoin_event('error', str(e)[:200])
+
+# Network map: every device on the boat router, identified by MAC vendor
+# (nmap's IEEE OUI table) plus hostname, with live up/down rates. Rates come
+# from the router's per-client byte totals between polls -- its own rx/tx
+# rate fields update too rarely. Verified 2026-10-05: total_rx is what the
+# DEVICE received (download), total_tx what it sent (upload). Read-only.
+# Password/key fields from the router are never passed on.
+OUI_FILE = '/usr/share/nmap/nmap-mac-prefixes'
+_oui = {'map': None}
+_map_prev = {}          # mac -> (time, total_rx, total_tx)
+_map_cache = {'t': 0.0, 'data': None}
+MAP_CACHE_TTL_S = 8
+
+def _oui_vendor(mac):
+    if _oui['map'] is None:
+        m = {}
+        try:
+            for line in open(OUI_FILE, encoding='utf-8', errors='replace'):
+                if line[:1] != '#' and len(line) > 7:
+                    m[line[:6].upper()] = line[7:].strip()
+        except OSError:
+            pass
+        _oui['map'] = m
+    hexmac = mac.replace(':', '').replace('-', '').upper()
+    if len(hexmac) >= 2 and int(hexmac[1], 16) & 0x2:
+        return None, True                     # locally administered = randomized "private" MAC
+    return _oui['map'].get(hexmac[:6]), False
+
+_KIND_BY_NAME = [(r'iphone|android|pixel|phone|galaxy-s|sm-[sga]', 'phone'), (r'ipad|tab', 'tablet'),
+                 (r'macbook|laptop|desktop|-pc\b|^pc-|windows|thinkpad|surface|imac', 'computer'),
+                 (r'cam|doorbell', 'camera'), (r'\btv\b|roku|firetv|chromecast|appletv|shield', 'tv'),
+                 (r'echo|alexa|sonos|homepod|speaker', 'speaker'),
+                 (r'relay|plug|switch|light|bulb|shelly|tasmota|esp|sonoff|tuya|sensor', 'iot'),
+                 (r'raspberry|\bpi\b|rpi', 'pi'), (r'cerbo|victron|venus', 'victron'),
+                 (r'garmin|raymarine|axiom|navico|b&g|simrad|furuno', 'marine')]
+_KIND_BY_VENDOR = [(r'raspberry', 'pi'), (r'victron', 'victron'), (r'garmin|raymarine|navico|furuno', 'marine'),
+                   (r'espressif|tuya|shelly|itead|sonoff|allterco|lumi|signify|philips lighting', 'iot'),
+                   (r'hikvision|dahua|reolink|amcrest|axis comm|ezviz|wyze', 'camera'),
+                   (r'sonos|bose', 'speaker'), (r'roku|vizio|tcl', 'tv'),
+                   (r'gl technologies|tp-link|netgear|ubiquiti|mikrotik|cisco|aruba|starlink|spacex', 'network'),
+                   (r'intel|dell|hewlett|hp inc|lenovo|asustek|micro-star|liteon|azurewave|realtek|gigabyte', 'computer')]
+
+def _device_kind(name, vendor, private):
+    n = (name or '').lower()
+    for pat, kind in _KIND_BY_NAME:
+        if re.search(pat, n):
+            return kind
+    v = (vendor or '').lower()
+    for pat, kind in _KIND_BY_VENDOR:
+        if re.search(pat, v):
+            return kind
+    if 'apple' in v or 'samsung' in v or 'google' in v or 'oneplus' in v or 'xiaomi' in v or 'motorola' in v:
+        return 'phone'
+    return 'phone' if private else 'unknown'      # randomized MACs are almost always phones/tablets
+
+# User-assigned names/types per MAC (Network Map > click a device). Plain JSON
+# next to the app; phones with randomized MACs may need re-naming if they rotate.
+NETMAP_DEVICES_FILE = os.path.join(NETWORK_STATE_DIR, 'network_devices.json')
+NETMAP_KINDS = ['phone', 'tablet', 'computer', 'pi', 'iot', 'camera', 'tv', 'speaker', 'network', 'victron', 'marine', 'unknown']
+
+def _netmap_overrides():
+    try:
+        d = json.load(open(NETMAP_DEVICES_FILE))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+@app.route('/api/router/device', methods=['POST'])
+def router_device_set():
+    body = request.get_json(silent=True) or {}
+    mac = str(body.get('mac') or '').upper()
+    if not re.fullmatch(r'([0-9A-F]{2}:){5}[0-9A-F]{2}', mac):
+        return jsonify({'ok': False, 'error': 'bad MAC'}), 400
+    name = str(body.get('name') or '').strip()[:40]
+    kind = body.get('kind') or ''
+    if kind and kind not in NETMAP_KINDS:
+        return jsonify({'ok': False, 'error': 'unknown type'}), 400
+    ov = _netmap_overrides()
+    if name or kind:
+        ov[mac] = {k: v for k, v in (('name', name), ('kind', kind)) if v}
+    else:
+        ov.pop(mac, None)                       # both blank = back to automatic
+    tmp = NETMAP_DEVICES_FILE + '.new'
+    with open(tmp, 'w') as f:
+        json.dump(ov, f, indent=1, sort_keys=True)
+    os.replace(tmp, NETMAP_DEVICES_FILE)
+    with _glinet['lock']:
+        _map_cache['data'] = None
+    return jsonify({'ok': True})
+
+def _router_map():
+    st = _glinet_status()
+    overrides = _netmap_overrides()
+    clients = (_glinet_call('clients', 'get_list') or {}).get('clients') or []
+    try:
+        with open('/sys/class/net/eth0/address') as f:
+            my_mac = f.read().strip().upper()
+    except OSError:
+        my_mac = ''
+    now = time.time()
+    devices = []
+    for c in clients:
+        mac = (c.get('mac') or '').upper()
+        if not mac:
+            continue
+        vendor, private = _oui_vendor(mac)
+        name = c.get('name') or ''
+        this_pi = mac == my_mac
+        try:
+            trx, ttx = int(c.get('total_rx') or 0), int(c.get('total_tx') or 0)
+        except ValueError:
+            trx = ttx = 0
+        down = up = None
+        prev = _map_prev.get(mac)
+        if prev and now > prev[0] and c.get('online'):
+            dt = now - prev[0]
+            down = max(0.0, (trx - prev[1]) / dt)
+            up = max(0.0, (ttx - prev[2]) / dt)
+        _map_prev[mac] = (now, trx, ttx)
+        devices.append({
+            'mac': mac, 'ip': c.get('ip'), 'name': 'Server' if this_pi else (name or None),
+            'hostname': name or None, 'iface': c.get('iface'), 'online': bool(c.get('online')),
+            'vendor': vendor, 'private_mac': private, 'this_pi': this_pi,
+            'kind': 'pi' if this_pi else _device_kind(name, vendor, private),
+            'down_Bps': down, 'up_Bps': up, 'total_down': trx, 'total_up': ttx,
+        })
+        ov = overrides.get(mac)
+        if ov:                                  # user-assigned name / type win over guesses
+            devices[-1]['auto_name'], devices[-1]['auto_kind'] = devices[-1]['name'], devices[-1]['kind']
+            devices[-1]['name'] = ov.get('name') or devices[-1]['name']
+            devices[-1]['kind'] = ov.get('kind') or devices[-1]['kind']
+            devices[-1]['custom'] = True
+    devices.sort(key=lambda d: (not d['online'], {'cable': 0, '5G': 1, '2.4G': 2}.get(d['iface'], 3),
+                                not d['this_pi'], (d['name'] or d['ip'] or '').lower()))
+    online = [d for d in devices if d['online']]
+    st['devices'] = devices
+    st['totals'] = {'down_Bps': sum(d['down_Bps'] or 0 for d in online), 'up_Bps': sum(d['up_Bps'] or 0 for d in online),
+                    'online': len(online)}
+    return st
+
+@app.route('/api/router/map')
+def router_map():
+    now = time.time()
+    with _glinet['lock']:
+        if _map_cache['data'] is None or now - _map_cache['t'] > MAP_CACHE_TTL_S:
+            try:
+                data = _router_map()
+                data['ok'] = True
+            except Exception as e:
+                _glinet['sid'] = None
+                data = {'ok': False, 'error': str(e)}
+            data['autorejoin'] = _rejoin_public_state()
+            _map_cache['data'], _map_cache['t'] = data, now
+        return jsonify(_map_cache['data'])
+
+# Data usage per uplink. The router keeps no WAN counters (only for cellular
+# modems), so the Pi meters it: every minute (from the auto-rejoin loop, which
+# only one dashboard process runs) it sums the growth of every client's byte
+# totals and books it to the uplink that was active. Approximate: traffic
+# between boat devices is counted too, and a sample is skipped across counter
+# resets. Kept per day (62 days) and per month in network_usage.json.
+NETMAP_USAGE_FILE = os.path.join(NETWORK_STATE_DIR, 'network_usage.json')
+_usage = {'prev': {}, 'lock': threading.Lock()}
+
+def _usage_load():
+    try:
+        d = json.load(open(NETMAP_USAGE_FILE))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def _usage_sample():
+    clients = (_glinet_call('clients', 'get_list') or {}).get('clients') or []
+    st = _glinet_call('kmwan', 'get_status') or {}
+    cfg = _glinet_call('kmwan', 'get_config') or {}
+    metric = {c['interface']: c.get('metric', 99) for c in cfg.get('interfaces', [])}
+    online = sorted((i['interface'] for i in st.get('interfaces', []) if i.get('status_v4') == 0), key=lambda k: metric.get(k, 99))
+    active = online[0] if online else None
+    down = up = 0
+    cur = {}
+    for c in clients:
+        mac = (c.get('mac') or '').upper()
+        try:
+            trx, ttx = int(c.get('total_rx') or 0), int(c.get('total_tx') or 0)
+        except ValueError:
+            continue
+        cur[mac] = (trx, ttx)
+        prev = _usage['prev'].get(mac)
+        if prev and trx >= prev[0] and ttx >= prev[1]:          # skip counter resets
+            down += trx - prev[0]
+            up += ttx - prev[1]
+    _usage['prev'] = cur
+    if not active or (down == 0 and up == 0):
+        return
+    now = datetime.now()
+    with _usage['lock']:
+        d = _usage_load()
+        for bucket, key in (('months', now.strftime('%Y-%m')), ('days', now.strftime('%Y-%m-%d'))):
+            e = d.setdefault(bucket, {}).setdefault(key, {}).setdefault(active, {'down': 0, 'up': 0})
+            e['down'] += down
+            e['up'] += up
+        for old in sorted(d.get('days', {}))[:-62]:
+            d['days'].pop(old, None)
+        d['since'] = d.get('since') or now.isoformat(timespec='seconds')
+        tmp = NETMAP_USAGE_FILE + '.new'
+        with open(tmp, 'w') as f:
+            json.dump(d, f)
+        os.replace(tmp, NETMAP_USAGE_FILE)
+
+@app.route('/api/router/uplink/<iface>')
+def router_uplink(iface):
+    if iface not in ('wan', 'wwan'):
+        return jsonify({'ok': False, 'error': 'unknown uplink'}), 404
+    try:
+        st = _glinet_status()
+    except Exception as e:
+        _glinet['sid'] = None
+        return jsonify({'ok': False, 'error': str(e)})
+    up = next((i for i in st.get('interfaces', []) if i['interface'] == iface), {})
+    d = _usage_load()
+    now = datetime.now()
+    month, last_month = now.strftime('%Y-%m'), (now.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+    pick = lambda bucket, key: (d.get(bucket, {}).get(key, {}) or {}).get(iface, {'down': 0, 'up': 0})
+    days = d.get('days', {})
+    last30 = {'down': 0, 'up': 0}
+    for k in sorted(days)[-30:]:
+        e = (days[k] or {}).get(iface) or {}
+        last30['down'] += e.get('down', 0); last30['up'] += e.get('up', 0)
+    out = {'ok': True, 'iface': iface, 'label': up.get('label'), 'online': up.get('online'),
+           'active': st.get('active') == iface, 'priority': [i['interface'] for i in st.get('interfaces', [])].index(iface) + 1 if up else None,
+           'usage': {'today': pick('days', now.strftime('%Y-%m-%d')), 'month': pick('months', month),
+                     'last_month': pick('months', last_month), 'last_30_days': last30,
+                     'month_name': now.strftime('%B'), 'last_month_name': (now.replace(day=1) - timedelta(days=1)).strftime('%B'),
+                     'metered_since': d.get('since')},
+           'rate': None}
+    m = _map_cache.get('data') or {}
+    if out['active'] and m.get('totals'):
+        out['rate'] = {'down_Bps': m['totals'].get('down_Bps'), 'up_Bps': m['totals'].get('up_Bps')}
+    if iface == 'wan':
+        out['wan'] = st.get('wan')
+        sl = _starlink_cache.get('data')
+        if sl is None or time.time() - _starlink_cache['t'] > STARLINK_CACHE_TTL_S:
+            try:
+                sl = _starlink_status()
+            except Exception as e:
+                sl = {'online': False, 'error': str(e)}
+            sl['fetched_at'] = datetime.now(timezone.utc).isoformat()
+            _starlink_cache['data'], _starlink_cache['t'] = sl, time.time()
+        out['starlink'] = sl
+    else:
+        rep_st = _glinet_call('repeater', 'get_status') or {}
+        rep_st.pop('portal_info', None)
+        cfg = rep_st.pop('config', None) or {}
+        out['repeater'] = {k: v for k, v in rep_st.items() if k not in ('key', 'password', 'passwd')}
+        out['repeater']['ssid'] = cfg.get('ssid')
+        try:   # signal as heard by the Pi's own Wi-Fi (the router doesn't report it)
+            r = subprocess.run(['sudo', '-n', WIFI_SCAN_HELPER], capture_output=True, text=True, timeout=45)
+            vis = {n['ssid']: n for n in (json.loads(r.stdout or '{}').get('networks') or [])}
+            out['pi_sees'] = vis.get(cfg.get('ssid'))
+        except Exception:
+            out['pi_sees'] = None
+        out['autorejoin'] = _rejoin_public_state()
+    return jsonify(out)
+
+@app.route('/api/router/repeater/reconnect', methods=['POST'])
+def router_repeater_reconnect():
+    body = request.get_json(silent=True) or {}
+    try:
+        res = _repeater_connect(body.get('ssid'))
+        if res.get('ok'):
+            _rejoin['failures'].pop(res.get('ssid'), None)
+    except Exception as e:
+        res = {'ok': False, 'error': str(e)}
+    _rejoin_event('manual', (f'"{res.get("ssid")}" connected' if res.get('ok') else f'reconnect failed: {res.get("error")}'))
+    return jsonify(res)
+
+# Repeater networks saved on the router (Network Map > Repeater networks).
+# Same router calls as its own admin page; Wi-Fi passwords go browser ->
+# Flask -> router only and are never sent back (saved list strips `key`).
+# A router scan or a connect briefly retunes the boat Wi-Fi radio.
+def _random_repeater_mac():
+    import random
+    first = random.choice('0123456789ABCDEF') + random.choice('26AE')      # locally administered, like the router UI
+    return ':'.join([first] + [f'{random.randrange(256):02X}' for _ in range(5)])
+
+@app.route('/api/router/repeater/saved')
+def router_repeater_saved():
+    try:
+        saved = (_glinet_call('repeater', 'get_saved_ap_list') or {}).get('res') or []
+        st = _glinet_call('repeater', 'get_status') or {}
+    except Exception as e:
+        _glinet['sid'] = None
+        return jsonify({'ok': False, 'error': str(e)})
+    target = (st.get('config') or {}).get('ssid')
+    return jsonify({'ok': True, 'connected': bool(st.get('running') and st.get('state') == 2), 'target': target,
+                    'networks': [{'ssid': a.get('ssid'), 'has_password': bool(a.get('key')), 'protocol': a.get('protocol'),
+                                  'current': a.get('ssid') == target} for a in saved]})
+
+@app.route('/api/router/repeater/scan', methods=['POST'])
+def router_repeater_scan():
+    try:
+        res = _glinet_call_params('repeater', 'scan', {'all_band': True, 'refresh': True}, timeout=60)
+        saved = {a.get('ssid') for a in ((_glinet_call('repeater', 'get_saved_ap_list') or {}).get('res') or [])}
+    except Exception as e:
+        _glinet['sid'] = None
+        return jsonify({'ok': False, 'error': str(e)})
+    best = {}
+    for ap in (res or {}).get('res') or []:
+        ssid = ap.get('ssid')
+        if not ssid or not ssid.strip():
+            continue                                    # hidden network
+        if ssid not in best or (ap.get('signal') or -999) > (best[ssid].get('signal') or -999):
+            best[ssid] = ap
+    nets = [{'ssid': s, 'signal': a.get('signal'), 'band': a.get('band'), 'channel': a.get('channel'),
+             'secure': bool((a.get('encryption') or {}).get('enabled')), 'saved': s in saved}
+            for s, a in best.items()]
+    nets.sort(key=lambda n: -(n['signal'] or -999))
+    return jsonify({'ok': True, 'networks': nets})
+
+@app.route('/api/router/repeater/add', methods=['POST'])
+def router_repeater_add():
+    body = request.get_json(silent=True) or {}
+    ssid = str(body.get('ssid') or '')
+    password = body.get('password') or ''
+    if not ssid.strip() or len(ssid.encode('utf-8')) > 32:
+        return jsonify({'ok': False, 'error': 'network name must be 1-32 bytes'}), 400
+    if password and not (8 <= len(password) <= 63):
+        return jsonify({'ok': False, 'error': 'password must be 8-63 characters (or empty for an open network)'}), 400
+    # Payload as the router UI builds it for a new network (repeaterFn): DHCP,
+    # randomized repeater MAC, remember=true. Joining is how the router saves it.
+    params = {'ssid': ssid, 'remember': True, 'protocol': 'dhcp', 'disguise': False, 'manual': False,
+              'auto_portal': False, 'macaddr': {'mode': 'random', 'macaddr': _random_repeater_mac(), 'update': 'none'}}
+    if password:
+        params['key'] = password
+    with _glinet['lock']:
+        _glinet['data'] = None
+        _map_cache['data'] = None
+    try:
+        _glinet_call_params('repeater', 'scan', {'refresh': True}, timeout=60)
+    except Exception:
+        pass
+    try:
+        _glinet_call_params('repeater', 'connect', params, timeout=30)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        time.sleep(3)
+        try:
+            st = _glinet_call('repeater', 'get_status') or {}
+        except Exception:
+            continue
+        if st.get('running') and st.get('state') == 2:
+            _rejoin_event('manual', f'"{ssid}" added and connected')
+            return jsonify({'ok': True, 'ssid': ssid})
+    _rejoin_event('manual', f'"{ssid}" added but did not connect within 60 s')
+    return jsonify({'ok': False, 'ssid': ssid, 'saved': True,
+                    'error': 'saved on the router, but it did not connect within 60 s (wrong password or out of range?)'})
+
+@app.route('/api/router/repeater/forget', methods=['POST'])
+def router_repeater_forget():
+    ssid = (request.get_json(silent=True) or {}).get('ssid')
+    if not ssid:
+        return jsonify({'ok': False, 'error': 'ssid required'}), 400
+    disconnected = False
+    try:
+        # remove_saved_ap only deletes the entry; a live connection to that network
+        # keeps running, so disconnect first when it's the network in use.
+        st = _glinet_call('repeater', 'get_status') or {}
+        if (st.get('config') or {}).get('ssid') == ssid and st.get('running'):
+            _glinet_call_params('repeater', 'disconnect', {}, timeout=30)
+            disconnected = True
+        _glinet_call_params('repeater', 'remove_saved_ap', {'ssid': ssid})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    _rejoin['failures'].pop(ssid, None)
+    _rejoin['last_ok'].pop(ssid, None)
+    with _glinet['lock']:
+        _glinet['data'] = None
+        _map_cache['data'] = None
+    _rejoin_event('manual', f'"{ssid}" forgotten' + (' (disconnected)' if disconnected else ''))
+    return jsonify({'ok': True, 'disconnected': disconnected})
+
+@app.route('/api/router/autorejoin', methods=['POST'])
+def router_autorejoin_toggle():
+    body = request.get_json(silent=True) or {}
+    _rejoin['enabled'] = bool(body.get('enabled'))
+    try:
+        json.dump({'enabled': _rejoin['enabled']}, open(REJOIN_STATE_FILE, 'w'))
+    except OSError:
+        pass
+    with _glinet['lock']:
+        _glinet['data'] = None
+    return jsonify({'ok': True, 'enabled': _rejoin['enabled'], 'runner': _rejoin['runner']})
+# ─── end boat router siloed addition ────────────────────────────────────────
+
+# ─── Webcams siloed addition ────────────────────────────────────────────────
+# Two Dahua-style IP cameras on the boat LAN. Their /cgi-bin/snapshot.cgi
+# returns a 640x480 JPEG with no login, so the Webcams tab just polls this
+# proxy (works through the Cloudflare tunnel too, since the browser never
+# talks to the cameras directly). Delete this block plus the "Webcams" blocks
+# in static-src/index.html to remove the feature.
+WEBCAMS = {
+    '1': {'name': 'Front Yard', 'host': '192.168.200.200'},
+    '2': {'name': 'Backyard',   'host': '192.168.200.201'},
+}
+
+@app.route('/api/webcams')
+def webcams_list():
+    return jsonify([{'id': k, 'name': v['name'], 'host': v['host']} for k, v in WEBCAMS.items()])
+
+@app.route('/api/webcams/<cam_id>/snapshot')
+def webcam_snapshot(cam_id):
+    cam = WEBCAMS.get(cam_id)
+    if not cam:
+        return jsonify({'error': 'unknown camera'}), 404
+    try:
+        r = requests.get(f"http://{cam['host']}/cgi-bin/snapshot.cgi", timeout=5)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        return jsonify({'error': f"{cam['name']} unreachable: {e}"}), 502
+    return Response(r.content, mimetype=r.headers.get('Content-Type', 'image/jpeg'),
+                    headers={'Cache-Control': 'no-store'})
+
+# Playback of webcam_recorder.py's rolling 24 h recordings. It writes 5-minute
+# MP4s named by UTC start time to <recordings_dir>/<cam id>/; the recordings
+# dir comes from its config (~/.config/webcams/cameras.json, which also holds
+# the camera login and so stays out of this repo).
+WEBCAM_REC_NAME = re.compile(r'^\d{8}-\d{6}\.mp4$')
+
+def _webcam_recordings_dir():
+    try:
+        with open(os.path.expanduser('~/.config/webcams/cameras.json')) as f:
+            return json.load(f)['recordings_dir']
+    except (OSError, ValueError, KeyError):
+        return os.path.expanduser('~/webcam_recordings')
+
+@app.route('/api/webcams/<cam_id>/recordings')
+def webcam_recordings(cam_id):
+    if cam_id not in WEBCAMS:
+        return jsonify({'error': 'unknown camera'}), 404
+    cam_dir = os.path.join(_webcam_recordings_dir(), cam_id)
+    try:
+        names = sorted(f for f in os.listdir(cam_dir) if WEBCAM_REC_NAME.match(f))
+    except FileNotFoundError:
+        names = []
+    out = []
+    for i, name in enumerate(names):
+        start = datetime.strptime(name[:15], '%Y%m%d-%H%M%S').replace(tzinfo=timezone.utc).timestamp()
+        try:
+            st = os.stat(os.path.join(cam_dir, name))
+        except FileNotFoundError:
+            continue    # pruned between listdir and stat
+        # a segment ends where the next begins; the one being written ends at its last write
+        end = min(st.st_mtime, datetime.strptime(names[i + 1][:15], '%Y%m%d-%H%M%S')
+                  .replace(tzinfo=timezone.utc).timestamp()) if i + 1 < len(names) else st.st_mtime
+        out.append({'file': name, 'start': start, 'end': max(end, start), 'bytes': st.st_size,
+                    'recording': i == len(names) - 1 and time.time() - st.st_mtime < 30})
+    return jsonify({'camera': WEBCAMS[cam_id]['name'], 'segments': out})
+
+@app.route('/api/webcams/<cam_id>/recordings/<name>')
+def webcam_recording_file(cam_id, name):
+    if cam_id not in WEBCAMS or not WEBCAM_REC_NAME.match(name):
+        return jsonify({'error': 'not found'}), 404
+    # conditional=True gives Range support, which the video player needs to seek
+    resp = send_from_directory(os.path.join(_webcam_recordings_dir(), cam_id), name,
+                               mimetype='video/mp4', conditional=True)
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+# Full-resolution Live view: the recorder also keeps a short rolling HLS
+# playlist per camera in RAM (live_dir in its config); serve it as-is.
+WEBCAM_LIVE_NAME = re.compile(r'^(index\.m3u8|seg\d+\.ts)$')
+
+@app.route('/api/webcams/<cam_id>/live/<name>')
+def webcam_live_file(cam_id, name):
+    if cam_id not in WEBCAMS or not WEBCAM_LIVE_NAME.match(name):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        with open(os.path.expanduser('~/.config/webcams/cameras.json')) as f:
+            live_dir = json.load(f)['live_dir']
+    except (OSError, ValueError, KeyError):
+        return jsonify({'error': 'live feed not configured'}), 404
+    playlist = name.endswith('.m3u8')
+    resp = send_from_directory(os.path.join(live_dir, cam_id), name,
+                               mimetype='application/vnd.apple.mpegurl' if playlist else 'video/mp2t')
+    resp.headers['Cache-Control'] = 'no-store' if playlist else 'max-age=60'
+    return resp
+# ─── end Webcams siloed addition ────────────────────────────────────────────
+
 # ─── Victron Bluetooth (Orion-Tr Smart) siloed addition ─────────────────────
 # victron_ble_bridge.py reads the Orions' Bluetooth "Instant Readout"
 # broadcasts (they have no VE.Direct port, so VRM never sees them) and
@@ -3315,6 +4517,7 @@ if __name__ == '__main__':
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
         threading.Thread(target=crit_battery_monitor_loop, daemon=True).start()  # 12V/diesel/thruster critical push (siloed)
+        threading.Thread(target=router_autorejoin_loop, daemon=True).start()     # boat router repeater auto-rejoin (siloed)
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
         electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser

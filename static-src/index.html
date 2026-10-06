@@ -4,10 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Exit Strategy · Dashboard</title>
-<link rel="manifest" href="/assets/manifest.json">
+<!-- PWA (fullscreen, landscape). index.html is served as a plain file, not a
+     template, so the manifest path is literal (= url_for('static', filename='manifest.json')).
+     use-credentials: send the Cloudflare Access cookie when fetching the manifest. -->
+<link rel="manifest" href="/static/manifest.json" crossorigin="use-credentials">
 <meta name="theme-color" content="#0a0e1a">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon-anchor.svg">
-<link rel="apple-touch-icon" href="/assets/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -117,6 +121,44 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .media-embed-wrap iframe{width:100%;height:100%;border:0}
 .media-msg{padding:2rem 1rem;color:#8fa3bd;font-size:14px;line-height:1.6;text-align:center}
 /* ─── end Media (Boat Radio) CSS ─── */
+/* ─── Webcams tab — siloed addition ─── */
+.webcam-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.webcam-card{background:#0f1628;border:.5px solid #1e2d4a;border-radius:10px;overflow:hidden}
+.webcam-head{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:13px;color:#e0e6f0}
+.webcam-status{font-size:11px;color:#6b82a0}
+.webcam-status.stale{color:#e8a030}
+.webcam-frame{position:relative;aspect-ratio:16/9;background:#0a0e1a;cursor:zoom-in}
+.webcam-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;background:#0a0e1a}
+.webcam-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.webcam-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:1rem;color:#8fa3bd;font-size:13px}
+.webcam-grid.single{grid-template-columns:1fr}
+.webcam-grid.single .webcam-card:not(.focus){display:none}
+.webcam-grid.single .webcam-frame{cursor:zoom-out;aspect-ratio:auto;height:60vh}
+/* Playback */
+.wc-modes{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.wc-modes .wc-spacer{flex:1}
+.wc-btn{background:#0f1628;border:1px solid #1e2d4a;color:#8fa3bd;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+.wc-btn:hover{color:#e0e6f0;border-color:#2c4270}
+.wc-btn.active{color:#4a9fd4;border-color:#4a9fd4;background:#12203a}
+.wc-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.wc-spacer{flex:1}
+.wc-speeds{display:flex;gap:4px}
+.wc-clock{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#e0e6f0;font-size:14px;min-width:150px}
+.wc-jump{font-size:13px;color:#8fa3bd;display:flex;align-items:center;gap:6px}
+.wc-jump input{background:#0a0e1a;border:1px solid #1e2d4a;color:#e0e6f0;border-radius:6px;padding:4px 6px;color-scheme:dark}
+.wc-video-wrap{position:relative;background:#0a0e1a;border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;height:min(60vh,720px)}
+.wc-video-wrap video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.wc-timeline{position:relative;height:34px;background:#0a0e1a;border:1px solid #1e2d4a;border-radius:6px;cursor:pointer;touch-action:none;overflow:hidden}
+.wc-tl-segs div{position:absolute;top:0;bottom:0;background:#1f4a73}
+.wc-tl-head{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#e8a030;display:none}
+.wc-tl-hover{position:absolute;top:2px;padding:1px 5px;font-size:11px;background:#0f1628;border:1px solid #2c4270;border-radius:4px;color:#e0e6f0;pointer-events:none;display:none;white-space:nowrap}
+.wc-tl-ticks{position:relative;height:16px;font-size:10px;color:#6b82a0}
+.wc-tl-ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.wc-note{font-size:12px;color:#6b82a0;margin-top:6px}
+/* Tablet white-flash fix (siloed, 2026-10-05): give the root a dark background too,
+   so any frame where the page has nothing painted shows dark instead of white. */
+html{background:#0a0e1a}
+/* ─── end Webcams CSS ─── */
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
 .status-row:last-child{border-bottom:none}
@@ -781,6 +823,75 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 .modal-overlay > .modal { max-height: calc(90vh / var(--ui, 1)); }
 /* ─── end screen-size UI scaling ─────────────────────────────────────────── */
 
+/* ─── Weather fit-to-window (siloed addition) ──────────────────────────────
+   The wind-speed chart was a fixed 840px next to the 420px dial, so it wrapped
+   onto its own row below 1280px and left half the row empty; it now takes the
+   rest of the row. Heights are fitted by fitWeatherToWindow() in the script.
+   To back out: delete this block and the matching script block. */
+@media (min-width:901px){
+  #page-weather .wind-speed-card{flex:1 1 360px;width:auto}
+}
+/* Room for the forecast cards before they load, so the fit is right from the
+   start instead of shrinking when "Loading forecast…" turns into cards. */
+#wx-forecast-row{min-height:146px}
+/* The wind-speed chart's box took its height from the canvas and Chart.js took
+   the canvas height from the box; under the page zoom that fed back and the
+   chart grew (~300 -> 720px at 1920x1080) seconds after load. Taking the canvas
+   out of flow lets the box height come from the row alone. */
+#page-weather .wind-speed-chart-canvas-wrap{overflow:hidden}
+#page-weather .wind-speed-chart-canvas-wrap > canvas{position:absolute;top:0;left:0}
+/* ─── end Weather fit-to-window ────────────────────────────────────────── */
+
+/* ─── Starlink card (siloed addition, Diagnostics > Server Health) ──────── */
+.sl-rows{margin-top:8px;display:flex;flex-direction:column;gap:3px}
+.sl-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 8px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:6px}
+.sl-row span:first-child{color:#6b82a0}
+.sl-row span:last-child{color:#e0e6f0;text-align:right}
+.sl-row.warn span:last-child{color:#e8a030}
+.sl-row.bad span:last-child{color:#e05050}
+.sl-row.good span:last-child{color:#3db87a}
+.net-sec{margin-top:14px}
+.net-sec:first-child{margin-top:0}
+.net-sec-title{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;justify-content:space-between}
+.net-sec .sl-rows{margin-top:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:3px 8px}
+#net-modal .modal{max-width:1180px}
+#wifi-cfg,#eth-cfg{margin-top:0}
+.net-cfg-modal{max-width:820px}
+.net-cfg-sec > .net-sec-title span:first-child{display:none}
+.net-gear{background:none;border:.5px solid #1e2d4a;border-radius:6px;color:#8fa3bd;cursor:pointer;font-size:13px;line-height:1;padding:3px 7px;margin-left:8px;text-transform:none;letter-spacing:0}
+.net-gear:hover{color:#e0e6f0;border-color:#4a9fd4}
+.net-sec-title > span:first-child{display:flex;align-items:center}
+.eth-cfg-pending{background:#2a1f05;border:.5px solid #7a5a1a;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:#e8c070}
+.wifi-cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 12px}
+.wifi-cfg-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#8fa3bd}
+.wifi-cfg-grid input{width:100%;box-sizing:border-box}
+.wifi-cfg-pass{display:flex;gap:6px}
+.wifi-cfg-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.wifi-cfg-check{font-size:12px;color:#8fa3bd;display:flex;align-items:center;gap:6px;cursor:pointer}
+.wifi-cfg-save{color:#3db87a;border-color:#2a7a4a}
+.wifi-cfg-save:disabled,.wifi-cfg-actions .wc-btn:disabled{opacity:.5;cursor:wait}
+.wifi-cfg-scan{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.wifi-cfg-scan button{font-size:12px;padding:4px 10px}
+.wifi-cfg-msg{font-size:12px;color:#6b82a0;margin-top:8px}
+/* Network map (Boat router section of the Network pop-up) -- siloed */
+.nm-svg{width:100%;height:auto;display:block;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:10px}
+.nm-svg text{font-family:inherit}
+.nm-name{font-size:13px;font-weight:600;fill:#e0e6f0}
+.nm-sub{font-size:11px;fill:#6b82a0}
+.nm-rate{font-size:11px;fill:#8fa3bd}
+.nm-group{font-size:10.5px;fill:#6b82a0;letter-spacing:.06em;text-transform:uppercase}
+.nm-flow{fill:none;stroke-linecap:round;animation:nm-dash linear infinite}  /* dasharray "0 14" + round cap = moving dots */
+.nm-flow.rev{animation-direction:reverse}
+@keyframes nm-dash{to{stroke-dashoffset:-28}}
+.nm-dev:hover .nm-name{fill:#4a9fd4}
+.rp-list{display:flex;flex-direction:column;gap:4px}
+.rp-row{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:8px;font-size:13px}
+.rp-row.current{border-color:#2a7a4a}
+.rp-row .wc-btn{font-size:12px;padding:3px 10px}
+.wifi-cfg-msg.ok{color:#3db87a}
+.wifi-cfg-msg.err{color:#e05050}
+/* ─── end Starlink card ─────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body>
@@ -824,6 +935,7 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
   <button class="navbtn" id="nav-engine" onclick="showPage('engine')"><span>🔧</span>Engine</button>
   <button class="navbtn" id="nav-reference" onclick="showPage('reference')"><span>📖</span>Reference</button>
   <button class="navbtn" id="nav-media" onclick="showPage('media')"><span>🎵</span>Media</button><!-- siloed Media (Boat Radio) addition -->
+  <button class="navbtn" id="nav-webcams" onclick="showPage('webcams')"><span>📷</span>Webcams</button><!-- siloed Webcams addition -->
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
 
@@ -1950,6 +2062,47 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 </div>
 <!-- ══════════════════ end Media (Boat Radio) page ══════════════════ -->
 
+<!-- ══════════════════ Webcams page — siloed addition ══════════════════ -->
+<script>var _webcamBootHash = location.hash;  // showPage() rewrites the hash during boot; capture it first</script>
+<div class="page" id="page-webcams">
+  <div class="section"><span>Webcams</span><span id="webcam-hint">Tap a camera to enlarge</span></div>
+  <div class="wc-modes">
+    <button class="wc-btn active" id="wc-mode-live" onclick="webcamSetMode('live')">Live</button>
+    <button class="wc-btn" id="wc-mode-playback" onclick="webcamSetMode('playback')">Playback (24 h)</button>
+    <span class="wc-spacer"></span>
+    <button class="wc-btn" id="wc-hd" onclick="webcamToggleHD()" title="Full resolution video uses about 4 Mbps per camera; low data shows a 640x480 picture every second">Full res</button>
+  </div>
+  <div class="webcam-grid" id="webcam-grid"></div>
+  <!-- Playback (siloed Webcams recording addition) -->
+  <div id="wc-playback" style="display:none">
+    <div class="wc-bar" id="wc-cam-btns"></div>
+    <div class="wc-video-wrap" id="wc-video-wrap">
+      <video id="wc-video" controls playsinline muted></video>
+      <div class="webcam-msg" id="wc-video-msg">Pick a time on the timeline below.</div>
+    </div>
+    <div class="wc-bar">
+      <span class="wc-clock" id="wc-clock">--</span>
+      <button class="wc-btn" onclick="wcStep(-60)">−1 min</button>
+      <button class="wc-btn" onclick="wcStep(-10)">−10 s</button>
+      <button class="wc-btn" id="wc-play" onclick="wcTogglePlay()">Play</button>
+      <button class="wc-btn" onclick="wcStep(10)">+10 s</button>
+      <button class="wc-btn" onclick="wcStep(60)">+1 min</button>
+      <span class="wc-spacer"></span>
+      <span class="wc-speeds" id="wc-speeds"></span>
+      <label class="wc-jump">Go to <input type="time" id="wc-jump" step="60" onchange="wcJumpToInput()"></label>
+      <button class="wc-btn" onclick="wcGoLatest()">Latest</button>
+    </div>
+    <div class="wc-timeline" id="wc-timeline" title="Click or drag to seek">
+      <div class="wc-tl-segs" id="wc-tl-segs"></div>
+      <div class="wc-tl-head" id="wc-tl-head"></div>
+      <div class="wc-tl-hover" id="wc-tl-hover"></div>
+    </div>
+    <div class="wc-tl-ticks" id="wc-tl-ticks"></div>
+    <div class="wc-note" id="wc-note"></div>
+  </div>
+</div>
+<!-- ══════════════════ end Webcams page ══════════════════ -->
+
 <!-- ══════════════════════════════ Diagnostics page ══════════════════════════════ -->
 <div class="page" id="page-mqtt">
   <div class="section">
@@ -1958,14 +2111,15 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 
   <div class="flow-wrap">
     <div class="diag-subtabs">
-      <button class="diag-subtab-btn active" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
+      <button class="diag-subtab-btn active" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
+      <button class="diag-subtab-btn" id="diag-sub-netmap-btn" onclick="showDiagSub('netmap')">Network Map</button><!-- siloed Network Map -->
+      <button class="diag-subtab-btn" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
-      <button class="diag-subtab-btn" id="diag-sub-system-btn" onclick="showDiagSub('system')">Server Health</button>
       <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
       <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')">Simulators</button>
     </div>
 
-    <div class="diag-panel active" id="diag-panel-mqtt">
+    <div class="diag-panel" id="diag-panel-mqtt">
       <div class="mqtt-toolbar">
         <input class="mqtt-search" id="mqtt-search" type="text" placeholder="Filter topics (e.g. fan, relay, power)…" oninput="mqttOnSearch(this.value)">
         <div class="mqtt-stats">
@@ -1998,7 +2152,13 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       </div>
     </div>
 
-    <div class="diag-panel" id="diag-panel-system">
+    <!-- siloed Network Map sub-tab: boat router uplinks + devices (netMapSvg) -->
+    <div class="diag-panel" id="diag-panel-netmap">
+      <div id="netmap-host"><div class="bt-card-empty">Loading…</div></div>
+      <div id="netmap-controls"></div>
+    </div>
+
+    <div class="diag-panel active" id="diag-panel-system">
       <div class="notice" id="sys-notice" style="margin-bottom:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
 
       <!-- System status (moved here from Overview) -->
@@ -2092,10 +2252,16 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
           <div class="mlive-val" id="sys-net_rx-val">--</div>
           <div class="spark-wrap"><canvas id="spark-net_rx"></canvas></div>
         </div>
-        <div class="mlive wm-clickable" onclick="openSystemModal('wifi','WiFi Signal','dBm','#a05ad4')">
-          <div class="mlive-label">WiFi Signal</div>
-          <div class="mlive-val" id="sys-wifi-val">--</div>
-          <div class="spark-wrap"><canvas id="spark-wifi"></canvas></div>
+        <!-- siloed Network card: Ethernet / boat router / Starlink (+ recovery hotspot
+             when on); click for details. The Wi-Fi backup was removed 2026-10-05; the
+             former WiFi Signal value + sparkline stay hidden because the original
+             Server Health code still writes to these ids. -->
+        <div class="mlive wm-clickable" onclick="openNetModal()" title="Click for Ethernet, router, recovery hotspot and Starlink details">
+          <div class="mlive-label">Network</div>
+          <div class="mlive-val" id="netpath-val">--</div>
+          <div class="bt-card-summary" id="netpath-summary"></div>
+          <div class="sl-rows" id="net-card-rows"></div>
+          <div style="display:none"><span id="sys-wifi-val">--</span><div class="spark-wrap"><canvas id="spark-wifi"></canvas></div></div>
         </div>
         <div class="mlive">
           <div class="mlive-label">Bluetooth</div>
@@ -2188,6 +2354,124 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 </div>
 
 <!-- Bilge Pump history -->
+<!-- siloed Network details modal (Ethernet / Wi-Fi / Starlink) -->
+<div class="modal-overlay" id="net-modal" onclick="if (event.target === this) closeNetModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🌐</span>
+        <span>Network</span>
+      </div>
+      <button class="modal-close" onclick="closeNetModal()">×</button>
+    </div>
+    <div id="net-modal-body"><div class="bt-card-empty">Loading…</div></div>
+  </div>
+</div>
+
+<!-- siloed Repeater networks pop-up (Network Map): networks saved on the boat router -->
+<div class="modal-overlay" id="rp-modal" onclick="if (event.target === this) closeRepeaterNets()">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-header">
+      <div class="modal-title"><span class="modal-icon">📶</span><span>Wi-Fi repeater</span></div>
+      <button class="modal-close" onclick="closeRepeaterNets()">×</button>
+    </div>
+    <div id="rp-info"><div class="bt-card-empty">Loading…</div></div>
+    <div id="rp-controls"></div>
+    <div class="net-sec-title"><span>Saved on the router</span><span id="rp-status"></span></div>
+    <div class="rp-list" id="rp-saved"><div class="bt-card-empty">Loading…</div></div>
+    <div class="net-sec-title" style="margin-top:14px"><span>Add a network</span></div>
+    <div class="wifi-cfg-grid">
+      <label>Network (SSID) <input class="mqtt-search" id="rp-ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="Marina Wi-Fi or hotspot name"></label>
+      <label>Password
+        <span class="wifi-cfg-pass"><input class="mqtt-search" id="rp-pass" type="password" maxlength="63" autocomplete="new-password" placeholder="blank for an open network">
+        <button class="wc-btn" type="button" onclick="const i=document.getElementById('rp-pass'); i.type = i.type === 'password' ? 'text' : 'password'; this.textContent = i.type === 'password' ? 'Show' : 'Hide'">Show</button></span>
+      </label>
+    </div>
+    <div class="wifi-cfg-actions">
+      <button class="wc-btn" type="button" id="rp-scan-btn" onclick="repeaterScan()" title="The router scans with its own radio; the boat Wi-Fi may blip for a few seconds">Scan for networks</button>
+      <span style="flex:1"></span>
+      <button class="wc-btn wifi-cfg-save" type="button" id="rp-add-btn" onclick="repeaterAdd()">Save &amp; connect</button>
+    </div>
+    <div class="wifi-cfg-scan" id="rp-scan"></div>
+    <div class="wifi-cfg-msg" id="rp-msg">Saving a network connects the router to it now (the router remembers networks by joining them). With the repeater first in Multi-WAN priority, the router uses it whenever it's available; auto-rejoin reconnects saved networks when they come back.</div>
+  </div>
+</div>
+
+<!-- siloed Ethernet WAN / Starlink stats pop-up (Network Map) -->
+<div class="modal-overlay" id="ul-modal" onclick="if (event.target === this) closeUplink()">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-header">
+      <div class="modal-title"><span class="modal-icon">🌐</span><span id="ul-title">Internet</span></div>
+      <button class="modal-close" onclick="closeUplink()">×</button>
+    </div>
+    <div id="ul-body"><div class="bt-card-empty">Loading…</div></div>
+  </div>
+</div>
+
+<!-- siloed Network Map device editor -->
+<div class="modal-overlay" id="nm-device-modal" onclick="if (event.target === this) nmCloseDevice()">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title"><span class="modal-icon">🏷️</span><span>Network device</span></div>
+      <button class="modal-close" onclick="nmCloseDevice()">×</button>
+    </div>
+    <div class="net-sec-title"><span>MAC</span><span id="nm-dev-mac"></span></div>
+    <div class="wifi-cfg-msg" id="nm-dev-info" style="margin:0 0 10px"></div>
+    <div class="wifi-cfg-grid">
+      <label>Name <input class="mqtt-search" id="nm-dev-name" type="text" maxlength="40" spellcheck="false"></label>
+      <label>Type
+        <select class="mqtt-search" id="nm-dev-kind">
+          <option value="">Automatic</option><option value="phone">Phone</option><option value="tablet">Tablet</option>
+          <option value="computer">Computer</option><option value="pi">Raspberry Pi</option><option value="iot">Smart plug / IoT</option>
+          <option value="camera">Camera</option><option value="tv">TV</option><option value="speaker">Speaker</option>
+          <option value="network">Network gear</option><option value="victron">Victron</option><option value="marine">Marine electronics</option>
+          <option value="unknown">Unknown</option>
+        </select></label>
+    </div>
+    <div class="wifi-cfg-actions">
+      <button class="wc-btn" type="button" onclick="nmSaveDevice(true)">Reset to automatic</button>
+      <span style="flex:1"></span>
+      <button class="wc-btn wifi-cfg-save" type="button" onclick="nmSaveDevice(false)">Save</button>
+    </div>
+    <div class="wifi-cfg-msg" id="nm-dev-msg"></div>
+  </div>
+</div>
+
+<!-- siloed Ethernet settings pop-up (opened from the Network pop-up) -->
+<div class="modal-overlay" id="eth-settings-modal" onclick="if (event.target === this) closeEthSettings()">
+  <div class="modal net-cfg-modal">
+    <div class="modal-header">
+      <div class="modal-title"><span class="modal-icon">🔌</span><span>Ethernet settings</span></div>
+      <button class="modal-close" onclick="closeEthSettings()">×</button>
+    </div>
+    <!-- Ethernet settings (outside #net-modal-body so the refresh doesn't wipe the form) -->
+    <div class="net-sec net-cfg-sec" id="eth-cfg">
+      <div class="net-sec-title"><span>Ethernet settings</span><span id="eth-cfg-current"></span></div>
+      <div class="eth-cfg-pending" id="eth-cfg-pending" style="display:none">
+        <div id="eth-cfg-pending-text"></div>
+        <div class="wifi-cfg-actions" style="margin-top:6px">
+          <button class="wc-btn wifi-cfg-save" type="button" onclick="ethCfgConfirm()">Keep new settings</button>
+          <button class="wc-btn" type="button" onclick="ethCfgRevert()">Revert now</button>
+        </div>
+      </div>
+      <div class="wifi-cfg-actions" style="margin-top:0">
+        <label class="wifi-cfg-check"><input type="radio" name="eth-cfg-mode" value="static" checked onchange="ethCfgModeChanged()"> Static IP</label>
+        <label class="wifi-cfg-check"><input type="radio" name="eth-cfg-mode" value="dhcp" onchange="ethCfgModeChanged()"> DHCP (router assigns)</label>
+      </div>
+      <div class="wifi-cfg-grid" id="eth-cfg-static" style="margin-top:8px">
+        <label>IP address / prefix <input class="mqtt-search" id="eth-cfg-address" type="text" placeholder="192.168.10.10/24" spellcheck="false"></label>
+        <label>Gateway <input class="mqtt-search" id="eth-cfg-gateway" type="text" placeholder="192.168.10.1" spellcheck="false"></label>
+        <label>DNS servers (comma-separated, blank = gateway) <input class="mqtt-search" id="eth-cfg-dns" type="text" placeholder="1.1.1.1, 8.8.8.8" spellcheck="false"></label>
+      </div>
+      <div class="wifi-cfg-actions">
+        <span style="flex:1"></span>
+        <button class="wc-btn wifi-cfg-save" type="button" id="eth-cfg-save-btn" onclick="ethCfgSave()">Apply Ethernet settings</button>
+      </div>
+      <div class="wifi-cfg-msg" id="eth-cfg-msg">Changes apply after 3 s and are undone after 3 min unless you press Keep (from the dashboard at the new address, the recovery hotspot, or the public address).</div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="bilge-modal" onclick="closeBilgeModalOutside(event)">
   <div class="modal">
     <div class="modal-header">
@@ -2530,6 +2814,7 @@ function showPage(page) {
     fetchWatermakerLive();
   } else if (page === 'mqtt') {
     fetchMqtt();
+    showDiagSub(diagSubTab);   // start the open sub-tab's polling (Server Health is the default)
   } else if (page === 'anchor') {
     fetchAnchorState().then(fetchAnchorLive);
   } else if (page === 'chart') {
@@ -4501,7 +4786,7 @@ function mqttOnSearch(value) {
 }
 
 // ─── Diagnostics: MQTT / CAN Bus sub-tabs ──────────────────────────────────────
-let diagSubTab = 'mqtt';
+let diagSubTab = 'system';   // Server Health is the default Diagnostics sub-tab
 
 function showDiagSub(tab) {
   diagSubTab = tab;
@@ -4510,6 +4795,9 @@ function showDiagSub(tab) {
   document.getElementById('diag-panel-system').classList.toggle('active', tab === 'system');
   document.getElementById('diag-panel-access').classList.toggle('active', tab === 'access');
   document.getElementById('diag-panel-sim').classList.toggle('active', tab === 'sim');
+  document.getElementById('diag-panel-netmap').classList.toggle('active', tab === 'netmap');   // siloed Network Map
+  document.getElementById('diag-sub-netmap-btn').classList.toggle('active', tab === 'netmap');
+  if (typeof netMapTabPolling === 'function') netMapTabPolling(tab === 'netmap');
   document.getElementById('diag-sub-mqtt-btn').classList.toggle('active', tab === 'mqtt');
   document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
@@ -9989,7 +10277,7 @@ function renderHeaderAlerts() {
       ? `<span class="hdr-alert-more" title="${escapeHtml(list.slice(HDR_ALERT_MAX).map(a => a.text).join('\n'))}">+${list.length - shown.length}</span>` : '');
   box.querySelectorAll('.marine-alert-chip').forEach(el => {
     const a = shown[+el.dataset.i];
-    if (a.page) el.onclick = () => showPage(a.page);
+    if (a.onclick) el.onclick = a.onclick; else if (a.page) el.onclick = () => showPage(a.page);
   });
 }
 
@@ -10123,16 +10411,17 @@ window.addEventListener('resize', () => {
 // that case shows a note instead. showPage() is wrapped, not edited; delete this block,
 // the CSS block, the nav button and the #page-media div to remove the feature.
 const RADIO_PORT = 5010;
-const radioBase = 'http://' + location.hostname + ':' + RADIO_PORT;
+// Over https (dashboard.exitstrategysailing.com on the boat) the radio comes from
+// nginx's TLS front on :5443 (same certificate) -> pianobar-web :5010, so the
+// embed isn't blocked as mixed content. Plain http pages use :5010 directly.
+const RADIO_TLS_PORT = 5443;
+const radioBase = location.protocol === 'https:'
+  ? 'https://' + location.hostname + ':' + RADIO_TLS_PORT
+  : 'http://' + location.hostname + ':' + RADIO_PORT;
 let mediaLoaded = false;
 
 async function mediaLoad() {
   const wrap = document.getElementById('media-embed-wrap');
-  if (location.protocol === 'https:') {
-    wrap.innerHTML = '<div class="media-msg">Boat Radio is only available on the boat network.<br>' +
-      'Open the dashboard at its local address (e.g. <b>http://192.168.200.20:8080</b>) to use it.</div>';
-    return;
-  }
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 4000);
@@ -10140,8 +10429,9 @@ async function mediaLoad() {
     clearTimeout(t);
   } catch (e) {
     wrap.innerHTML = '<div class="media-msg">Can\'t reach Boat Radio at <b>' + radioBase + '</b>.<br>' +
-      'Check that the <code>pianobar-web</code> service is running, then open this tab again.<br>' +
-      '<small>(If it is, the Pi\'s firewall may be blocking port ' + RADIO_PORT + '.)</small></div>';
+      'Boat Radio only works on the boat network (not through the remote/Cloudflare address).<br>' +
+      '<small>On the boat: check that the <code>pianobar-web</code> service is running' +
+      (location.protocol === 'https:' ? ' and nginx\'s :' + RADIO_TLS_PORT + ' site is installed' : '') + ', then open this tab again.</small></div>';
     return;
   }
   wrap.innerHTML = '<iframe id="media-embed" allow="autoplay; fullscreen" title="Boat Radio"></iframe>';
@@ -10171,6 +10461,435 @@ showPage = function(page) {
 };
 if (_mediaBootHash === '#media') showPage('media');
 // ─── end Media (Boat Radio) siloed addition ──────────────────────────────────
+
+// ─── Webcams tab — siloed addition ───────────────────────────────────────────
+// Polls /api/webcams/<id>/snapshot (a Flask proxy to each camera) about once a
+// second, only while the tab is open and the window is visible. Each camera
+// waits for its previous frame before asking for the next, so a slow camera
+// never piles up requests. showPage() is wrapped, not edited; delete this
+// block, the CSS block, the nav button and #page-webcams to remove the feature.
+const WEBCAM_INTERVAL_MS = 1000;
+const WEBCAM_STALE_MS = 10000;
+let webcams = null;        // [{id, name, host, lastOk, busy}]
+let webcamTimer = null;
+
+async function webcamsInit() {
+  const grid = document.getElementById('webcam-grid');
+  try {
+    webcams = await (await fetch('/api/webcams')).json();
+  } catch (e) {
+    grid.innerHTML = '<div class="media-msg">Couldn\'t load the camera list.</div>';
+    webcams = null;
+    return;
+  }
+  grid.innerHTML = webcams.map(c => `
+    <div class="webcam-card" id="webcam-card-${c.id}">
+      <div class="webcam-head"><span>${c.name} <span class="webcam-status">${c.host}</span></span>
+        <span class="webcam-status" id="webcam-status-${c.id}">connecting…</span></div>
+      <div class="webcam-frame" onclick="webcamToggleFocus('${c.id}')">
+        <img id="webcam-img-${c.id}" alt="${c.name}">
+        <video id="webcam-vid-${c.id}" muted playsinline autoplay></video>
+        <div class="webcam-msg" id="webcam-msg-${c.id}">Connecting…</div>
+      </div>
+    </div>`).join('');
+  webcams.forEach(c => { c.lastOk = 0; c.busy = false; });
+}
+
+function webcamFetch(c) {
+  if (c.busy || (webcamHD && c.vidOk)) return;
+  c.busy = true;
+  const img = new Image();
+  img.onload = () => {
+    const el = document.getElementById('webcam-img-' + c.id);
+    if (el) el.src = img.src;
+    document.getElementById('webcam-msg-' + c.id).style.display = 'none';
+    c.lastOk = Date.now();
+    c.busy = false;
+  };
+  img.onerror = () => { c.busy = false; };
+  img.src = '/api/webcams/' + c.id + '/snapshot?t=' + Date.now();
+}
+
+function webcamTick() {
+  if (currentPage !== 'webcams' || document.hidden || !webcams || webcamMode !== 'live') return;
+  const now = Date.now();
+  webcams.forEach(c => {
+    webcamFetch(c);
+    const st = document.getElementById('webcam-status-' + c.id);
+    const msg = document.getElementById('webcam-msg-' + c.id);
+    if (!c.lastOk) {
+      if (now - (c.firstTry || (c.firstTry = now)) > WEBCAM_STALE_MS) {
+        st.textContent = 'offline'; st.classList.add('stale');
+        msg.textContent = `Can't reach ${c.name} (${c.host})`;
+      }
+    } else if (now - c.lastOk > WEBCAM_STALE_MS) {
+      st.textContent = 'no signal · last ' + new Date(c.lastOk).toLocaleTimeString();
+      st.classList.add('stale');
+    } else {
+      st.textContent = 'live · ' + (webcamHD && c.vidOk ? '2560×1440' : '640×480');
+      st.classList.remove('stale');
+    }
+  });
+}
+
+function webcamToggleFocus(id) {
+  const grid = document.getElementById('webcam-grid');
+  const card = document.getElementById('webcam-card-' + id);
+  const focused = grid.classList.contains('single');
+  grid.querySelectorAll('.webcam-card').forEach(el => el.classList.remove('focus'));
+  grid.classList.toggle('single', !focused);
+  if (!focused) card.classList.add('focus');
+  document.getElementById('webcam-hint').textContent = focused ? 'Tap a camera to enlarge' : 'Tap to show both cameras';
+  webcamFit();
+}
+
+// Enlarged view: make the frame end at the bottom of the window. The tab is
+// CSS-zoomed by --ui, so convert window pixels back to the tab's own pixels.
+// All three views (Live grid, enlarged camera, Playback) are sized so the page
+// ends at the window bottom with no scroll bar: lay out, measure how far the
+// page actually overflows, and take exactly that off the picture. Measuring
+// (rather than assuming control heights) copes with wrapped nav/controls rows.
+function webcamPageOverflow() { return document.documentElement.scrollHeight - innerHeight; }
+function webcamZoomOf(el) { return el.getBoundingClientRect().height / el.offsetHeight || 1; }
+
+function webcamFit() {
+  if (currentPage !== 'webcams') return;
+  if (webcamMode === 'playback') return wcFitVideo();
+  const focusFrame = document.querySelector('.webcam-grid.single .webcam-card.focus .webcam-frame');
+  if (focusFrame) {
+    focusFrame.style.height = '';
+    const r = focusFrame.getBoundingClientRect(), zoom = webcamZoomOf(focusFrame);
+    focusFrame.style.height = Math.max(200, (innerHeight - r.top - 16) / zoom) + 'px';
+    const over = webcamPageOverflow();
+    if (over > 0) focusFrame.style.height = Math.max(200, focusFrame.offsetHeight - over / zoom - 1) + 'px';
+    return;
+  }
+  // Live grid: cap each picture's height (it letterboxes inside its 16:9 box)
+  const cards = [...document.querySelectorAll('#webcam-grid .webcam-card')];
+  const frames = cards.map(c => c.querySelector('.webcam-frame'));
+  frames.forEach(f => { f.style.maxHeight = ''; f.style.height = ''; });   // height: left over from the enlarged view
+  const over = webcamPageOverflow();
+  if (over <= 0 || !frames.length) return;
+  const rows = new Set(cards.map(c => c.offsetTop)).size;
+  const zoom = webcamZoomOf(frames[0]);
+  frames.forEach(f => f.style.maxHeight = Math.max(120, f.offsetHeight - over / zoom / rows - 1) + 'px');
+}
+addEventListener('resize', webcamFit);
+
+const _showPageBeforeWebcams = showPage;
+showPage = function(page) {
+  _showPageBeforeWebcams(page);
+  if (page === 'webcams') {
+    const start = () => { webcamTick(); if (!webcamTimer) webcamTimer = setInterval(webcamTick, WEBCAM_INTERVAL_MS); webcamLiveSync(); webcamFit(); };
+    if (!webcams) webcamsInit().then(start); else { start(); webcamFit(); }
+  } else {
+    if (webcamTimer) { clearInterval(webcamTimer); webcamTimer = null; }
+    wcStopPlayback();
+    webcamLiveSync();
+  }
+  if (page === 'webcams' && webcamMode === 'playback') wcStartPlayback();
+};
+
+// ── Playback of the rolling 24 h recordings (webcam_recorder.py) ──
+// Recordings are 5-minute MP4s per camera; the timeline covers the last 24 h
+// and the player moves on to the next file by itself, so it plays like one
+// continuous video. Times on screen are this device's local time.
+let webcamMode = 'live';
+const wc = { cam: '1', segs: [], seg: null, speed: 1, refresh: null, pendingSeek: null };
+const WC_SPEEDS = [1, 2, 4, 8];
+const WC_DAY = 24 * 3600;
+
+function webcamSetMode(mode) {
+  webcamMode = mode;
+  document.getElementById('wc-mode-live').classList.toggle('active', mode === 'live');
+  document.getElementById('wc-mode-playback').classList.toggle('active', mode === 'playback');
+  document.getElementById('webcam-grid').style.display = mode === 'live' ? '' : 'none';
+  document.getElementById('webcam-hint').style.visibility = mode === 'live' ? '' : 'hidden';
+  document.getElementById('wc-playback').style.display = mode === 'playback' ? '' : 'none';
+  if (mode === 'playback') wcStartPlayback(); else { wcStopPlayback(); webcamTick(); }
+  webcamLiveSync();
+  webcamFit();
+}
+
+async function wcStartPlayback() {
+  if (!webcams) await webcamsInit();
+  if (!webcams) return;
+  document.getElementById('wc-cam-btns').innerHTML = webcams.map(c =>
+    `<button class="wc-btn${c.id === wc.cam ? ' active' : ''}" onclick="wcSelectCam('${c.id}')">${c.name}</button>`).join('');
+  document.getElementById('wc-speeds').innerHTML = WC_SPEEDS.map(x =>
+    `<button class="wc-btn${x === wc.speed ? ' active' : ''}" onclick="wcSetSpeed(${x})">${x}×</button>`).join('');
+  wcFitVideo();
+  await wcLoadSegments();
+  if (!wc.seg) wcGoLatest();
+  if (!wc.refresh) wc.refresh = setInterval(() => { if (!document.hidden) wcLoadSegments(); }, 30000);
+}
+
+function wcStopPlayback() {
+  const v = document.getElementById('wc-video');
+  if (v) v.pause();
+  if (wc.refresh) { clearInterval(wc.refresh); wc.refresh = null; }
+}
+
+async function wcSelectCam(id) {
+  const t = wcNow();
+  wc.cam = id; wc.seg = null;
+  document.querySelectorAll('#wc-cam-btns .wc-btn').forEach((b, i) => b.classList.toggle('active', webcams[i].id === id));
+  await wcLoadSegments();
+  if (t) wcSeek(t); else wcGoLatest();   // same moment on the other camera
+}
+
+async function wcLoadSegments() {
+  try {
+    const d = await (await fetch('/api/webcams/' + wc.cam + '/recordings', { cache: 'no-store' })).json();
+    wc.segs = d.segments || [];
+  } catch (e) { wc.segs = []; }
+  wcRenderTimeline();
+  const note = document.getElementById('wc-note');
+  if (!wc.segs.length) {
+    note.textContent = 'No recordings yet for this camera. Is webcam-recorder running?';
+  } else {
+    const hrs = wc.segs.reduce((a, g) => a + (g.end - g.start), 0) / 3600;
+    const gb = wc.segs.reduce((a, g) => a + g.bytes, 0) / 1e9;
+    const live = wc.segs[wc.segs.length - 1].recording;
+    note.textContent = `${hrs.toFixed(1)} h recorded · ${gb.toFixed(1)} GB · ` +
+      (live ? 'recording now' : 'NOT recording (last file ' + wcFmt(wc.segs[wc.segs.length - 1].end) + ')');
+  }
+  wcFitVideo();   // the note can change height (wraps on phones)
+}
+
+function wcRange() { const t1 = Date.now() / 1000; return [t1 - WC_DAY, t1]; }
+function wcPct(t) { const [t0, t1] = wcRange(); return Math.min(100, Math.max(0, (t - t0) / (t1 - t0) * 100)); }
+function wcFmt(t, withSec) {
+  return new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit', second: withSec ? '2-digit' : undefined });
+}
+
+function wcRenderTimeline() {
+  // merge back-to-back files into one bar
+  const bars = [];
+  wc.segs.forEach(g => {
+    const last = bars[bars.length - 1];
+    if (last && g.start - last[1] < 10) last[1] = Math.max(last[1], g.end); else bars.push([g.start, g.end]);
+  });
+  document.getElementById('wc-tl-segs').innerHTML = bars.map(([a, b]) =>
+    `<div style="left:${wcPct(a)}%;width:${Math.max(0.15, wcPct(b) - wcPct(a))}%"></div>`).join('');
+  const [t0, t1] = wcRange();
+  const ticks = [];
+  const d = new Date(t0 * 1000); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1);
+  for (; d.getTime() / 1000 < t1; d.setHours(d.getHours() + 1)) {
+    if (d.getHours() % 3) continue;
+    ticks.push(`<span style="left:${wcPct(d.getTime() / 1000)}%">${d.toLocaleTimeString([], { hour: 'numeric' })}</span>`);
+  }
+  document.getElementById('wc-tl-ticks').innerHTML = ticks.join('');
+  wcUpdateHead();
+}
+
+function wcNow() {
+  const v = document.getElementById('wc-video');
+  return wc.seg ? wc.seg.start + (v.currentTime || 0) : null;
+}
+
+function wcUpdateHead() {
+  const t = wcNow(), head = document.getElementById('wc-tl-head');
+  const v = document.getElementById('wc-video');
+  head.style.display = t ? 'block' : 'none';
+  if (t) head.style.left = wcPct(t) + '%';
+  document.getElementById('wc-clock').textContent = t ? wcFmt(t, true) : '--';
+  document.getElementById('wc-play').textContent = v.paused ? 'Play' : 'Pause';
+}
+
+// Play from wall-clock time t (seconds). Jumps forward to the next recording
+// if t falls in a gap.
+function wcSeek(t, keepPaused) {
+  const msg = document.getElementById('wc-video-msg');
+  let seg = wc.segs.find(g => g.start <= t && t < g.end) || wc.segs.find(g => g.start > t);
+  if (!seg) { msg.textContent = 'No recording after ' + wcFmt(t) + '.'; msg.style.display = ''; return; }
+  if (t < seg.start) t = seg.start;
+  const v = document.getElementById('wc-video');
+  const offset = t - seg.start;
+  msg.style.display = 'none';
+  const play = () => { v.playbackRate = wc.speed; if (!keepPaused) v.play().catch(() => {}); wcUpdateHead(); };
+  if (wc.seg && wc.seg.file === seg.file && v.readyState >= 1 && offset < v.duration) {
+    wc.seg = seg; v.currentTime = offset; play(); return;
+  }
+  wc.seg = seg;
+  // cache-buster: the newest file is still growing, so always fetch it fresh
+  v.src = '/api/webcams/' + wc.cam + '/recordings/' + seg.file + '?v=' + Math.round(seg.end);
+  v.onloadedmetadata = () => { v.currentTime = Math.min(offset, Math.max(0, v.duration - 0.5)); play(); };
+}
+
+async function wcNext() {
+  if (!wc.seg) return;
+  let i = wc.segs.findIndex(g => g.file === wc.seg.file);
+  if (i === wc.segs.length - 1) {          // at the newest file: see if more has been recorded
+    const at = wcNow();
+    await wcLoadSegments();
+    i = wc.segs.findIndex(g => g.file === wc.seg.file);
+    const cur = wc.segs[i];
+    if (cur && cur.end > at + 2) { wc.seg = null; wcSeek(at); return; }   // file grew
+    if (i === wc.segs.length - 1) {
+      const msg = document.getElementById('wc-video-msg');
+      msg.textContent = 'Caught up — switch to Live to see the camera now.'; msg.style.display = '';
+      return;
+    }
+  }
+  if (i >= 0 && i + 1 < wc.segs.length) wcSeek(wc.segs[i + 1].start);
+}
+
+function wcStep(d) { const t = wcNow(); if (t) wcSeek(Math.max(wcRange()[0], t + d), document.getElementById('wc-video').paused); }
+function wcTogglePlay() {
+  const v = document.getElementById('wc-video');
+  if (!wc.seg) return wcGoLatest();
+  if (v.paused) v.play().catch(() => {}); else v.pause();
+}
+function wcSetSpeed(x) {
+  wc.speed = x;
+  document.getElementById('wc-video').playbackRate = x;
+  document.querySelectorAll('#wc-speeds .wc-btn').forEach((b, i) => b.classList.toggle('active', WC_SPEEDS[i] === x));
+}
+function wcGoLatest() {
+  const last = wc.segs[wc.segs.length - 1];
+  if (last) wcSeek(Math.max(last.start, last.end - 60));
+}
+function wcJumpToInput() {
+  const val = document.getElementById('wc-jump').value;
+  if (!val) return;
+  const [h, m] = val.split(':').map(Number);
+  const d = new Date(); d.setHours(h, m, 0, 0);
+  if (d > new Date()) d.setDate(d.getDate() - 1);   // most recent time with that clock reading
+  wcSeek(d.getTime() / 1000);
+}
+
+// Size the player to the window like the enlarged live view.
+function wcFitVideo() {
+  const wrap = document.getElementById('wc-video-wrap');
+  if (currentPage !== 'webcams' || webcamMode !== 'playback') return;
+  wrap.style.height = '';
+  const r = wrap.getBoundingClientRect(), zoom = webcamZoomOf(wrap);
+  wrap.style.height = Math.max(180, (innerHeight - r.top - 16) / zoom) + 'px';
+  const over = webcamPageOverflow();   // controls + timeline below the video
+  if (over > 0) wrap.style.height = Math.max(180, wrap.offsetHeight - over / zoom - 1) + 'px';
+}
+addEventListener('resize', wcFitVideo);
+
+(function wcWire() {
+  const v = document.getElementById('wc-video');
+  v.addEventListener('timeupdate', wcUpdateHead);
+  v.addEventListener('play', wcUpdateHead);
+  v.addEventListener('pause', wcUpdateHead);
+  v.addEventListener('ended', wcNext);
+  // 1440p seeks decode from the previous keyframe (up to 4 s back); say so while that happens
+  const msg = document.getElementById('wc-video-msg');
+  const loading = () => { if (wc.seg) { msg.textContent = 'Loading…'; msg.style.display = ''; } };
+  v.addEventListener('seeking', loading);
+  v.addEventListener('waiting', loading);
+  ['seeked', 'playing', 'canplay'].forEach(ev => v.addEventListener(ev, () => {
+    if (msg.textContent === 'Loading…') msg.style.display = 'none'; }));
+  const tl = document.getElementById('wc-timeline'), hover = document.getElementById('wc-tl-hover');
+  const timeAt = e => { const r = tl.getBoundingClientRect(); const [t0, t1] = wcRange();
+    return t0 + Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (t1 - t0); };
+  let dragging = false;
+  const showHover = e => { const r = tl.getBoundingClientRect(); const t = timeAt(e);
+    hover.textContent = wcFmt(t); hover.style.display = 'block';
+    const zoom = r.width / tl.offsetWidth || 1;
+    hover.style.left = Math.min(tl.offsetWidth - hover.offsetWidth, Math.max(0, (e.clientX - r.left) / zoom - hover.offsetWidth / 2)) + 'px'; };
+  tl.addEventListener('pointerdown', e => { dragging = true; tl.setPointerCapture(e.pointerId); showHover(e);
+    document.getElementById('wc-tl-head').style.left = wcPct(timeAt(e)) + '%'; });
+  tl.addEventListener('pointermove', e => { showHover(e);
+    if (dragging) { const h = document.getElementById('wc-tl-head'); h.style.display = 'block'; h.style.left = wcPct(timeAt(e)) + '%'; } });
+  tl.addEventListener('pointerup', e => { if (dragging) { dragging = false; wcSeek(timeAt(e)); } });
+  tl.addEventListener('pointerleave', () => { if (!dragging) hover.style.display = 'none'; });
+})();
+
+// ── Full-resolution Live view ──
+// webcam_recorder.py keeps a rolling HLS feed of each camera's 2560x1440 stream
+// (/api/webcams/<id>/live/index.m3u8). hls.js (bundled in /assets, so it works
+// offline) plays it; Safari/iPhone play HLS natively. Snapshots fill in until
+// the video starts and take over again if it fails. "Low data" turns the video
+// off (about 4 Mbps per camera -- matters over the tunnel on a metered link).
+let webcamHD = true;
+try { webcamHD = localStorage.getItem('webcamHD') !== '0'; } catch (e) {}
+let _hlsLoading = null;
+
+function webcamLoadHls() {
+  if (window.Hls) return Promise.resolve();
+  return _hlsLoading || (_hlsLoading = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = '/assets/hls-1.7.3.light.min.js'; sc.onload = res; sc.onerror = rej;
+    document.head.appendChild(sc);
+  }));
+}
+
+function webcamToggleHD() {
+  webcamHD = !webcamHD;
+  try { localStorage.setItem('webcamHD', webcamHD ? '1' : '0'); } catch (e) {}
+  webcamLiveSync();
+}
+
+// Start or stop the videos to match: on the tab, in Live mode, Full res, window visible.
+function webcamLiveSync() {
+  const btn = document.getElementById('wc-hd');
+  if (btn) { btn.textContent = webcamHD ? 'Full res' : 'Low data'; btn.classList.toggle('active', webcamHD); }
+  if (!webcams) return;
+  const want = webcamHD && currentPage === 'webcams' && webcamMode === 'live' && !document.hidden;
+  webcams.forEach(c => want ? webcamVideoStart(c) : webcamVideoStop(c));
+}
+
+async function webcamVideoStart(c) {
+  if (c.vidStarted) return;
+  c.vidStarted = true;
+  const v = document.getElementById('webcam-vid-' + c.id);
+  const url = '/api/webcams/' + c.id + '/live/index.m3u8';
+  v.onplaying = () => { c.vidOk = true; v.style.display = 'block'; document.getElementById('webcam-msg-' + c.id).style.display = 'none'; };
+  let lastT = -1;
+  v.ontimeupdate = () => { if (v.currentTime !== lastT) { lastT = v.currentTime; c.lastOk = Date.now(); } };
+  const fail = () => { c.vidOk = false; v.style.display = 'none'; };
+  try { await webcamLoadHls(); } catch (e) {}
+  if (!c.vidStarted) return;                       // stopped while hls.js was loading
+  if (window.Hls && Hls.isSupported()) {
+    c.hls = new Hls({ liveSyncDurationCount: 1, liveMaxLatencyDurationCount: 3, maxLiveSyncPlaybackRate: 1.5,
+                      maxBufferLength: 8, backBufferLength: 0 });
+    c.hls.on(Hls.Events.ERROR, (ev, d) => {
+      if (!d.fatal) return;
+      fail(); webcamVideoStop(c);
+      setTimeout(webcamLiveSync, 10000);           // retry (the recorder may be restarting)
+    });
+    c.hls.loadSource(url); c.hls.attachMedia(v);
+  } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = url; v.onerror = () => { fail(); webcamVideoStop(c); setTimeout(webcamLiveSync, 10000); };
+  } else { c.vidStarted = false; return; }
+  v.play().catch(() => {});
+}
+
+function webcamVideoStop(c) {
+  if (!c.vidStarted) return;
+  c.vidStarted = false; c.vidOk = false;
+  if (c.hls) { c.hls.destroy(); c.hls = null; }
+  const v = document.getElementById('webcam-vid-' + c.id);
+  v.pause(); v.removeAttribute('src'); v.load(); v.style.display = 'none';
+}
+document.addEventListener('visibilitychange', webcamLiveSync);
+if (_webcamBootHash === '#webcams') showPage('webcams');
+
+// ── Tablet white-flash fix (siloed, 2026-10-05) ──
+// Android Chrome draws playing video on its own surface. Tearing it down in the
+// same frame as the page switch briefly showed white. When a tab-bar button is
+// tapped while on Webcams: hide + stop the videos first, switch two frames later
+// (~30 ms). Only tab-bar taps are delayed; showPage() itself is untouched.
+// To remove: delete this block and the html{background} line in the Webcams CSS.
+document.addEventListener('click', ev => {
+  const btn = ev.target.closest && ev.target.closest('.navbtn');
+  if (!btn || currentPage !== 'webcams' || btn.id === 'nav-webcams' || btn.dataset.wcLeaving) return;
+  ev.stopImmediatePropagation(); ev.preventDefault();
+  document.querySelectorAll('#page-webcams video').forEach(v => { v.style.visibility = 'hidden'; v.pause(); });
+  if (webcams) webcams.forEach(webcamVideoStop);
+  btn.dataset.wcLeaving = '1';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('#page-webcams video').forEach(v => v.style.visibility = '');
+    try { btn.click(); } finally { delete btn.dataset.wcLeaving; }
+  }));
+}, true);
+
+// ─── end Webcams siloed addition ─────────────────────────────────────────────
 
 // ─── Screen-size UI scaling (siloed addition) ────────────────────────────────
 // Sets --ui for the "Screen-size UI scaling" CSS block: same idea as the
@@ -10276,13 +10995,16 @@ applyUiScale();
 // it rather than the page (the CSS 65vh cap got enlarged along with the tab).
 // Server Health and Simulators are shrunk like fitPageToWindow does.
 // To back out: delete this block.
-const DIAG_SCROLL_BOXES = { mqtt: 'mqtt-tree', canbus: 'canbus-tree', access: 'access-log-table' };
+const DIAG_SCROLL_BOXES = { mqtt: 'mqtt-tree', canbus: 'canbus-tree', access: 'access-log-table', netmap: 'netmap-host' };   // netmap: scroll, don't shrink the tab
 const DIAG_MIN_BOX = 150;
 function fitDiagToWindow() {
   const el = document.getElementById('page-mqtt');
-  Object.values(DIAG_SCROLL_BOXES).forEach(id => document.getElementById(id).style.maxHeight = '');
+  Object.values(DIAG_SCROLL_BOXES).forEach(id => { const b = document.getElementById(id); b.style.maxHeight = ''; b.style.minHeight = ''; });
   if (currentPage !== 'mqtt' || innerWidth < 600) {
-    el.style.zoom = ''; el.style.removeProperty('--ui-inv'); return;
+    el.style.zoom = ''; el.style.removeProperty('--ui-inv');
+    const tabs = document.querySelector('#page-mqtt > .flow-wrap > .diag-subtabs');
+    if (tabs) tabs.style.zoom = '';
+    return;
   }
   let z = uiScale;
   el.style.zoom = z;
@@ -10293,12 +11015,15 @@ function fitDiagToWindow() {
     // First guess from the box's on-screen top, then trim whatever still
     // spills past the bottom (padding/margins below the box).
     let px = Math.max(DIAG_MIN_BOX, (innerHeight - (box.getBoundingClientRect().top + scrollY)) / z);
-    box.style.maxHeight = px + 'px';
+    // netmap: fixed height (min = max), so the overflow check below doesn't depend on
+    // how tall the map happened to be drawn (that fed back and made it flip sizes)
+    const fixed = boxId === 'netmap-host';
+    box.style.maxHeight = px + 'px'; if (fixed) box.style.minHeight = px + 'px';
     for (let i = 0; i < 3; i++) {
       const over = document.documentElement.scrollHeight - innerHeight;
       if (over <= 0 || px <= DIAG_MIN_BOX) break;
       px = Math.max(DIAG_MIN_BOX, px - over / z - 1);
-      box.style.maxHeight = px + 'px';
+      box.style.maxHeight = px + 'px'; if (fixed) box.style.minHeight = px + 'px';
     }
   } else {
     for (let i = 0; i < 5; i++) {
@@ -10310,6 +11035,10 @@ function fitDiagToWindow() {
     }
   }
   el.style.setProperty('--ui-inv', (1 / z).toFixed(4));
+  // keep the sub-tab buttons at the --ui size on every sub-tab (Server Health /
+  // Simulators shrink the page to fit; Network Map / MQTT scroll instead)
+  const tabs = document.querySelector('#page-mqtt > .flow-wrap > .diag-subtabs');
+  if (tabs) tabs.style.zoom = (uiScale / z).toFixed(4);
 }
 addEventListener('resize', fitDiagToWindow);
 const _showPageBeforeDiagFit = showPage;
@@ -10323,6 +11052,864 @@ new ResizeObserver(() => {
 }).observe(document.getElementById('page-mqtt'));
 fitDiagToWindow();
 // ─── end Diagnostics fit-to-window siloed addition ───────────────────────────
+
+// ─── Weather fit-to-window (siloed addition) ─────────────────────────────────
+// Weather Map: the Windy box (a fixed 630px, enlarged by --ui) is sized to end at
+// the window bottom, like the chart map; Windy itself stays at native size.
+// Local Conditions: shrunk just enough to end at the window bottom, like
+// fitPageToWindow does for Overview (never below FIT_MIN_SCALE).
+// To back out: delete this block and the matching CSS block.
+const WX_MIN_MAP = 360;
+function fitWeatherToWindow() {
+  const el = document.getElementById('page-weather');
+  const wrap = el.querySelector('.windy-embed-wrap');
+  // Sub-tab buttons are counter-zoomed so they stay at the screen scale on
+  // both sub-tabs instead of shrinking with Local Conditions.
+  const subnav = el.querySelector('.subnav');
+  wrap.style.height = '';
+  subnav.style.zoom = '';
+  if (currentPage !== 'weather' || innerWidth < 600) {
+    el.style.zoom = ''; el.style.removeProperty('--ui-inv'); return;
+  }
+  let z = uiScale;
+  el.style.zoom = z;
+  if (document.getElementById('wxsub-map').classList.contains('active')) {
+    // first guess from the box's on-screen top, then trim what still spills over
+    let px = Math.max(WX_MIN_MAP, (innerHeight - (wrap.getBoundingClientRect().top + scrollY)) / z);
+    wrap.style.height = px + 'px';
+    for (let i = 0; i < 3; i++) {
+      const over = document.documentElement.scrollHeight - innerHeight;
+      if (over <= 0 || px <= WX_MIN_MAP) break;
+      px = Math.max(WX_MIN_MAP, px - over / z - 1);
+      wrap.style.height = px + 'px';
+    }
+  } else {
+    for (let i = 0; i < 5; i++) {
+      const over = document.documentElement.scrollHeight - innerHeight;
+      if (over <= 0 || z <= FIT_MIN_SCALE) break;
+      const h = el.getBoundingClientRect().height;
+      z = Math.max(FIT_MIN_SCALE, z * (h - over) / h - 0.005);
+      el.style.zoom = z;
+      subnav.style.zoom = uiScale / z;
+    }
+  }
+  el.style.setProperty('--ui-inv', (1 / z).toFixed(4));   // #windy-embed stays unscaled
+}
+addEventListener('resize', fitWeatherToWindow);
+const _showPageBeforeWxFit = showPage;
+showPage = function(page) { _showPageBeforeWxFit(page); fitWeatherToWindow(); };
+const _showWeatherSubTabBeforeWxFit = showWeatherSubTab;
+showWeatherSubTab = function(tab) { _showWeatherSubTabBeforeWxFit(tab); fitWeatherToWindow(); };
+// Refit when content changes size (forecast arriving, marine alert shown)
+new ResizeObserver(() => {
+  if (currentPage === 'weather') requestAnimationFrame(fitWeatherToWindow);
+}).observe(document.getElementById('page-weather'));
+fitWeatherToWindow();
+// ─── end Weather fit-to-window siloed addition ───────────────────────────────
+
+// ─── BME680 offline indicator (siloed addition) ──────────────────────────────
+// /api/sensor only returns readings from the last hour, so a sensor that has
+// dropped off just leaves "--" / "Loading..." on the cards. This polls
+// /api/sensor/last_seen and, once the newest reading is older than
+// BME_OFFLINE_AFTER_S, shows "Offline · last reading <when>" in the
+// Overview and Weather BME680 section headers. Normal readings are every ~3 s.
+// To back out: delete this block and the matching one in dashboard_api.py.
+const BME_OFFLINE_AFTER_S = 300;
+function bmeAgoText(s) {
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${(s / 3600).toFixed(1)} h ago`;
+  return `${(s / 86400).toFixed(1)} days ago`;
+}
+function bmeOfflineNote(cardValueId) {
+  const card = document.getElementById(cardValueId);
+  const header = card && card.closest('.grid') && card.closest('.grid').previousElementSibling;
+  if (!header || !header.classList.contains('section')) return null;
+  let note = header.querySelector('.bme-offline-note');
+  if (!note) {
+    note = document.createElement('span');
+    note.className = 'bme-offline-note';
+    note.style.cssText = 'color:#e8a030;text-transform:none;letter-spacing:0;font-size:12px;display:none';
+    header.appendChild(note);
+  }
+  return note;
+}
+async function updateBmeOffline() {
+  let d;
+  try { d = await (await fetch('/api/sensor/last_seen')).json(); } catch (e) { return; }
+  const offline = !d.last_seen || d.age_s > BME_OFFLINE_AFTER_S;
+  let text = '';
+  if (offline) {
+    if (d.last_seen) {
+      const when = new Date(d.last_seen).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      text = `⚠ Offline · last reading ${when} (${bmeAgoText(d.age_s)})`;
+    } else {
+      text = d.error ? '⚠ Status unknown (InfluxDB query failed)' : '⚠ Offline · no readings in 30 days';
+    }
+  }
+  ['temp', 'wx-temp'].forEach(id => {
+    const note = bmeOfflineNote(id);
+    if (!note) return;
+    note.textContent = text;
+    note.title = offline && d.last_seen ? new Date(d.last_seen).toString() : '';
+    note.style.display = offline ? '' : 'none';
+  });
+  // The cards' own "Loading..." subtitles never clear while there's no data.
+  // fetchData()/fetchWeatherConditions() overwrite these as soon as readings return.
+  if (offline) {
+    ['temp-sub', 'pressure-sub', 'iaq-label', 'wx-temp-sub', 'wx-pressure-sub'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.textContent.trim() === 'Loading...') el.textContent = 'No recent data';
+    });
+  }
+}
+updateBmeOffline();
+setInterval(ifVisible(updateBmeOffline), 60000);
+// ─── end BME680 offline indicator siloed addition ────────────────────────────
+
+// ─── Network: Ethernet / boat router / Starlink / recovery hotspot (siloed) ───
+// /api/system/netpath: eth0 details (+ gateway ping), a pending eth0-config
+// change, and the recovery hotspot state. /api/router/status: the GL.iNet boat
+// router's internet source. /api/starlink/status: the Starlink Mini's own status.
+// The "Network" card under Diagnostics > Server Health shows the key facts;
+// clicking it opens #net-modal with everything. (The Pi's Wi-Fi backup client
+// that used to be shown here was removed 2026-10-05.)
+// To back out: delete this block, the card + #net-modal markup, the .sl-*/.net-*
+// CSS block, and the netpath/starlink blocks in dashboard_api.py.
+var netLast = null, slLast = null, netModalTimer = null, routerLast = null;   // var: read by boot-time renders
+
+function slDuration(s) {
+  if (s == null) return '--';
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+const slMbps = bps => bps == null ? '--' : (bps / 1e6 >= 1 ? (bps / 1e6).toFixed(1) : (bps / 1e6).toFixed(2)) + ' Mbps';
+const netBytes = b => b == null ? '--' : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${(b / 1e3).toFixed(0)} KB`;
+const netPct = x => x == null ? '--' : `${(x * 100).toFixed(1)}%`;
+const netRows = list => list.map(([k, v, cls]) =>
+  `<div class="sl-row ${cls || ''}"><span>${escapeHtml(k)}</span><span>${escapeHtml(v == null || v === '' ? '--' : String(v))}</span></div>`).join('');
+
+// Starlink overall state -> [label, css class] (shared by card and modal)
+function slState(d) {
+  if (!d) return ['--', ''];
+  if (!d.online) return ['Unreachable', 'bad'];
+  if (d.disablement && d.disablement !== 'OKAY') return [`Disabled: ${d.disablement}`, 'bad'];
+  if ((d.not_ready || []).length) return ['Connecting', 'warn'];
+  const limited = (d.dl_limit && d.dl_limit !== 'NO_LIMIT') || (d.ul_limit && d.ul_limit !== 'NO_LIMIT');
+  // obstruction_map_reset is informational (map rebuilding after a move/reboot)
+  const alerts = (d.alerts || []).filter(a => a !== 'obstruction_map_reset');
+  return alerts.length || limited ? ['Online · check', 'warn'] : ['Online', 'good'];
+}
+
+function renderNetCard() {
+  const d = netLast, sl = slLast;
+  const val = document.getElementById('netpath-val');
+  if (!val || !d) return;
+  const e = d.eth0 || {};
+  const [label, color] = !e.carrier ? ['Ethernet unplugged', '#e05050']
+    : e.gateway_ok ? ['Ethernet', '#3db87a'] : ['Router unreachable', '#e05050'];
+  val.innerHTML = `<span style="color:${color}">${escapeHtml(label)}</span>`;
+  document.getElementById('netpath-summary').textContent =
+    `${(e.ipv4 || [])[0] || 'no address'}${e.gateway ? ` via ${e.gateway}` : ''}`;
+  const [slLabel, slCls] = slState(sl);
+  const slLat = sl && sl.history_15m && sl.history_15m.latency_ms_avg != null ? ` · ${Math.round(sl.history_15m.latency_ms_avg)} ms` : '';
+  const rec = d.recovery || {};
+  const rows = [
+    ['Ethernet', e.carrier ? `Up${e.speed_mbps ? ` · ${e.speed_mbps} Mb/s` : ''}` : 'Unplugged', e.carrier && e.gateway_ok ? 'good' : 'bad'],
+    ['Boat router', routerSourceText(routerLast), routerSourceClass(routerLast)],
+    ['Starlink', slLabel + (sl && sl.online ? slLat : ''), slCls],
+  ];
+  if (rec.active) rows.push(['Recovery hotspot', `On · ${rec.clients || 0} connected`, 'warn']);
+  document.getElementById('net-card-rows').innerHTML = netRows(rows);
+  setHeaderAlert('recovery', rec.active ? { level: 'warn', icon: '📶', onclick: openNetModal, page: 'mqtt',
+    text: `Recovery hotspot on`, title: `Wi-Fi recovery hotspot "${rec.ssid || ''}" is on (${rec.reason || ''}). Connect to it and open http://${rec.address || '10.42.0.1'}` } : null);
+}
+// Boat router (GL.iNet) internet source -- /api/router/status
+function routerSourceText(r) {
+  if (!r) return '--';
+  if (!r.ok) return 'Unavailable';
+  if (r.mode === 'load_balance') return `Load balance · ${(r.load_balance_over || []).join(' + ') || 'no uplink'}`;
+  if (!r.active) return 'No internet';
+  const rep = r.repeater || {};
+  return r.active === 'wwan' && rep.ssid ? `Wi-Fi repeater (${rep.ssid})` : r.active_label;
+}
+function routerSourceClass(r) {
+  if (!r || !r.ok) return r ? 'warn' : '';
+  return r.active || (r.load_balance_over || []).length ? 'good' : 'bad';
+}
+
+// ─── Network map (siloed): uplinks -> boat router -> devices, styled after the
+// Electrical tab's flow diagram. Line width follows the data rate; moving
+// dashes show direction (down toward the device, up toward the router).
+// Devices are identified from the MAC vendor (OUI) plus hostname by
+// /api/router/map. Hover a device for MAC, vendor and totals.
+const NM_COLORS = { cable: '#3db87a', '5G': '#4a9fd4', '2.4G': '#a78bfa', internet: '#e8a030' };
+function nmRate(Bps) {
+  if (Bps == null) return '--';
+  const b = Bps * 8;
+  return b >= 1e6 ? `${(b / 1e6).toFixed(1)} Mb/s` : b >= 1e3 ? `${(b / 1e3).toFixed(0)} kb/s` : `${b.toFixed(0)} b/s`;
+}
+function nmBytes(n) { return n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e3).toFixed(0)} KB`; }
+function nmIcon(kind, color) {
+  const st = `fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"`;
+  const fl = `fill="${color}"`;
+  switch (kind) {
+    case 'computer': return `<rect x="-11" y="-9" width="22" height="14" rx="1.5" ${st}/><path d="M-14 7h28l-2 3h-24z" ${st}/>`;
+    case 'phone': return `<rect x="-6.5" y="-12" width="13" height="24" rx="2.5" ${st}/><circle cy="8.5" r="1.2" ${fl}/>`;
+    case 'tablet': return `<rect x="-10" y="-12" width="20" height="24" rx="2.5" ${st}/><circle cy="9" r="1.2" ${fl}/>`;
+    case 'pi': return `<rect x="-9" y="-9" width="18" height="18" rx="2" ${st}/><rect x="-4" y="-4" width="8" height="8" rx="1" ${fl} opacity=".8"/>` +
+      [-5, 0, 5].map(o => `<path d="M${o} -13v4M${o} 9v4M-13 ${o}h4M9 ${o}h4" ${st}/>`).join('');
+    case 'iot': return `<rect x="-9" y="-9" width="18" height="18" rx="4" ${st}/><path d="M1.5 -6.5l-6 7.5h4.5l-1.5 6l6 -7.5h-4.5z" ${fl}/>`;
+    case 'camera': return `<rect x="-12" y="-7" width="17" height="14" rx="2.5" ${st}/><path d="M5 -3l7 -4v14l-7 -4z" ${st}/><circle cx="-3.5" r="3" ${st}/>`;
+    case 'tv': return `<rect x="-12" y="-9" width="24" height="15" rx="1.5" ${st}/><path d="M-5 10h10M0 6v4" ${st}/>`;
+    case 'speaker': return `<rect x="-8" y="-12" width="16" height="24" rx="3" ${st}/><circle cy="4" r="4" ${st}/><circle cy="-6" r="1.5" ${fl}/>`;
+    case 'network': return `<rect x="-12" y="-2" width="24" height="10" rx="2" ${st}/><path d="M-7 -2l-3 -9M7 -2l3 -9" ${st}/><circle cx="-6" cy="3" r="1" ${fl}/><circle cx="-2" cy="3" r="1" ${fl}/>`;
+    case 'victron': return `<rect x="-11" y="-8" width="22" height="16" rx="2" ${st}/><path d="M-6 -11v3M6 -11v3" ${st}/><path d="M1 -5l-5 6h4l-1 5l5 -6h-4z" ${fl}/>`;
+    case 'marine': return `<circle cy="-8" r="3" ${st}/><path d="M0 -5v17M-6 -1h12M-10 4c1 6 6 8 10 8s9 -2 10 -8" ${st}/>`;
+    case 'internet': return `<circle r="11" ${st}/><ellipse rx="5" ry="11" ${st}/><path d="M-11 0h22M-9 -6h18M-9 6h18" ${st}/>`;
+    case 'wifi': return `<path d="M-12 -3a17 17 0 0 1 24 0M-8 1.5a11 11 0 0 1 16 0M-4 6a5 5 0 0 1 8 0" ${st}/><circle cy="9.5" r="1.6" ${fl}/>`;
+    case 'usb': return `<rect x="-6.5" y="-12" width="13" height="18" rx="2.5" ${st}/><path d="M0 6v6M-3 12h6" ${st}/>`;
+    default: return `<circle r="11" ${st}/><text y="4.5" text-anchor="middle" font-size="13" font-weight="700" fill="${color}">?</text>`;
+  }
+}
+function nmFlowPaths(d, rate, color, reverse) {
+  // returns the animated overlay for one direction of traffic (nothing if idle)
+  if (!rate || rate < 300) return '';
+  const n = Math.min(1, Math.log10(1 + rate / 500) / 3.5);           // ~0 at 300 B/s -> 1 at ~1.5 MB/s
+  const w = (1.6 + 4.5 * n).toFixed(1), dur = (2.4 - 1.8 * n).toFixed(2);
+  return `<path class="nm-flow${reverse ? ' rev' : ''}" d="${d}" stroke="${color}" stroke-width="${w}" stroke-dasharray="3 11" style="animation-duration:${dur}s"/>`;
+}
+// Layout (top-down): internet sources across the top (USB tethering hidden) ->
+// router -> devices in staggered rows (icon + name; details in the tooltip).
+// Every device links straight to the router with an S-curve "pipe" like the
+// Electrical tab: one line per link, moving dots sized by the total rate and
+// heading the way most data is going (exact ↓/↑ in the tooltip). Rows are offset by half a
+// cell so curves to lower rows drop through the gaps. Colour = connection.
+// Click a device to name it / set its type (saved per MAC).
+function nmCurve(x1, y1, x2, y2, bend) {
+  // vertical S-curve: leaves (x1,y1) straight down, arrives at (x2,y2) from above
+  const k = bend == null ? (y2 - y1) / 2 : bend;
+  return `M${x1.toFixed(1)} ${y1.toFixed(1)} C${x1.toFixed(1)} ${(y1 + k).toFixed(1)} ${x2.toFixed(1)} ${(y1 + k).toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+function nmDots(d, rate, color, reverse) {
+  if (!rate || rate < 300) return '';
+  // dots grow with the pipe (Electrical: r 3.5 -> 7.5), spaced one animation cycle apart
+  const n = nmFlowNorm(rate);
+  const w = (6 + 7 * Math.pow(n, 1.5)).toFixed(1), dur = (2.6 - 1.9 * n).toFixed(2), gap = 28;   // = one nm-dash cycle, so the loop is seamless
+  return `<path class="nm-flow${reverse ? ' rev' : ''}" d="${d}" stroke="${color}" stroke-width="${w}" stroke-dasharray="0 ${gap}" style="animation-duration:${dur}s"/>`;
+}
+function nmPairCurve(x1, y1, x2, y2, bend, down, up, color, dashed) {
+  // one pipe per link (like the Electrical tab); dots follow the bigger direction
+  // (down = toward the device/router below, up = back), sized by the total rate
+  // Pipe width + opacity follow the rate like the Electrical tab's watts: solid colour,
+  // 1.5 wide when idle up to ~20 at ~10 MB/s (log scale). Dashed = standby/down uplink only.
+  return nmPipe(nmCurve(x1, y1, x2, y2, bend), down, up, color, dashed);
+}
+function nmPipeW(Bps) { return 1.5 + 18.5 * Math.pow(nmFlowNorm(Bps), 1.5); }
+function nmPipe(d, down, up, color, dashed) {
+  const total = (down || 0) + (up || 0);
+  const n = nmFlowNorm(total);
+  const w = nmPipeW(total).toFixed(2), op = (0.35 + 0.3 * n).toFixed(2);
+  return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${dashed ? 1.5 : w}" stroke-linecap="round" opacity="${dashed ? .35 : op}" ${dashed ? 'stroke-dasharray="4 4"' : ''}/>` +
+    nmDots(d, total, color, (up || 0) > (down || 0));
+}
+// 0 at ~1 KB/s, 1 at ~10 MB/s (log scale), like flowNorm() on the Electrical tab
+function nmFlowNorm(Bps) { return Math.max(0, Math.min(1, Math.log10(Math.max(Bps || 0, 1000) / 1000) / 4)); }
+function netMapSvg(r, fitH) {
+  // fitH (viewBox units): stretch the vertical spacing so the map fills its panel
+  const W = 1000, mid = W / 2, CELL_W = 112, PER_ROW = 8;
+  let upY = 36, rtY = 112, ROW_H = 92, ROW_GAP = 92;
+  const devs = (r.devices || []).filter(x => x.online)
+    .sort((a, b) => (b.this_pi - a.this_pi) || ({ cable: 0, '5G': 1, '2.4G': 2 }[a.iface] ?? 3) - ({ cable: 0, '5G': 1, '2.4G': 2 }[b.iface] ?? 3)
+      || (a.name || a.hostname || a.ip || '').localeCompare(b.name || b.hostname || b.ip || ''));
+  const offline = (r.devices || []).filter(x => !x.online).length;
+  const ups = (r.interfaces || []).filter(u => u.interface !== 'tethering');
+  const tot = r.totals || {};
+  const rows = [];
+  for (let i = 0; i < devs.length; i += PER_ROW) rows.push(devs.slice(i, i + PER_ROW));
+  // device x positions + line widths first (they don't depend on the vertical layout):
+  // row 0 centred; odd rows sit exactly between row-0 columns so their lines drop through the gaps
+  const n0 = rows.length ? rows[0].length : 0;
+  const placed = [];
+  rows.forEach((row, ri) => {
+    const L = row.length;
+    let shift = 0;
+    if (ri % 2 === 1) shift = ((L % 2 === 1) === (n0 % 2 === 0)) ? 0 : CELL_W / 2;
+    else if (ri > 0) shift = CELL_W / 4;                 // 3rd+ row (17+ devices): offset from row 0 too
+    row.forEach((dv, j) => placed.push({ dv, ri, x: mid + (j - (L - 1) / 2) * CELL_W + shift,
+                                         w: nmPipeW((dv.down_Bps || 0) + (dv.up_Bps || 0)) }));
+  });
+  // start points along the router's bottom edge, same left-to-right order as the devices
+  const order = placed.slice().sort((a, b) => a.x - b.x || a.ri - b.ri);
+  let span = order.reduce((t, p) => t + p.w + 4, 0);
+  const squeeze = span > 760 ? 760 / span : 1;
+  span *= squeeze;
+  let cur = mid - span / 2;
+  order.forEach(p => { const step = (p.w + 4) * squeeze; p.sx = cur + step / 2; cur += step; });
+  // a line starting close to its device's x starts right above it instead (straight drop,
+  // no little jog); neighbours under the router are pushed aside to keep order + spacing
+  const gapOf = (a, b) => (a.w + b.w) / 2 + 4 * squeeze;
+  order.map((p, i) => i).filter(i => Math.abs(order[i].x - order[i].sx) < 40)
+    .sort((i, j) => Math.abs(order[i].x - order[i].sx) - Math.abs(order[j].x - order[j].sx))
+    .forEach(i => {
+      const p = order[i], want = order.map(q => q.sx);
+      want[i] = p.x;
+      for (let k = i - 1; k >= 0; k--) want[k] = Math.min(want[k], want[k + 1] - gapOf(order[k], order[k + 1]));
+      for (let k = i + 1; k < order.length; k++) want[k] = Math.max(want[k], want[k - 1] + gapOf(order[k], order[k - 1]));
+      if (order.some((q, k) => q.straight && Math.abs(want[k] - q.sx) > 0.01)) return;   // would bend one already straightened
+      order.forEach((q, k) => q.sx = want[k]);
+      p.straight = true;
+    });
+  const sxs = order.map(p => p.sx);
+  const boxW = Math.max(104, 2 * Math.max(0, ...sxs.map(v => Math.abs(v - mid))) + 24 + Math.max(0, ...order.map(p => p.w)));
+  // each line turns at its own height ("lane"): on each side the line going furthest out
+  // turns highest, so lines nest and never cross or overlap
+  const leftL = order.filter(p => p.x < p.sx - 0.5), rightL = order.filter(p => p.x > p.sx + 0.5).reverse();
+  const laneNeed = Math.max(0, ...[leftL, rightL].map(g => g.reduce((t, p) => t + p.w + 5, 0)));
+  ROW_GAP = Math.max(ROW_GAP, 26 + 14 + laneNeed + 30);   // router bottom -> lanes -> first row
+  const natH = Math.max(230, rtY + ROW_GAP + (Math.max(rows.length, 1) - 1) * ROW_H + 64);
+  let H = natH;
+  if (fitH && fitH !== natH) {
+    // stretch to fill (up to 2.2x), or tighten (down to 0.7x) before falling back to a scrollbar
+    const f = Math.max(0.6, Math.min(2.2, fitH / natH));   // lanes squeeze to fit when tightened
+    upY *= Math.min(f, 1.6); rtY = upY + 76 * f; ROW_GAP *= f; ROW_H *= f;
+    H = Math.max(fitH, rtY + ROW_GAP + (Math.max(rows.length, 1) - 1) * ROW_H + 64 * Math.min(1, f));   // bottom margin (labels + legend) tightens too
+  }
+  const gridTop = rtY + ROW_GAP;                   // first row's icon centre
+  let lines = '', nodes = '';
+
+  // internet sources (top) -> router top
+  const upIcon = { wan: 'internet', wwan: 'wifi' };
+  ups.forEach((u, i) => {
+    const x = mid + (i - (ups.length - 1) / 2) * 260;
+    const active = u.interface === r.active, color = active ? NM_COLORS.internet : u.online ? '#5a6b82' : '#7a2a2a';
+    // same style as the device lines: down from the source, round a corner, across, round
+    // a corner, down into the router's top (ends tuck under the icon / router box)
+    const ex = mid + (i - (ups.length - 1) / 2) * 24, lane = (upY + 17 + rtY - 26) / 2;
+    const ff = v => v.toFixed(1), dir = ex < x ? -1 : 1;
+    const rad = Math.min(18, Math.abs(ex - x) / 2, lane - upY - 17, rtY - 26 - lane);
+    const ud = Math.abs(ex - x) < 1 ? `M${ff(x)} ${ff(upY)} L${ff(x)} ${ff(rtY)}` :
+      `M${ff(x)} ${ff(upY)} L${ff(x)} ${ff(lane - rad)} Q${ff(x)} ${ff(lane)} ${ff(x + dir * rad)} ${ff(lane)}` +
+      ` L${ff(ex - dir * rad)} ${ff(lane)} Q${ff(ex)} ${ff(lane)} ${ff(ex)} ${ff(lane + rad)} L${ff(ex)} ${ff(rtY)}`;
+    lines += nmPipe(ud, active ? tot.down_Bps : 0, active ? tot.up_Bps : 0, color, !active);
+    let sub = active ? 'Active' : u.online ? 'Standby' : 'Down';
+    if (u.interface === 'wwan' && r.repeater && r.repeater.ssid) sub += ` · ${r.repeater.ssid}`;
+    const gw = u.interface === 'wan' && r.wan ? `\nWAN ${r.wan.ip || '?'} via ${r.wan.gateway || '?'}` : '';
+    nodes += `<g class="nm-dev" transform="translate(${x},${upY})" style="cursor:pointer" onclick="openUplink('${u.interface}')"><title>${escapeHtml(`${u.label} — priority ${i + 1} (${sub})${gw}${active ? `\n↓ ${nmRate(tot.down_Bps)}  ↑ ${nmRate(tot.up_Bps)}` : ''}\n(click for details)`)}</title>
+      <circle r="17" fill="#0f1628" stroke="${color}" stroke-width="1.4"/><g transform="scale(.7)">${nmIcon(upIcon[u.interface] || 'internet', color)}</g>
+      <text class="nm-name" x="25" y="-1" style="font-size:12px">${escapeHtml(u.label)}</text>
+      <text class="nm-sub" x="25" y="12" style="font-size:10px">${escapeHtml(sub)}</text></g>`;
+  });
+
+  // device lines: down from the router, round a corner into its lane, across, round a
+  // corner, down to the device (lanes squeeze together if the panel is short)
+  const yA = rtY + 26 + 8, yB = gridTop - 24;
+  [leftL, rightL].forEach(g => {
+    const need = g.reduce((t, p) => t + p.w + 5, 0), k = need > yB - yA ? (yB - yA) / need : 1;
+    let yy = yA;
+    g.forEach(p => { p.lane = yy + (p.w / 2) * k; yy += (p.w + 5) * k; });
+  });
+  placed.forEach(p => {
+    p.y = gridTop + p.ri * ROW_H;
+    const f = v => v.toFixed(1), sx = p.sx, x = p.x;
+    let d;
+    if (p.lane == null) d = `M${f(x)} ${rtY} L${f(x)} ${f(p.y)}`;   // straight below
+    else {
+      const dir = x < sx ? -1 : 1, rad = Math.min(18, Math.abs(x - sx) / 2, p.lane - rtY - 26, yB + 24 - p.lane - 8);
+      d = `M${f(sx)} ${rtY} L${f(sx)} ${f(p.lane - rad)} Q${f(sx)} ${f(p.lane)} ${f(sx + dir * rad)} ${f(p.lane)}` +
+          ` L${f(x - dir * rad)} ${f(p.lane)} Q${f(x)} ${f(p.lane)} ${f(x)} ${f(p.lane + rad)} L${f(x)} ${f(p.y)}`;
+    }
+    lines += nmPipe(d, p.dv.down_Bps, p.dv.up_Bps, NM_COLORS[p.dv.iface] || '#8fa3bd', false);
+  });
+
+  // router (drawn after the lines so their ends tuck under it; widens with many devices)
+  nodes += `<g transform="translate(${mid},${rtY})"><title>${escapeHtml(`${(r.router && r.router.model) || 'Boat router'}\n${devs.length} devices online\n↓ ${nmRate(tot.down_Bps)}  ↑ ${nmRate(tot.up_Bps)}`)}</title>
+    <rect x="${(-boxW / 2).toFixed(1)}" y="-26" width="${boxW.toFixed(1)}" height="52" rx="8" fill="#0d1f38" stroke="#4a9fd4" stroke-width="1.4"/>
+    <text class="nm-name" y="-4" text-anchor="middle" style="font-size:12px">Router</text>
+    <text class="nm-rate" y="12" text-anchor="middle" style="font-size:10px">↓ ${nmRate(tot.down_Bps)}  ↑ ${nmRate(tot.up_Bps)}</text></g>`;
+
+  placed.forEach(({ dv, x, y }) => {
+    const color = NM_COLORS[dv.iface] || '#8fa3bd';
+    const nm = dv.name || dv.hostname || dv.ip || dv.mac;
+    const conn = { cable: 'Ethernet', '5G': 'Wi-Fi 5 GHz', '2.4G': 'Wi-Fi 2.4 GHz' }[dv.iface] || dv.iface;
+    const tip = `${nm}${dv.custom ? ' (your name)' : ''}\n${dv.ip || ''} · ${conn}\nMAC ${dv.mac}${dv.private_mac ? ' (randomized)' : ''}\nMaker: ${dv.vendor || (dv.private_mac ? 'hidden (private MAC)' : 'unknown')}\nType: ${dv.kind}\n↓ ${nmRate(dv.down_Bps)}  ↑ ${nmRate(dv.up_Bps)}\nTotal ↓ ${nmBytes(dv.total_down || 0)} ↑ ${nmBytes(dv.total_up || 0)}\n(click to rename / set type)`;
+    const ring = color;   // same colour as its line (the Pi too)
+    const label = nm.length > 16 ? nm.slice(0, 15) + '…' : nm;
+    nodes += `<g class="nm-dev" transform="translate(${x.toFixed(1)},${y})" style="cursor:pointer" onclick="nmEditDevice('${dv.mac}')"><title>${escapeHtml(tip)}</title>
+      <circle r="15" fill="#0f1628" stroke="${ring}" stroke-width="${dv.this_pi ? 1.8 : 1.2}"/><g transform="scale(.62)">${nmIcon(dv.kind, ring)}</g>
+      <text class="nm-name" y="29" text-anchor="middle" style="font-size:10.5px;font-weight:500">${escapeHtml(label)}</text></g>`;
+  });
+  if (!devs.length) nodes += `<text class="nm-sub" x="${mid}" y="${gridTop}" text-anchor="middle">No devices online</text>`;
+
+  // legend (one small line)
+  const lg = [['Ethernet', NM_COLORS.cable], ['5 GHz', NM_COLORS['5G']], ['2.4 GHz', NM_COLORS['2.4G']]];
+  let legend = '';
+  lg.forEach(([t, c], i) => { legend += `<g transform="translate(${12 + i * 82},${H - 13})"><path d="M0 0h14" stroke="${c}" stroke-width="2.5"/><text class="nm-sub" x="19" y="3.5" style="font-size:10px">${t}</text></g>`; });
+  if (offline) legend += `<text class="nm-sub" x="${W - 12}" y="${H - 10}" text-anchor="end" style="font-size:10px">${offline} offline hidden</text>`;
+  return `<svg class="nm-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${nodes}${legend}</svg>`;
+}
+
+// Internet source pop-ups (click an uplink on the map): Wi-Fi repeater -> #rp-modal
+// (status, usage, reconnect, auto-rejoin, saved/scan/add); Ethernet/Starlink -> #ul-modal.
+var ulTimer = null;
+function nmUsageRows(u) {
+  const f = e => `↓ ${nmBytes((e || {}).down || 0)}   ↑ ${nmBytes((e || {}).up || 0)}   (${nmBytes(((e || {}).down || 0) + ((e || {}).up || 0))} total)`;
+  return [['Today', f(u.today)], [`This month (${u.month_name})`, f(u.month)], ['Last 30 days', f(u.last_30_days)],
+          [`Last month (${u.last_month_name})`, f(u.last_month)],
+          ['Metered since', u.metered_since ? new Date(u.metered_since).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' (counted by the Pi)' : 'just started']];
+}
+function nmSec(title, right, rows) {
+  return `<div class="net-sec"><div class="net-sec-title"><span>${escapeHtml(title)}</span><span>${escapeHtml(right || '')}</span></div><div class="sl-rows">${netRows(rows)}</div></div>`;
+}
+function openUplink(iface) {
+  clearInterval(ulTimer);
+  if (iface === 'wwan') { openRepeaterNets(); ulTimer = setInterval(ifVisible(() => loadUplink('wwan')), 10000); return; }
+  document.getElementById('ul-modal').classList.add('open');
+  loadUplink(iface); ulTimer = setInterval(ifVisible(() => loadUplink(iface)), 10000);
+}
+function closeUplink() { document.getElementById('ul-modal').classList.remove('open'); clearInterval(ulTimer); ulTimer = null; }
+async function loadUplink(iface) {
+  let d;
+  try { d = await (await fetch(`/api/router/uplink/${iface}`)).json(); } catch (e) { return; }
+  const status = d.ok ? (d.active ? 'Active (carrying the boat\'s internet)' : d.online ? 'Online (standby)' : 'Down / not connected') : (d.error || 'Unavailable');
+  const statusCls = d.active ? 'good' : d.online ? '' : 'warn';
+  const rate = d.rate ? `↓ ${nmRate(d.rate.down_Bps)}   ↑ ${nmRate(d.rate.up_Bps)}` : (d.active ? 'measuring…' : '— (not in use)');
+  if (iface === 'wan') {
+    const w = d.wan || {}, sl = d.starlink || {};
+    document.getElementById('ul-title').textContent = d.label || 'Ethernet WAN';
+    let html = nmSec('Connection', `priority ${d.priority || '?'}`, [
+      ['Status', status, statusCls], ['Speed now', rate],
+      ['WAN address', w.ip ? `${w.ip} via ${w.gateway || '?'} (${w.protocol || ''})` : 'none'],
+      ['DNS', (w.dns || []).join(', ')]]);
+    html += nmSec('Data usage', '', d.usage ? nmUsageRows(d.usage) : []);
+    if (sl.online) {
+      const h = sl.history_15m || {};
+      html += nmSec('Starlink dish', `${sl.hardware || ''} · ${sl.software || ''}`, [
+        ['Signal quality', sl.signal_quality != null ? `${Math.round(sl.signal_quality * 100)}%${sl.snr_persistently_low ? ' · persistently low' : ''}` : '--', sl.signal_quality != null && sl.signal_quality < .5 ? 'warn' : 'good'],
+        ['Obstructed', sl.fraction_obstructed != null ? `${(sl.fraction_obstructed * 100).toFixed(1)}%` : '--', sl.fraction_obstructed > .05 ? 'warn' : ''],
+        ['Latency (15 min avg)', h.latency_ms_avg != null ? `${Math.round(h.latency_ms_avg)} ms` : '--'],
+        ['Packet loss (15 min avg)', h.drop_rate_avg != null ? `${(h.drop_rate_avg * 100).toFixed(1)}%` : '--', h.drop_rate_avg > .05 ? 'bad' : h.drop_rate_avg > .01 ? 'warn' : ''],
+        ['Dish throughput now', `↓ ${nmRate(sl.downlink_bps != null ? sl.downlink_bps / 8 : null)}   ↑ ${nmRate(sl.uplink_bps != null ? sl.uplink_bps / 8 : null)}`],
+        ['Peak (15 min)', `↓ ${nmRate(h.downlink_bps_max != null ? h.downlink_bps_max / 8 : null)}   ↑ ${nmRate(h.uplink_bps_max != null ? h.uplink_bps_max / 8 : null)}`],
+        ['Plan / service', `${sl.dl_limit === 'NO_LIMIT' ? 'no limit' : sl.dl_limit || '--'} · ${sl.disablement || '--'}${sl.treat_as_metered ? ' · metered' : ''}`],
+        ['Uptime', slDuration(sl.uptime_s)]]);
+    } else {
+      html += nmSec('Starlink dish', '', [['Status', 'Not reachable from the Pi', 'warn'],
+        ['Why', /100\.64\./.test(w.ip || '') ? (sl.error || 'no answer') : 'Starlink isn\'t on the WAN port yet (no 100.64.x.x address)'],
+        ...(/^192\.168\.100\./.test((routerLast && routerLast.lan_gateway) || '') ? [['Note', 'The boat router uses 192.168.100.1, the dish\'s own address']] : [])]);
+    }
+    document.getElementById('ul-body').innerHTML = html;
+  } else {
+    const r = d.repeater || {}, ps = d.pi_sees;
+    const st = r.running && r.state === 2 ? 'Connected' : ({ 0: 'Idle', 1: 'Connecting', 3: 'Failed', 4: 'Retrying' })[r.state] || `state ${r.state}`;
+    let html = nmSec('Connection', `priority ${d.priority || '?'}`, [
+      ['Status', `${status}${r.ssid ? ` · ${st} · ${r.ssid}` : ''}${r.fail_type ? ` (${r.fail_type})` : ''}`, statusCls],
+      ['Speed now', rate],
+      ['Signal (as heard by the Pi)', ps ? `${ps.signal_dbm} dBm · ${ps.band || ''}` : 'not heard by the Pi (other band/channel, or out of range)', ps ? (ps.signal_dbm < -75 ? 'warn' : 'good') : 'warn']]);
+    html += nmSec('Data usage', '', d.usage ? nmUsageRows(d.usage) : []);
+    document.getElementById('rp-info').innerHTML = html;
+    document.getElementById('rp-controls').innerHTML = routerControlsHtml(Object.assign({}, routerLast || {}, { autorejoin: d.autorejoin }), false, true);
+  }
+}
+
+// Repeater networks pop-up: networks saved on the boat router (/api/router/repeater/*)
+function rpMsg(t, cls) { const el = document.getElementById('rp-msg'); el.textContent = t; el.className = 'wifi-cfg-msg' + (cls ? ' ' + cls : ''); }
+function openRepeaterNets() { document.getElementById('rp-modal').classList.add('open'); repeaterSavedLoad(); loadUplink('wwan'); }
+function closeRepeaterNets() { document.getElementById('rp-modal').classList.remove('open'); clearInterval(ulTimer); ulTimer = null; }
+async function repeaterSavedLoad() {
+  const box = document.getElementById('rp-saved');
+  let d;
+  try { d = await (await fetch('/api/router/repeater/saved')).json(); } catch (e) { return; }
+  if (!d.ok) { box.innerHTML = `<div class="bt-card-empty">${escapeHtml(d.error || 'Router unavailable')}</div>`; return; }
+  document.getElementById('rp-status').textContent = d.target ? `${d.connected ? 'connected to' : 'trying'} ${d.target}` : 'not connected';
+  const nets = d.networks || [];
+  box.innerHTML = nets.length ? nets.map((n, i) => `<div class="rp-row${n.current && d.connected ? ' current' : ''}">
+      <span class="wifi-saved-name" style="color:#e0e6f0;font-weight:600">${escapeHtml(n.ssid)}</span>
+      ${n.current && d.connected ? '<span class="wifi-saved-tag" style="font-size:11px;color:#3db87a;border:.5px solid #2a7a4a;border-radius:5px;padding:1px 6px">Connected</span>' : ''}
+      <span class="nm-sub" style="flex:1;color:#6b82a0;font-size:12px">${n.has_password ? '🔒 password saved' : 'open network'}</span>
+      ${n.current && d.connected ? '' : `<button class="wc-btn wifi-cfg-save" type="button" data-act="connect" data-i="${i}">Connect</button>`}
+      <button class="wc-btn" type="button" style="color:#e05050;border-color:#7a2a2a" data-act="forget" data-i="${i}">Forget</button></div>`).join('')
+    : '<div class="bt-card-empty">No saved networks</div>';
+  box.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const n = nets[+b.dataset.i];
+    if (b.dataset.act === 'connect') {
+      if (!confirm(`Connect the boat router to "${n.ssid}" now?\n\nThe boat Wi-Fi may blip for a few seconds while the router retunes.`)) return;
+      rpMsg(`Connecting to "${n.ssid}"… up to a minute`);
+      box.querySelectorAll('button').forEach(x => x.disabled = true);
+      try {
+        const r = await (await fetch('/api/router/repeater/reconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ssid: n.ssid }) })).json();
+        rpMsg(r.ok ? `Connected to "${n.ssid}"` : `Failed: ${r.error || '?'}`, r.ok ? 'ok' : 'err');
+      } catch (e) { rpMsg('Request failed', 'err'); }
+    } else {
+      if (!confirm(`Forget "${n.ssid}" on the boat router?${n.current ? '\n\nIt is the network the repeater is using: the router disconnects from it and falls back to its next uplink (or another saved network via auto-rejoin).' : ''}`)) return;
+      try {
+        const r = await (await fetch('/api/router/repeater/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ssid: n.ssid }) })).json();
+        rpMsg(r.ok ? `Forgot "${n.ssid}"${r.disconnected ? ' and disconnected; the router falls back to its next uplink' : ''}` : `Failed: ${r.error || '?'}`, r.ok ? 'ok' : 'err');
+      } catch (e) { rpMsg('Request failed', 'err'); }
+    }
+    repeaterSavedLoad(); updateRouter();
+  });
+}
+async function repeaterScan() {
+  const btn = document.getElementById('rp-scan-btn'), box = document.getElementById('rp-scan');
+  btn.disabled = true; btn.textContent = 'Scanning… (~20 s)';
+  try {
+    const d = await (await fetch('/api/router/repeater/scan', { method: 'POST' })).json();
+    if (!d.ok) { rpMsg(`Scan failed: ${d.error}`, 'err'); return; }
+    box.innerHTML = d.networks.length ? d.networks.map((n, i) =>
+      `<button class="wc-btn" type="button" data-i="${i}">${n.secure ? '🔒 ' : ''}${escapeHtml(n.ssid)} · ${n.signal ?? '?'} dBm · ${escapeHtml(({ '2g': '2.4 GHz', '5g': '5 GHz', '6g': '6 GHz' })[String(n.band || '').toLowerCase()] || n.band || '')}${n.saved ? ' · saved' : ''}</button>`).join('')
+      : '<span class="bt-card-empty">No networks found</span>';
+    box.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const n = d.networks[+b.dataset.i];
+      document.getElementById('rp-ssid').value = n.ssid;
+      document.getElementById('rp-pass').value = '';
+      if (n.secure) document.getElementById('rp-pass').focus();
+    });
+  } catch (e) { rpMsg('Scan failed', 'err'); }
+  finally { btn.disabled = false; btn.textContent = 'Scan for networks'; }
+}
+async function repeaterAdd() {
+  const ssid = document.getElementById('rp-ssid').value.trim(), password = document.getElementById('rp-pass').value;
+  if (!ssid) { rpMsg('Enter the network name', 'err'); return; }
+  if (password && (password.length < 8 || password.length > 63)) { rpMsg('Password must be 8–63 characters (blank for an open network)', 'err'); return; }
+  if (!confirm(`Save "${ssid}" on the boat router and connect to it now?\n\nThe boat Wi-Fi may blip for a few seconds while the router retunes.`)) return;
+  const btn = document.getElementById('rp-add-btn'); btn.disabled = true;
+  rpMsg(`Connecting to "${ssid}"… up to a minute`);
+  try {
+    const r = await (await fetch('/api/router/repeater/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ssid, password }) })).json();
+    rpMsg(r.ok ? `Saved and connected to "${ssid}"` : `${r.error || 'Failed'}`, r.ok ? 'ok' : 'err');
+    if (r.ok || r.saved) document.getElementById('rp-pass').value = '';
+  } catch (e) { rpMsg('Request failed', 'err'); }
+  btn.disabled = false; repeaterSavedLoad(); updateRouter();
+}
+
+// Device editor (name / type per MAC, saved server-side in network_devices.json)
+function nmEditDevice(mac) {
+  const d = ((routerLast && routerLast.devices) || []).find(x => x.mac === mac);
+  if (!d) return;
+  document.getElementById('nm-dev-mac').textContent = `${d.mac}${d.private_mac ? ' (randomized)' : ''}`;
+  document.getElementById('nm-dev-info').textContent = `${d.ip || ''} · ${d.iface || ''} · maker: ${d.vendor || (d.private_mac ? 'hidden (private MAC)' : 'unknown')} · detected as: ${d.custom ? (d.auto_kind || d.kind) : d.kind}${d.hostname ? ` · hostname: ${d.hostname}` : ''}`;
+  document.getElementById('nm-dev-name').value = d.custom ? (d.name || '') : '';
+  document.getElementById('nm-dev-name').placeholder = d.custom ? (d.auto_name || d.hostname || '') : (d.name || d.hostname || 'Name this device');
+  document.getElementById('nm-dev-kind').value = d.custom && d.kind !== d.auto_kind ? d.kind : '';
+  document.getElementById('nm-dev-msg').textContent = '';
+  document.getElementById('nm-device-modal').dataset.mac = mac;
+  document.getElementById('nm-device-modal').classList.add('open');
+}
+function nmCloseDevice() { document.getElementById('nm-device-modal').classList.remove('open'); }
+async function nmSaveDevice(reset) {
+  const mac = document.getElementById('nm-device-modal').dataset.mac;
+  const body = reset ? { mac } : { mac, name: document.getElementById('nm-dev-name').value.trim(), kind: document.getElementById('nm-dev-kind').value };
+  try {
+    const d = await (await fetch('/api/router/device', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (!d.ok) { document.getElementById('nm-dev-msg').textContent = d.error || 'Failed'; return; }
+    nmCloseDevice(); updateRouter();
+  } catch (e) { document.getElementById('nm-dev-msg').textContent = 'Request failed'; }
+}
+
+// Repeater reconnect / auto-rejoin controls (Network pop-up and Network Map tab)
+function routerControlsHtml(r, withMapLink, showLog) {
+  const ar = (r && r.autorejoin) || {};
+  const evs = (ar.events || []).map(ev => [
+    new Date(ev.time).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + ' · ' + ev.kind,
+    ev.text, ev.kind === 'connected' ? 'good' : (ev.kind === 'failed' || ev.kind === 'error') ? 'bad' : '']);
+  return `<div class="net-sec"><div class="wifi-cfg-actions" style="margin-top:0">
+      ${withMapLink ? `<button class="wc-btn" type="button" onclick="openNetMapTab()">Open network map</button>` : ''}
+      <button class="wc-btn wifi-cfg-save" type="button" onclick="routerReconnect()"${routerReconnecting ? ' disabled' : ''}>${routerReconnecting ? 'Reconnecting…' : 'Reconnect repeater'}</button>
+      ${withMapLink ? `<button class="wc-btn" type="button" onclick="openRepeaterNets()">Wi-Fi repeater…</button>` : ''}
+      <label class="wifi-cfg-check" title="When the repeater is the top-priority uplink and has been down 2+ min, and a network saved on the router is in range (scanned by the Pi's own Wi-Fi), tell the router to reconnect. Checks every 3 min; retries a network at most every 15 min.">
+        <input type="checkbox" ${ar.enabled ? 'checked' : ''} onchange="routerAutorejoin(this.checked)"> Auto-rejoin saved Wi-Fi when in range</label>
+      <span class="wifi-cfg-msg" style="margin:0">${escapeHtml(routerReconnectMsg)}</span>
+    </div>${showLog && evs.length ? `<div class="sl-rows" style="margin-top:6px">${netRows(evs)}</div>` : ''}</div>`;
+}
+// Network Map sub-tab (Diagnostics > Network Map)
+var netMapTimer = null;   // var: showDiagSub runs at boot, before this line
+function renderNetMapTab() {
+  const host = document.getElementById('netmap-host');
+  if (!host || !document.getElementById('diag-panel-netmap').classList.contains('active')) return;
+  const r = routerLast;
+  if (!r) { host.innerHTML = '<div class="bt-card-empty">Loading…</div>'; return; }
+  if (!r.ok) { host.innerHTML = `<div class="bt-card-empty">Boat router unavailable: ${escapeHtml(r.error || '')}</div>`; return; }
+  const title = `Boat network${r.router && r.router.model ? ` · ${r.router.model.replace('GL.iNet ', '')}` : ''}`;
+  const controls = document.getElementById('netmap-controls');
+  controls.innerHTML = '<div class="wifi-cfg-msg">Click an internet source for its stats and settings, or a device to rename it.</div>';
+  // Fill down to the window bottom: available height (CSS px inside the zoomed
+  // page) -> viewBox units for netMapSvg. Same zoom maths as fitDiagToWindow.
+  const z = parseFloat(document.getElementById('page-mqtt').style.zoom) || 1;
+  // fitDiagToWindow sizes this panel (max-height) to end at the window bottom: use
+  // exactly that, minus the title row; before it has run, estimate the same way.
+  const boxH = parseFloat(host.style.maxHeight) ||
+    (innerHeight - host.getBoundingClientRect().top - controls.getBoundingClientRect().height - 28) / z;
+  const t = host.querySelector('.net-sec-title');               // title row + its 8px margin (measured)
+  const avail = boxH - (t ? t.offsetHeight + 8 : 28) - 2;
+  const fitH = host.clientWidth > 0 ? avail * 1000 / host.clientWidth : 0;
+  host.innerHTML = `<div class="net-sec-title" style="margin-bottom:8px"><span>${escapeHtml(title)}</span><span>${escapeHtml(
+    `${r.mode === 'load_balance' ? 'load balance' : 'failover'}${r.router && r.router.firmware ? ` · firmware ${r.router.firmware}` : ''}`)}</span></div>${netMapSvg(r, fitH)}`;
+}
+addEventListener('resize', () => requestAnimationFrame(renderNetMapTab));
+function netMapTabPolling(on) {
+  clearInterval(netMapTimer); netMapTimer = null;
+  if (!on) return;
+  renderNetMapTab(); updateRouter();
+  netMapTimer = setInterval(ifVisible(() => { if (currentPage === 'mqtt') updateRouter(); }), 10000);
+}
+function openNetMapTab() {
+  closeNetModal();
+  if (currentPage !== 'mqtt') showPage('mqtt');
+  showDiagSub('netmap');
+}
+
+function renderNetModal() {
+  const body = document.getElementById('net-modal-body');
+  if (!body || !document.getElementById('net-modal').classList.contains('open')) return;
+  const d = netLast, sl = slLast;
+  if (!d) { body.innerHTML = '<div class="bt-card-empty">Loading…</div>'; return; }
+  const e = d.eth0 || {};
+  const sec = (title, right, rows, gear) =>
+    `<div class="net-sec"><div class="net-sec-title"><span>${escapeHtml(title)}${gear ? `<button class="net-gear" type="button" onclick="${gear}()" title="${escapeHtml(title)} settings">⚙</button>` : ''}</span><span>${escapeHtml(right || '')}</span></div><div class="sl-rows">${netRows(rows)}</div></div>`;
+  let html = '';
+  html += sec('Ethernet (eth0)', e.mac, [
+    ['Link', e.carrier ? `Up · ${e.speed_mbps ? e.speed_mbps + ' Mb/s' : '?'}${e.duplex ? ' ' + e.duplex + ' duplex' : ''}` : 'Down (unplugged)', e.carrier ? 'good' : 'bad'],
+    ['Router (gateway)', !e.carrier ? '--' : e.gateway_ok ? 'Reachable' : 'Not answering', !e.carrier ? '' : e.gateway_ok ? 'good' : 'bad'],
+    ['IPv4 address', (e.ipv4 || []).join(', ')],
+    ['Gateway', e.gateway],
+    ['DNS', (e.dns || []).join(', ')],
+    ['IPv6 address', (e.ipv6 || []).join(', ') || 'none (local network has no IPv6 internet)'],
+    ['MTU', e.mtu],
+    ['Received / sent (since boot)', `${netBytes(e.rx_bytes)} / ${netBytes(e.tx_bytes)}`],
+    ['Errors rx / tx', `${e.rx_errors ?? '--'} / ${e.tx_errors ?? '--'}`, (e.rx_errors || e.tx_errors) ? 'warn' : ''],
+    ['Dropped rx / tx', `${e.rx_dropped ?? '--'} / ${e.tx_dropped ?? '--'}`],
+  ], 'openEthSettings');
+
+  {
+    const r = routerLast;
+    const title = `Boat router${r && r.router && r.router.model ? ` (${r.router.model.replace('GL.iNet ', '')})` : ''}`;
+    if (!r) html += sec(title, '', [['Status', 'Loading…']]);
+    else if (!r.ok) html += sec(title, '', [['Status', 'Unavailable', 'bad'], ['Error', r.error]]);
+    else {
+      const wan = r.wan || {}, rep = r.repeater || {}, teth = r.tethering || {};
+      const rows = [
+        ['Internet source', routerSourceText(r), routerSourceClass(r)],
+        ['Multi-WAN mode', r.mode === 'load_balance' ? 'Load balance' : 'Failover'],
+      ];
+      (r.interfaces || []).forEach((i, n) => rows.push([`Priority ${n + 1}: ${i.label}`,
+        i.interface === r.active ? 'Active' : i.online ? 'Online (standby)' : 'Down / not connected',
+        i.interface === r.active ? 'good' : i.online ? '' : 'warn']));
+      rows.push(['Ethernet WAN', wan.error ? wan.error : wan.connected ? `${wan.ip || '?'} via ${wan.gateway || '?'} (${wan.protocol || ''})` : 'Not connected', wan.connected ? '' : 'warn']);
+      rows.push(['Wi-Fi repeater', rep.error ? rep.error : rep.ssid ? `${rep.state} · ${rep.ssid}` : (rep.state || '--') + (rep.fail_type ? ` · ${rep.fail_type}` : '')]);
+      rows.push(['USB tethering', teth.error ? teth.error : teth.devices ? `${teth.devices} device(s)` : 'No device']);
+      rows.push(['Devices online', `${(r.totals || {}).online ?? '--'} · ↓ ${nmRate((r.totals || {}).down_Bps)} ↑ ${nmRate((r.totals || {}).up_Bps)}`]);
+      html += sec(title, `${r.mode === 'load_balance' ? 'load balance' : 'failover'}${r.router && r.router.firmware ? ` · firmware ${r.router.firmware}` : ''}`, rows);
+      html += routerControlsHtml(r, true, true);
+    }
+  }
+  if (!sl) {
+    html += sec('Starlink', '', [['Status', 'Loading…']]);
+  } else if (!sl.online) {
+    html += sec('Starlink', '', [['Status', 'Unreachable', 'bad'], ['Error', sl.error]]);
+  } else {
+    const h = sl.history_15m || {};
+    const [slLabel, slCls] = slState(sl);
+    const limited = (sl.dl_limit && sl.dl_limit !== 'NO_LIMIT') || (sl.ul_limit && sl.ul_limit !== 'NO_LIMIT');
+    const alerts = (sl.alerts || []).map(a => a.replace(/_/g, ' '));
+    const deg = x => x == null ? '--' : `${x.toFixed(0)}°`;
+    html += sec('Starlink', `${sl.hardware || ''} · ${sl.software || ''}`, [
+      ['Status', slLabel, slCls],
+      ['Uptime', `${slDuration(sl.uptime_s)} (boot #${sl.bootcount ?? '?'})`],
+      ['Latency (15m avg / now)', `${h.latency_ms_avg != null ? Math.round(h.latency_ms_avg) : '--'} / ${sl.pop_ping_latency_ms != null ? Math.round(sl.pop_ping_latency_ms) : '--'} ms`, h.latency_ms_avg > 100 ? 'warn' : ''],
+      ['Packet loss (15m avg)', netPct(h.drop_rate_avg), h.drop_rate_avg > 0.05 ? 'bad' : h.drop_rate_avg > 0.01 ? 'warn' : ''],
+      ['Signal quality', netPct(sl.signal_quality) + (sl.snr_persistently_low ? ' · persistently low' : ''), sl.snr_persistently_low ? 'bad' : (sl.signal_quality != null && sl.signal_quality < 0.5) ? 'warn' : ''],
+      ['Obstructed', netPct(sl.fraction_obstructed) + (sl.currently_obstructed ? ' · obstructed now' : ''), sl.currently_obstructed || sl.fraction_obstructed > 0.05 ? 'warn' : ''],
+      ['Throughput now down / up', `${slMbps(sl.downlink_bps)} / ${slMbps(sl.uplink_bps)}`],
+      ['Peak 15m down / up', `${slMbps(h.downlink_bps_max)} / ${slMbps(h.uplink_bps_max)}`],
+      ['Plan limit', limited ? `${sl.dl_limit} / ${sl.ul_limit}` : 'None', limited ? 'bad' : ''],
+      ['Service', `${sl.disablement || '--'} · ${sl.mobility || ''}${sl.treat_as_metered ? ' · metered' : ''}`, sl.disablement && sl.disablement !== 'OKAY' ? 'bad' : ''],
+      ['Power (15m avg)', h.power_w_avg != null ? `${h.power_w_avg.toFixed(1)} W` : null],
+      ['GPS', sl.gps_valid ? `${sl.gps_sats} satellites` : 'No fix', sl.gps_valid ? '' : 'warn'],
+      ['Aim (az / el / tilt)', `${deg(sl.azimuth_deg)} / ${deg(sl.elevation_deg)} / ${deg(sl.tilt_deg)}`],
+      ['Suggested aim (az / el)', `${deg(sl.desired_azimuth_deg)} / ${deg(sl.desired_elevation_deg)}`],
+      ['Software update', sl.software_update, sl.software_update && sl.software_update !== 'IDLE' ? 'warn' : ''],
+      ['Alerts', alerts.length ? alerts.join(', ') : 'None', alerts.filter(a => a !== 'obstruction map reset').length ? 'bad' : ''],
+      ...((sl.not_ready || []).length ? [['Not ready', sl.not_ready.join(', '), 'warn']] : []),
+    ]);
+  }
+  // Recovery hotspot last (rarely needed)
+  {
+    const rec = d.recovery || {};
+    if (rec.installed) {
+      const since = rec.since ? new Date(rec.since * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      const rows = [
+        ['Recovery hotspot', rec.active ? `ON · "${rec.ssid}" · since ${since} (${rec.reason || ''})` : 'Off (standing by)', rec.active ? 'warn' : 'good'],
+        ['When it turns on', '10 min after boot · after 5 min with no reachable network'],
+      ];
+      if (rec.active) rows.push(['Connect to it, then open', `http://${rec.address || '10.42.0.1'}  ·  ${rec.clients || 0} connected`]);
+      if (rec.stale) rows.push(['Controller', 'not reporting (is wifi-recovery.service running?)', 'bad']);
+      html += sec('Wi-Fi recovery hotspot', '', rows);
+      html += `<div class="net-sec"><div class="wifi-cfg-actions" style="margin-top:0">
+        <button class="wc-btn${rec.active ? '' : ' wifi-cfg-save'}" type="button" onclick="recoveryToggle(${rec.active ? 'false' : 'true'})">${rec.active ? 'Stop recovery hotspot' : 'Start recovery hotspot now'}</button>
+        <span class="wifi-cfg-msg" style="margin:0">${escapeHtml(recoveryMsg)}</span></div></div>`;
+    }
+  }
+
+  body.innerHTML = html;
+}
+
+async function updateNetPath() {
+  try { netLast = await (await fetch('/api/system/netpath')).json(); } catch (e) { return; }
+  renderNetCard(); renderNetModal();
+  // An Ethernet change waiting for Keep shows a header chip on every page
+  // (e.g. after reopening the dashboard at the new address).
+  if (netLast.eth0_change_pending && !ethCfgPending) ethCfgLoad();
+  else if (!netLast.eth0_change_pending && ethCfgPending) { ethCfgPending = null; ethCfgRenderPending(); setHeaderAlert('eth0cfg', null); }
+}
+let recoveryMsg = '';
+async function recoveryToggle(on) {
+  const q = on
+    ? 'Start the Wi-Fi recovery hotspot now?\n\nIt stays on until you stop it. Join it and open http://10.42.0.1 to reach the dashboard.'
+    : 'Stop the recovery hotspot?\n\nAnyone connected to the hotspot (maybe you) will be disconnected.';
+  if (!confirm(q)) return;
+  recoveryMsg = on ? 'Starting…' : 'Stopping…'; renderNetModal();
+  try {
+    const r = await (await fetch('/api/system/recovery', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: on ? 'on' : 'off' }) })).json();
+    recoveryMsg = r.ok ? (on ? 'Hotspot started' : 'Hotspot stopped') : `Failed: ${r.error || '?'}`;
+  } catch (e) { recoveryMsg = 'Request failed (if you were on the hotspot, this is expected)'; }
+  updateNetPath();
+}
+var routerReconnecting = false, routerReconnectMsg = '';
+async function routerReconnect() {
+  if (!confirm('Tell the boat router to reconnect its Wi-Fi repeater to its saved network?\n\nThe router\'s Wi-Fi may blip for a few seconds while it joins.')) return;
+  routerReconnecting = true; routerReconnectMsg = 'Connecting… up to 60 s'; renderNetModal(); renderNetMapTab();
+  try {
+    const d = await (await fetch('/api/router/repeater/reconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+    routerReconnectMsg = d.ok ? `Connected to "${d.ssid}"` : `Failed: ${d.error || '?'}`;
+  } catch (e) { routerReconnectMsg = 'Request failed'; }
+  routerReconnecting = false; updateRouter();
+}
+async function routerAutorejoin(enabled) {
+  try { await fetch('/api/router/autorejoin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }); } catch (e) {}
+  updateRouter();
+}
+async function updateRouter() {
+  try { routerLast = await (await fetch('/api/router/map')).json(); } catch (e) { return; }
+  renderNetCard(); renderNetModal(); renderNetMapTab();
+}
+async function updateStarlink() {
+  try { slLast = await (await fetch('/api/starlink/status')).json(); } catch (e) { return; }
+  renderNetCard(); renderNetModal();
+}
+// Ethernet settings form (#eth-cfg). /api/system/eth0/* call the eth0-config
+// root helper: `set` applies ~3 s after replying and reverts after 3 min
+// unless confirmed, so a bad address can't strand the Pi.
+let ethCfgPending = null, ethCfgTick = null;
+function ethCfgMsg(text, cls) {
+  const el = document.getElementById('eth-cfg-msg');
+  el.textContent = text; el.className = 'wifi-cfg-msg' + (cls ? ' ' + cls : '');
+}
+function ethCfgModeChanged() {
+  const dhcp = document.querySelector('input[name="eth-cfg-mode"]:checked').value === 'dhcp';
+  document.getElementById('eth-cfg-static').style.display = dhcp ? 'none' : '';
+}
+function ethCfgRenderPending() {
+  const box = document.getElementById('eth-cfg-pending');
+  const p = ethCfgPending;
+  if (!p) { box.style.display = 'none'; clearInterval(ethCfgTick); ethCfgTick = null; return; }
+  const left = Math.max(0, Math.round(p.revert_at - Date.now() / 1000));
+  const n = p.new || {};
+  const newAddr = n.mode === 'dhcp' ? 'DHCP' : n.address;
+  const port = location.port ? ':' + location.port : '';
+  const link = n.mode === 'static' && n.address ? `http://${n.address.split('/')[0]}${port}/` : null;
+  box.style.display = '';
+  document.getElementById('eth-cfg-pending-text').innerHTML =
+    `Ethernet is switching to <b>${escapeHtml(newAddr || '?')}</b>. ` +
+    `Press <b>Keep</b> within <b>${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}</b> or the previous settings come back.` +
+    (link ? ` On the local network, open <a href="${link}" style="color:#4a9fd4">${escapeHtml(link)}</a> and press Keep there.` : '');
+  setHeaderAlert('eth0cfg', { level: 'warn', icon: '🔌', page: 'mqtt', onclick: openEthSettings, text: `Keep Ethernet change? ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`,
+    title: 'An Ethernet address change is waiting. Open Diagnostics > Server Health > Internet Path and press Keep, or it reverts.' });
+  if (!ethCfgTick) ethCfgTick = setInterval(ethCfgRenderPending, 1000);
+  if (left === 0) setTimeout(ethCfgLoad, 5000);
+}
+async function ethCfgLoad() {
+  let d;
+  try { d = await (await fetch('/api/system/eth0/current')).json(); } catch (e) { return; }
+  const cur = document.getElementById('eth-cfg-current');
+  if (!d.ok) { cur.textContent = ''; ethCfgMsg(`Settings unavailable: ${d.error}`, 'err'); return; }
+  const c = d.configured || {};
+  cur.textContent = c.mode === 'dhcp' ? 'Configured: DHCP' : c.address ? `Configured: ${c.address} via ${c.gateway || '?'}` : '';
+  ethCfgPending = d.pending || null;
+  if (!ethCfgPending) setHeaderAlert('eth0cfg', null);
+  ethCfgRenderPending();
+  // pre-fill once from the configured values
+  const addr = document.getElementById('eth-cfg-address');
+  if (!addr.dataset.filled) {
+    addr.dataset.filled = '1';
+    document.querySelector(`input[name="eth-cfg-mode"][value="${c.mode === 'dhcp' ? 'dhcp' : 'static'}"]`).checked = true;
+    addr.value = c.address || '';
+    document.getElementById('eth-cfg-gateway').value = c.gateway || '';
+    document.getElementById('eth-cfg-dns').value = (c.dns || []).join(', ');
+    ethCfgModeChanged();
+  }
+}
+async function ethCfgSave() {
+  const mode = document.querySelector('input[name="eth-cfg-mode"]:checked').value;
+  const body = { mode };
+  let summary = 'DHCP (the router assigns the address)';
+  if (mode === 'static') {
+    body.address = document.getElementById('eth-cfg-address').value.trim();
+    body.gateway = document.getElementById('eth-cfg-gateway').value.trim();
+    body.dns = document.getElementById('eth-cfg-dns').value.split(/[\s,]+/).filter(Boolean);
+    if (!/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(body.address)) { ethCfgMsg('Enter the address with its prefix, e.g. 192.168.10.10/24', 'err'); return; }
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(body.gateway)) { ethCfgMsg('Enter the gateway, e.g. 192.168.10.1', 'err'); return; }
+    summary = `${body.address}, gateway ${body.gateway}`;
+  }
+  if (!confirm(`Change Ethernet to ${summary}?\n\nIt applies in 3 seconds. You then have 3 minutes to press Keep — from the dashboard at the new address, the recovery hotspot, or the public address — otherwise the previous settings come back automatically.`)) return;
+  const btn = document.getElementById('eth-cfg-save-btn');
+  btn.disabled = true;
+  try {
+    const d = await (await fetch('/api/system/eth0/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (d.ok) { ethCfgMsg('Applying… this page may lose its connection if you reached it through the old Ethernet address.', 'ok'); ethCfgPending = d.pending; ethCfgRenderPending(); }
+    else ethCfgMsg(d.error || 'Failed', 'err');
+  } catch (e) { ethCfgMsg('Request failed', 'err'); }
+  finally { btn.disabled = false; }
+}
+async function ethCfgConfirm() {
+  try {
+    const d = await (await fetch('/api/system/eth0/confirm', { method: 'POST' })).json();
+    if (d.ok) { ethCfgPending = null; ethCfgMsg('Kept. The new Ethernet settings are now permanent.', 'ok'); }
+    else ethCfgMsg(d.error || 'Failed', 'err');
+  } catch (e) { ethCfgMsg('Request failed', 'err'); }
+  ethCfgLoad(); updateNetPath();
+}
+async function ethCfgRevert() {
+  if (!confirm('Put the previous Ethernet settings back now?')) return;
+  ethCfgMsg('Reverting…');
+  try {
+    const d = await (await fetch('/api/system/eth0/revert', { method: 'POST' })).json();
+    ethCfgMsg(d.ok ? 'Previous Ethernet settings restored.' : (d.error || 'Failed'), d.ok ? 'ok' : 'err');
+  } catch (e) { ethCfgMsg('Request failed (the connection may have moved)', 'err'); }
+  ethCfgPending = null; ethCfgLoad(); updateNetPath();
+}
+
+function openEthSettings() { document.getElementById('eth-settings-modal').classList.add('open'); ethCfgLoad(); }
+function closeEthSettings() { document.getElementById('eth-settings-modal').classList.remove('open'); }
+function openNetModal() {
+  document.getElementById('net-modal').classList.add('open');
+  renderNetModal();
+  updateNetPath(); updateStarlink();
+  clearInterval(netModalTimer);
+  updateRouter();
+  netModalTimer = setInterval(ifVisible(() => { updateNetPath(); updateStarlink(); updateRouter(); }), 10000);
+}
+function closeNetModal() {
+  document.getElementById('net-modal').classList.remove('open');
+  clearInterval(netModalTimer); netModalTimer = null;
+}
+updateNetPath();
+updateStarlink();
+setInterval(ifVisible(updateNetPath), 15000);
+setInterval(ifVisible(() => { if (currentPage === 'mqtt') updateStarlink(); }), 30000);
+updateRouter();
+setInterval(ifVisible(() => { if (currentPage === 'mqtt') updateRouter(); }), 30000);
+// ─── end Network siloed addition ─────────────────────────────────────────────
 </script>
 </body>
 </html>

@@ -1,0 +1,23 @@
+# Rolling 24 h webcam recorder for the Webcams tab (see webcam_recorder.py).
+# User service (linger is on, so it starts at boot). Install:
+#   cp ops/webcam-recorder.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now webcam-recorder
+# Remove: systemctl --user disable --now webcam-recorder, delete the unit and ~/webcam_recordings.
+[Unit]
+Description=Webcam recorder (rolling 24 h, Webcams tab playback)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mikemc/dashboard-dev
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/mikemc/dashboard-dev/webcam_recorder.py
+Restart=always
+RestartSec=10
+# Low priority: recording must never slow down the dashboard or charts
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=default.target
