@@ -11360,7 +11360,7 @@ function netMapSvg(r, fitH) {
       p.straight = true;
     });
   const sxs = order.map(p => p.sx);
-  const boxW = Math.max(104, 2 * Math.max(0, ...sxs.map(v => Math.abs(v - mid))) + 24 + Math.max(0, ...order.map(p => p.w)));
+  const boxW = Math.max(140, 2 * Math.max(0, ...sxs.map(v => Math.abs(v - mid))) + 24 + Math.max(0, ...order.map(p => p.w)));
   // each line turns at its own height ("lane"): on each side the line going furthest out
   // turns highest, so lines nest and never cross or overlap
   const leftL = order.filter(p => p.x < p.sx - 0.5), rightL = order.filter(p => p.x > p.sx + 0.5).reverse();
@@ -11424,7 +11424,8 @@ function netMapSvg(r, fitH) {
   // router (drawn after the lines so their ends tuck under it; widens with many devices)
   nodes += `<g transform="translate(${mid},${rtY})"><title>${escapeHtml(`${(r.router && r.router.model) || 'Boat router'}\n${devs.length} devices online\n↓ ${nmRate(tot.down_Bps)}  ↑ ${nmRate(tot.up_Bps)}`)}</title>
     <rect x="${(-boxW / 2).toFixed(1)}" y="-26" width="${boxW.toFixed(1)}" height="52" rx="8" fill="#0d1f38" stroke="#4a9fd4" stroke-width="1.4"/>
-    <text class="nm-name" y="-4" text-anchor="middle" style="font-size:12px">Router</text>
+    <g transform="translate(-24,-9.5) scale(.62)">${nmIcon('network', '#4a9fd4')}</g>
+    <text class="nm-name" x="-12" y="-4" style="font-size:12px">Router</text>
     <text class="nm-rate" y="12" text-anchor="middle" style="font-size:10px">↓ ${nmRate(tot.down_Bps)}  ↑ ${nmRate(tot.up_Bps)}</text></g>`;
 
   placed.forEach(({ dv, x, y }) => {
