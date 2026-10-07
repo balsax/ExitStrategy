@@ -592,6 +592,33 @@ html{background:#0a0e1a}
 .chart-fullscreen-btn{display:flex;align-items:center;gap:6px;background:#0f1628;border:.5px solid #1e2d4a;color:#a0b0c0;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;user-select:none;transition:border-color .15s,color .15s}
 .chart-fullscreen-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
 .chart-fullscreen-btn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+/* Chart controls (2026-10-07): Full Screen on the map top-left, styled like
+   .ais-recenter-btn; base-map picker at the right end of the checkbox row. */
+.chart-map-tl{position:absolute;top:10px;left:10px;z-index:550;display:flex;gap:8px;align-items:flex-start}
+.chart-map-btn{background:#0f1628;border:.5px solid #2a3a5a;color:#e0e6f0;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4);white-space:nowrap}
+.chart-map-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-basemap{position:relative}
+/* Base-map picker at the far right of the checkbox row: checkboxes wrap in
+   their own box, the picker stays pinned right, styled like the pills. */
+#page-chart .chart-controls-row{flex-wrap:nowrap;align-items:flex-start}
+#page-chart #chart-layer-toggles{flex:1;min-width:0}
+#page-chart .chart-controls-right{margin-left:auto;flex-shrink:0}
+.chart-controls-right #chart-basemap-btn{padding:7px 12px;border-color:#1e2d4a;color:#a0b0c0;box-shadow:none}
+.chart-controls-right #chart-basemap-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+.chart-controls-right .chart-basemap-menu{left:auto;right:0;z-index:1100}
+/* Slightly tighter pills so the row + picker fit on one line at 1280 wide. */
+#page-chart #chart-layer-toggles{gap:6px}
+#page-chart #chart-layer-toggles label{padding:7px 11px}
+@media (max-width:600px){#page-chart .chart-controls-row{flex-wrap:wrap}#page-chart #chart-layer-toggles{flex-basis:100%}}
+.chart-basemap-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 10px 10px;box-shadow:0 4px 12px rgba(0,0,0,.5);width:max-content}
+.chart-basemap.open .chart-basemap-menu{display:block}
+.chart-basemap.open #chart-basemap-btn{border-color:#4a9fd4;color:#4a9fd4}
+.chart-basemap-heading{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b82a0;margin:4px 2px 6px}
+.chart-basemap-menu .chart-layer-toggles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+.chart-basemap-menu .chart-layer-toggles label{justify-content:flex-start}
+.chart-basemap-menu label{white-space:nowrap}
+/* Phones: side by side they run into "Center on Me" -- stack them. */
+@media (max-width:600px){.chart-map-tl{flex-direction:column;gap:6px}}
 /* Full-screen mode: overlays the whole viewport with just the Chart page
    (controls row + map), hiding the header/nav so the map gets max space.
    CSS-driven rather than the native Fullscreen API, so it works the same
@@ -631,6 +658,29 @@ body.chart-fullscreen-active .chart-map-wrap{flex:1;height:auto;min-height:0}
 .ais-recenter-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
 .chart-cursor-latlon{display:none;position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:500;background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;border-radius:8px;padding:6px 14px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none}
 .header-right{display:flex;align-items:center;gap:10px}
+/* Header right (2026-10-07): MOB beside a clock-over-Day/Night stack, same height. */
+.header-right{align-items:stretch}
+.header-time-stack{display:flex;flex-direction:column;gap:6px}
+.header-time-stack .live,.header-time-stack .night-toggle-btn{justify-content:center;text-align:center}
+/* MOB ~75% of the stack's height (user asked), centred beside it. */
+.header-right .header-mob-btn{display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;padding:0 14px;height:40px;align-self:center}
+.header-right{margin-left:auto}   /* if the header wraps (narrow phones), keep this group right-aligned */
+.header-right .header-mob-btn{margin-right:26px}   /* extra space from the clock / Day-Night stack: fewer accidental MOBs */
+@media (max-width:600px){.header-right .header-mob-btn{margin-right:8px}.header-right{padding-left:8px}.htitle h1{font-size:12px}}
+/* Chart Full Screen hides the header, so a second MOB shows left of the base-map picker. */
+.chart-controls-right .chart-fs-mob-btn{display:none;align-items:center;gap:6px;font-size:13px;padding:7px 14px;margin-right:14px}
+body.chart-fullscreen-active .chart-controls-right .chart-fs-mob-btn{display:flex}
+/* Full screen: base-map button shrinks to "🗺️ ▾" so the checkboxes + MOB + picker fit one row at 1280. */
+body.chart-fullscreen-active #chart-basemap-label{display:none}
+body.chart-fullscreen-active #page-chart #chart-layer-toggles label{padding:7px 10px}
+body.chart-fullscreen-active .chart-controls-right .chart-fs-mob-btn{padding:7px 12px}
+@media (max-width:760px){.header-right .header-mob-btn{height:33px}}
+@media (max-width:600px){
+  .header-right .header-mob-btn{font-size:11px;padding:0 8px;height:40px}
+  .htitle p{max-width:17vw}   /* marina line truncates sooner so MOB + clock stay on the same row */
+}
+/* Very narrow phones: drop the title + marina line so logo, MOB and clock fit on one row. */
+@media (max-width:389px){.htitle{display:none}}
 .header-mob-btn{font-size:12px;font-weight:700;letter-spacing:.03em;color:#fff;background:#c81e1e;border:.5px solid #7a0f0f;border-radius:6px;padding:4px 12px;cursor:pointer}
 .header-mob-btn:hover{background:#e02525}
 .header-mob-btn:active{background:#a01414}
@@ -897,8 +947,50 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 /* ─── end Starlink card ─────────────────────────────────────────────────── */
 
 </style>
+<!-- ─── Night mode (siloed addition) ───────────────────────────────────────────
+     Red-only display to keep night vision. One filter on <html> maps every
+     pixel to red at its luminance (no green/blue), so maps, charts, webcams and
+     iframes are covered without touching the page's hundreds of colours.
+     Chosen per device (localStorage 'nightMode'), applied here before first
+     paint so there is no blue flash. Toggle: 🌙 button in the header.
+     The Media tab's Boat Radio iframe (cross-origin) isn't reached by the
+     filter; it's told by postMessage and reddens itself (pianobar-web).
+     To back out: delete this block, the <svg id="night-red-svg"> after <body>,
+     the #night-toggle-btn in .header-right and the JS block at the script end. -->
+<style>
+html.night-mode{filter:url(#night-red);background:#000;min-height:100%}   /* min-height: Chrome leaves the canvas below a short page unfiltered (white) */
+/* White NOAA/O-Charts tiles would still be a bright red sheet: dim the map. */
+html.night-mode .leaflet-tile-pane{filter:brightness(.45)}
+html.night-mode .header-left img{filter:brightness(.4)}   /* logo's white box was the brightest thing on screen */
+/* Firefox ignores url() SVG filters on <html> (any page, verified), so there the
+   filter goes on each top-level block instead. Kept off any element that
+   contains a position:fixed pop-up (a filter would make it the pop-up's
+   containing block and misplace it): #page-reference holds the star-chart /
+   sextant modals and #refsub-celestial the star tooltip, so those get it one
+   level further down, on the pop-ups themselves among others. Firefox only. */
+@supports (-moz-appearance:none) {
+  html.night-mode{filter:none}
+  html.night-mode body{background:#000}
+  html.night-mode body > *:not(#page-reference):not(script):not(style),
+  html.night-mode #page-reference > *:not(#refsub-celestial),
+  html.night-mode #refsub-celestial > * {filter:url(#night-red)}
+}
+.night-toggle-btn{font-size:12px;font-weight:600;color:#c9d4e0;background:#0d1f38;border:.5px solid #1e3a5a;border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.night-toggle-btn:hover{border-color:#4a9fd4}
+@media (max-width:600px){.night-toggle-btn{font-size:11px;padding:4px 8px}.night-toggle-btn .night-label{display:none}}
+</style>
+<script>
+try { if (localStorage.getItem('nightMode') === '1') document.documentElement.classList.add('night-mode'); } catch (e) {}
+</script>
+<!-- ─── end Night mode head block ─────────────────────────────────────────── -->
 </head>
 <body>
+<!-- Night mode filter (see the Night mode block in <head>): red = luminance x 0.85, green = blue = 0. -->
+<svg id="night-red-svg" width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="night-red" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values=".19 .61 .05 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/>
+  </filter>
+</svg>
 
 <div class="header">
   <div class="header-left">
@@ -915,8 +1007,12 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <span id="hdr-alerts" style="display:contents"></span>
   </div>
   <div class="header-right">
+    <!-- MOB spans the height of the clock + Day/Night stack beside it (2026-10-07). -->
     <button class="header-mob-btn" onclick="markMOB()">🛟 MOB</button>
-    <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
+    <div class="header-time-stack">
+      <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
+      <button class="night-toggle-btn" id="night-toggle-btn" onclick="toggleNightMode()" title="Night mode (red display)">🌙<span class="night-label"> Night</span></button>
+    </div>
   </div>
 </div>
 
@@ -1496,7 +1592,7 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 <div class="page" id="page-chart">
   <div class="chart-controls-row">
     <div class="chart-layer-toggles" id="chart-layer-toggles">
-      <label><input type="checkbox" id="chart-me-toggle" data-chart-layer="My Vessel"> My Vessel &amp; Autopilot</label>
+      <label><input type="checkbox" id="chart-me-toggle" data-chart-layer="My Vessel"> My Vessel</label>
       <label><input type="checkbox" data-chart-layer="AIS Traffic"> AIS Traffic</label>
       <label><input type="checkbox" data-chart-layer="Aids to Navigation"> Aids to Navigation</label>
       <label><input type="checkbox" data-chart-layer="Bridges"> Bridges</label>
@@ -1508,15 +1604,25 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
       <label><input type="checkbox" id="chart-trips-toggle" data-chart-layer="Saved Tracks"> Saved Tracks<span class="trip-recording-dot" id="chart-trips-rec-dot" title="A trip is recording"></span></label>
     </div>
     <div class="chart-controls-right">
-      <button class="chart-fullscreen-btn" id="chart-fullscreen-btn" onclick="toggleChartFullscreen()" title="Toggle full screen">⛶ Full Screen</button>
-      <span id="chart-status" class="sys-badge" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
-      <div class="chart-layer-toggles" id="chart-base-source">
-        <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
-        <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
-      </div>
-      <div class="chart-layer-toggles" id="chart-base-theme">
-        <label><input type="radio" name="chart-base-theme" value="Light" checked> ☀️ Light</label>
-        <label><input type="radio" name="chart-base-theme" value="Dark"> 🌙 Dark</label>
+      <!-- "N cells in view" badge hidden at the user's request (2026-10-07); updateChartStatus() still writes to it. -->
+      <span id="chart-status" class="sys-badge" style="display:none;color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
+      <!-- Full Screen moved onto the map (top-left, .chart-map-tl) 2026-10-07; Chart/Streets + Light/Dark are now this one menu button. -->
+      <!-- Only visible in chart Full Screen (the header and its MOB are hidden there). -->
+      <button class="header-mob-btn chart-fs-mob-btn" onclick="markMOB()">🛟 MOB</button>
+      <div class="chart-basemap">
+        <button class="chart-map-btn" id="chart-basemap-btn" onclick="toggleChartBasemapMenu(event)" title="Base map">🗺️ <span id="chart-basemap-label">Chart · Light</span> ▾</button>
+        <div class="chart-basemap-menu" id="chart-basemap-menu">
+          <div class="chart-basemap-heading">Map</div>
+          <div class="chart-layer-toggles" id="chart-base-source">
+            <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
+            <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
+          </div>
+          <div class="chart-basemap-heading">Style</div>
+          <div class="chart-layer-toggles" id="chart-base-theme">
+            <label><input type="radio" name="chart-base-theme" value="Light" checked> ☀️ Light</label>
+            <label><input type="radio" name="chart-base-theme" value="Dark"> 🌙 Dark</label>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1525,6 +1631,13 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
     <div class="chart-map-wrap">
       <div id="chart-map" style="width:100%;height:100%"></div>
       <button class="ais-recenter-btn" onclick="chartRecenter()">⌖ Center on Me</button>
+      <!-- Map overlay controls (2026-10-07): Full Screen (top-left); the base-map
+           picker sits at the right end of the checkbox row above the map. Same ids/radios as before
+           (toggleChartFullscreen/updateChartBase unchanged); the picker is a
+           small menu instead of two rows of pills above the map. -->
+      <div class="chart-map-tl">
+        <button class="chart-fullscreen-btn chart-map-btn" id="chart-fullscreen-btn" onclick="toggleChartFullscreen()" title="Toggle full screen">⛶ Full Screen</button>
+      </div>
       <div class="chart-cursor-latlon" id="chart-cursor-latlon"></div>
       <div class="chart-wind-tooltip" id="chart-wind-tooltip"></div>
       <div class="chart-scale-bar" id="chart-scale-bar"><span id="chart-scale-label"></span></div>
@@ -11966,7 +12079,18 @@ fetchRelay1State = async function () {
       if (wasOnline === false && relay1Online === true) queryRelay1State();
     }
   } catch (e) { /* keep last-known */ }
-  return _relay1OrigFetch();
+  // queryRelay1State's empty probe on .../0/get is echoed back into the topic
+  // cache as ''. The original reads that as OFF; until the relay's own '0'/'1'
+  // lands, keep the previous state instead (null = "--" on a fresh load).
+  const prev = relay1State;
+  await _relay1OrigFetch();
+  try {
+    const rec = (await getMqttTopics()).topics['boat/power/relay1/0/get'];
+    if (rec && String(rec.value).trim() === '' && relay1State !== prev) {
+      relay1State = prev;
+      updateRelay1UI();
+    }
+  } catch (e) { /* keep what the original set */ }
 };
 const _relay1OrigToggle = toggleRelay1;
 toggleRelay1 = function () {
@@ -11975,6 +12099,69 @@ toggleRelay1 = function () {
 };
 fetchRelay1State();
 // ─── end Relay 1 offline status siloed addition ──────────────────────────────
+
+// ─── Night mode toggle (siloed addition; see the Night mode block in <head>) ──
+function updateNightToggleBtn() {
+  const on = document.documentElement.classList.contains('night-mode');
+  const btn = document.getElementById('night-toggle-btn');
+  if (btn) {
+    btn.innerHTML = on ? '☀️<span class="night-label"> Day</span>' : '🌙<span class="night-label"> Night</span>';
+    btn.title = on ? 'Back to normal colours' : 'Night mode (red display)';
+  }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = on ? '#000000' : '#0a0e1a';
+}
+function toggleNightMode() {
+  const on = document.documentElement.classList.toggle('night-mode');
+  try { localStorage.setItem('nightMode', on ? '1' : '0'); } catch (e) {}
+  updateNightToggleBtn();
+  sendNightToMedia();
+}
+updateNightToggleBtn();
+// The <html> filter doesn't reach the Media tab's cross-origin Boat Radio
+// iframe, so tell that page to apply the same red filter itself (its
+// "Night mode from the dashboard" block). Sent on toggle, when the iframe
+// loads, and when the iframe asks.
+function sendNightToMedia() {
+  const f = document.getElementById('media-embed');
+  if (!f || !f.contentWindow) return;
+  try {
+    f.contentWindow.postMessage({ type: 'boatradio-night', on: document.documentElement.classList.contains('night-mode') },
+                                new URL(radioBase).origin);
+  } catch (e) {}
+}
+document.addEventListener('load', e => { if (e.target && e.target.id === 'media-embed') sendNightToMedia(); }, true);
+addEventListener('message', e => {
+  const f = document.getElementById('media-embed');
+  if (f && e.source === f.contentWindow && e.data && e.data.type === 'boatradio-night-query') sendNightToMedia();
+});
+// ─── end Night mode toggle siloed addition ───────────────────────────────────
+
+// ─── Chart base-map picker (top-left of the map, 2026-10-07) ─────────────────
+// Wraps the existing #chart-base-source / #chart-base-theme radios (moved into
+// #chart-basemap-menu); updateChartBase() still does the actual switching.
+function updateChartBasemapLabel() {
+  const src = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
+  const theme = (document.querySelector('#chart-base-theme input:checked') || {}).value || 'Light';
+  const el = document.getElementById('chart-basemap-label');
+  if (el) el.textContent = `${src} · ${theme}`;
+}
+function toggleChartBasemapMenu(e) {
+  if (e) e.stopPropagation();
+  document.querySelector('.chart-basemap').classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  const box = document.querySelector('.chart-basemap');
+  if (box && box.classList.contains('open') && !box.contains(e.target)) box.classList.remove('open');
+});
+document.querySelectorAll('#chart-base-source input, #chart-base-theme input')
+  .forEach(rb => rb.addEventListener('change', updateChartBasemapLabel));
+// Saved choices are restored by setting .checked (no change event) and then
+// calling updateChartBase(), so follow that too.
+const _chartBaseBeforePicker = updateChartBase;
+updateChartBase = function () { _chartBaseBeforePicker(); updateChartBasemapLabel(); };
+updateChartBasemapLabel();
+// ─── end Chart base-map picker ───────────────────────────────────────────────
 </script>
 </body>
 </html>
