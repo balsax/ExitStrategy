@@ -11915,6 +11915,66 @@ setInterval(ifVisible(() => { if (currentPage === 'mqtt') updateStarlink(); }), 
 updateRouter();
 setInterval(ifVisible(() => { if (currentPage === 'mqtt') updateRouter(); }), 30000);
 // ─── end Network siloed addition ─────────────────────────────────────────────
+
+// ─── Relay 1 offline status (siloed addition) ────────────────────────────────
+// The relay (OpenBK7231T) publishes its MQTT last-will on
+// boat/power/relay1/connected ('online'/'offline', retained). /api/relay/set
+// only confirms the command was published, so without this the button flips
+// ON/OFF happily while the relay is gone. Here: when 'offline', the button
+// reads OFFLINE and is disabled; when it comes back, the state is re-queried.
+// Wraps updateRelay1UI / fetchRelay1State / toggleRelay1 rather than editing
+// them. To back out: delete this block.
+var relay1Online = null; // true / false / null = unknown
+var relay1OfflineSince = null; // only known if the 'offline' arrived live (not retained)
+const _relay1OrigUpdateUI = updateRelay1UI;
+updateRelay1UI = function () {
+  _relay1OrigUpdateUI();
+  if (relay1Online !== false) return;
+  const btn = document.getElementById('relay1-btn');
+  const sub = document.getElementById('relay1-sub');
+  if (!btn) return;
+  btn.classList.remove('state-on', 'state-off');
+  btn.classList.add('state-unknown');
+  btn.textContent = 'OFFLINE';
+  btn.disabled = true;
+  btn.title = 'Relay is not connected to MQTT';
+  if (sub) {
+    sub.style.color = '#e8a030';
+    sub.textContent = relay1OfflineSince
+      ? '⚠ Offline since ' + relay1OfflineSince.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+      : '⚠ Offline · relay not connected';
+  }
+};
+function _relay1ClearOffline() {
+  const btn = document.getElementById('relay1-btn');
+  const sub = document.getElementById('relay1-sub');
+  if (btn) { btn.disabled = false; btn.title = ''; }
+  if (sub) sub.style.color = '';
+}
+const _relay1OrigFetch = fetchRelay1State;
+fetchRelay1State = async function () {
+  try {
+    const d = await getMqttTopics();
+    const rec = d.topics && d.topics['boat/power/relay1/connected'];
+    if (rec) {
+      const v = String(rec.value).trim().toLowerCase();
+      const wasOnline = relay1Online;
+      relay1Online = v === 'offline' ? false : v === 'online' ? true : null;
+      relay1OfflineSince = relay1Online === false && rec.retain === false ? new Date(rec.time) : null;
+      if (relay1Online !== false) _relay1ClearOffline();
+      // Back online after being offline: ask the relay for its real state.
+      if (wasOnline === false && relay1Online === true) queryRelay1State();
+    }
+  } catch (e) { /* keep last-known */ }
+  return _relay1OrigFetch();
+};
+const _relay1OrigToggle = toggleRelay1;
+toggleRelay1 = function () {
+  if (relay1Online === false) return;
+  return _relay1OrigToggle();
+};
+fetchRelay1State();
+// ─── end Relay 1 offline status siloed addition ──────────────────────────────
 </script>
 </body>
 </html>
