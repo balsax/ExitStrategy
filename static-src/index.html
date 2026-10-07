@@ -600,14 +600,14 @@ html{background:#0a0e1a}
 .chart-basemap{position:relative}
 /* Base-map picker at the far right of the checkbox row: checkboxes wrap in
    their own box, the picker stays pinned right, styled like the pills. */
-#page-chart .chart-controls-row{flex-wrap:nowrap;align-items:flex-start}
+#page-chart .chart-controls-row{flex-wrap:nowrap;align-items:flex-start;column-gap:4px}   /* 10px gap wrapped Saved Tracks on ~1024-1080px tablets (UI scaled to .8) */
 #page-chart #chart-layer-toggles{flex:1;min-width:0}
 #page-chart .chart-controls-right{margin-left:auto;flex-shrink:0}
 .chart-controls-right #chart-basemap-btn{padding:7px 12px;border-color:#1e2d4a;color:#a0b0c0;box-shadow:none}
 .chart-controls-right #chart-basemap-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
 .chart-controls-right .chart-basemap-menu{left:auto;right:0;z-index:1100}
 /* Slightly tighter pills so the row + picker fit on one line at 1280 wide. */
-#page-chart #chart-layer-toggles{gap:6px}
+#page-chart #chart-layer-toggles{gap:6px 5px}
 #page-chart #chart-layer-toggles label{padding:7px 11px}
 @media (max-width:600px){#page-chart .chart-controls-row{flex-wrap:wrap}#page-chart #chart-layer-toggles{flex-basis:100%}}
 .chart-basemap-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:#0f1628;border:.5px solid #2a3a5a;border-radius:8px;padding:8px 10px 10px;box-shadow:0 4px 12px rgba(0,0,0,.5);width:max-content}
@@ -12170,6 +12170,44 @@ const _chartBaseBeforePicker = updateChartBase;
 updateChartBase = function () { _chartBaseBeforePicker(); updateChartBasemapLabel(); };
 updateChartBasemapLabel();
 // ─── end Chart base-map picker ───────────────────────────────────────────────
+
+// ─── Disk free space on Server Health cards (siloed addition, 2026-10-07) ───
+// Adds "· 444 GB free of 1.8 TB" after the Disk Usage and Boot Partition
+// card labels, from /api/system/disk_space (the MQTT feed only has %).
+// Sizes are 1024-based like `df -h`. To back out: delete this block and the
+// matching route in dashboard_api.py.
+function fmtDiskBytes(b) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+  return (b >= 100 || i < 3 ? b.toFixed(0) : b.toFixed(1)) + ' ' + units[i];
+}
+async function updateDiskFree() {
+  if (currentPage !== 'mqtt') return;
+  let d;
+  try { d = await (await fetch('/api/system/disk_space')).json(); } catch (e) { return; }
+  [['root', 'sys-disk-val'], ['boot', 'sys-boot_disk-val']].forEach(([key, valId]) => {
+    const val = document.getElementById(valId);
+    if (!val) return;
+    // Sits on the card's label line, right after "Disk Usage" / "Boot Partition".
+    const label = val.previousElementSibling;
+    let note = document.getElementById(valId + '-free');
+    if (!note && label) {
+      note = document.createElement('span');
+      note.id = valId + '-free';
+      note.style.cssText = 'text-transform:none;letter-spacing:0;font-size:11px;color:#8fa3bd;margin-left:6px';
+      label.appendChild(note);
+    }
+    if (!note) return;
+    const u = d[key];
+    note.textContent = u ? `· ${fmtDiskBytes(u.free)} free of ${fmtDiskBytes(u.total)}` : '';
+  });
+}
+const _showPageBeforeDiskFree = showPage;
+showPage = function (page) { _showPageBeforeDiskFree(page); if (page === 'mqtt') updateDiskFree(); };
+updateDiskFree();
+setInterval(ifVisible(updateDiskFree), 60000);
+// ─── end Disk free space siloed addition ─────────────────────────────────────
 </script>
 </body>
 </html>

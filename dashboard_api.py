@@ -4500,6 +4500,23 @@ def victron_sim_service_stop():
     return jsonify({'status': 'ok'})
 # ─── end Victron simulator service ───────────────────────────────────────────
 
+# ─── Disk free space (siloed addition, 2026-10-07) ───────────────────────────
+# The Server Health Disk Usage / Boot Partition cards only get a percentage
+# over MQTT (boat/system/disk_percent); this read-only route adds the absolute
+# free / total bytes so the cards can say "444 GB free of 1.8 TB".
+# To back out: delete this block and the matching JS block in index.html.
+@app.route('/api/system/disk_space')
+def system_disk_space():
+    out = {}
+    for key, path in (('root', '/'), ('boot', '/boot/firmware')):
+        try:
+            u = shutil.disk_usage(path)
+            out[key] = {'path': path, 'total': u.total, 'used': u.used, 'free': u.free}
+        except OSError:
+            out[key] = None
+    return jsonify(out)
+# ─── end Disk free space siloed addition ─────────────────────────────────────
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})
