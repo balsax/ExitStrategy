@@ -964,6 +964,8 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 html.night-mode{filter:url(#night-red);background:#000;min-height:100%}   /* min-height: Chrome leaves the canvas below a short page unfiltered (white) */
 /* White NOAA/O-Charts tiles would still be a bright red sheet: dim the map. */
 html.night-mode .leaflet-tile-pane{filter:brightness(.45)}
+/* ...and the gaps behind not-yet-loaded tiles (#dce8ee) to match: 45% of it. Dark style keeps its own #0a0e1a. */
+html.night-mode .chart-map-wrap,html.night-mode .chart-map-wrap .leaflet-container:not(.chart-dark-base){background:#63686b}
 html.night-mode .header-left img{filter:brightness(.4)}   /* logo's white box was the brightest thing on screen */
 /* Native checkboxes/radios are white boxes (light colour-scheme) -> full-bright red. Dark ones in night mode. */
 html.night-mode input[type=checkbox],html.night-mode input[type=radio]{color-scheme:dark}
