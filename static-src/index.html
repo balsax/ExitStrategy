@@ -668,7 +668,7 @@ body.chart-fullscreen-active .chart-map-wrap{flex:1;height:auto;min-height:0}
 .header-right .header-mob-btn{margin-right:26px}   /* extra space from the clock / Day-Night stack: fewer accidental MOBs */
 @media (max-width:600px){.header-right .header-mob-btn{margin-right:8px}.header-right{padding-left:8px}.htitle h1{font-size:12px}}
 /* Chart Full Screen hides the header, so a second MOB shows left of the base-map picker. */
-.chart-controls-right .chart-fs-mob-btn{display:none;align-items:center;gap:6px;font-size:13px;padding:7px 14px;margin-right:14px}
+.chart-controls-right .chart-fs-mob-btn{display:none;align-items:center;gap:6px;font-size:13px;padding:7px 14px;margin-right:10px}
 body.chart-fullscreen-active .chart-controls-right .chart-fs-mob-btn{display:flex}
 /* Full screen: base-map button shrinks to "🗺️ ▾" so the checkboxes + MOB + picker fit one row at 1280. */
 body.chart-fullscreen-active #chart-basemap-label{display:none}
@@ -683,6 +683,9 @@ body.chart-fullscreen-active .chart-controls-right .chart-fs-mob-btn{padding:7px
 @media (max-width:389px){.htitle{display:none}}
 .header-mob-btn{font-size:12px;font-weight:700;letter-spacing:.03em;color:#fff;background:#c81e1e;border:.5px solid #7a0f0f;border-radius:6px;padding:4px 12px;cursor:pointer}
 .header-mob-btn:hover{background:#e02525}
+/* Life ring drawn as SVG on a black disc (the red/white 🛟 emoji vanished on the red
+   button and its glyph never sat centred in a disc). */
+.mob-icon{display:block;width:1.5em;height:1.5em;flex-shrink:0}
 .header-mob-btn:active{background:#a01414}
 .mob-marker-ring{width:34px;height:34px;border-radius:50%;border:3px solid #e02525;box-sizing:border-box;animation:mob-pulse 1.2s ease-out infinite}
 @keyframes mob-pulse{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.6);opacity:0}}
@@ -962,6 +965,9 @@ html.night-mode{filter:url(#night-red);background:#000;min-height:100%}   /* min
 /* White NOAA/O-Charts tiles would still be a bright red sheet: dim the map. */
 html.night-mode .leaflet-tile-pane{filter:brightness(.45)}
 html.night-mode .header-left img{filter:brightness(.4)}   /* logo's white box was the brightest thing on screen */
+/* Native checkboxes/radios are white boxes (light colour-scheme) -> full-bright red. Dark ones in night mode. */
+html.night-mode input[type=checkbox],html.night-mode input[type=radio]{color-scheme:dark}
+html.night-mode .htitle h1{color:#8a96a8}   /* was the brightest text in the header */
 /* Firefox ignores url() SVG filters on <html> (any page, verified), so there the
    filter goes on each top-level block instead. Kept off any element that
    contains a position:fixed pop-up (a filter would make it the pop-up's
@@ -1008,7 +1014,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   </div>
   <div class="header-right">
     <!-- MOB spans the height of the clock + Day/Night stack beside it (2026-10-07). -->
-    <button class="header-mob-btn" onclick="markMOB()">🛟 MOB</button>
+    <button class="header-mob-btn" onclick="markMOB()"><svg class="mob-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#000"/><circle cx="12" cy="12" r="7" fill="none" stroke="#fff" stroke-width="4"/><circle cx="12" cy="12" r="7" fill="none" stroke="#e02525" stroke-width="4" stroke-dasharray="5.498 5.498" stroke-dashoffset="2.749"/></svg>MOB</button>
     <div class="header-time-stack">
       <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
       <button class="night-toggle-btn" id="night-toggle-btn" onclick="toggleNightMode()" title="Night mode (red display)">🌙<span class="night-label"> Night</span></button>
@@ -1608,7 +1614,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <span id="chart-status" class="sys-badge" style="display:none;color:#6b82a0;border-color:#334455;background:#0a0e1a">Loading…</span>
       <!-- Full Screen moved onto the map (top-left, .chart-map-tl) 2026-10-07; Chart/Streets + Light/Dark are now this one menu button. -->
       <!-- Only visible in chart Full Screen (the header and its MOB are hidden there). -->
-      <button class="header-mob-btn chart-fs-mob-btn" onclick="markMOB()">🛟 MOB</button>
+      <button class="header-mob-btn chart-fs-mob-btn" onclick="markMOB()"><svg class="mob-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#000"/><circle cx="12" cy="12" r="7" fill="none" stroke="#fff" stroke-width="4"/><circle cx="12" cy="12" r="7" fill="none" stroke="#e02525" stroke-width="4" stroke-dasharray="5.498 5.498" stroke-dashoffset="2.749"/></svg>MOB</button>
       <div class="chart-basemap">
         <button class="chart-map-btn" id="chart-basemap-btn" onclick="toggleChartBasemapMenu(event)" title="Base map">🗺️ <span id="chart-basemap-label">Chart · Light</span> ▾</button>
         <div class="chart-basemap-menu" id="chart-basemap-menu">
