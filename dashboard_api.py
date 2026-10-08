@@ -4517,6 +4517,474 @@ def system_disk_space():
     return jsonify(out)
 # ─── end Disk free space siloed addition ─────────────────────────────────────
 
+# ─── Plex movies (siloed addition, 2026-10-07) ───────────────────────────────
+# Media tab > Movies: a dashboard-style front end for the Plex Media Server on
+# this Pi. Everything goes through these routes so the Plex token
+# (PLEX_TOKEN in /etc/dashboard/secrets.env) never reaches the browser, and
+# the page stays same-origin (works over HTTPS / Cloudflare, and night mode's
+# red filter applies to the video too).
+#  - H.264 + AAC/MP3 in MP4 files play straight from the file (Range passthrough).
+#  - Anything else (MKV, AC3 audio) uses Plex's HLS "universal" transcoder with
+#    directStream: the video is copied, only audio is converted, so the Pi copes.
+# Playback progress is reported to Plex (/:/timeline), so resume points and
+# watched state stay in sync with other Plex apps.
+# To back out: delete this block and the matching Media-tab blocks in index.html.
+PLEX_URL = 'http://127.0.0.1:32400'
+_plex_cache = {'movies': None, 'at': 0, 'section': None}
+_plex_lock = threading.Lock()
+_PLEX_RK_RE = re.compile(r'^\d{1,10}$')
+_PLEX_CID_RE = re.compile(r'[^A-Za-z0-9_-]')
+
+def _plex_token():
+    try:
+        return get_secrets().get('PLEX_TOKEN', '')
+    except OSError:
+        return ''
+
+def _plex_headers(cid=None):
+    cid = _PLEX_CID_RE.sub('', cid or '')[:40]
+    return {
+        'X-Plex-Token': _plex_token(),
+        'X-Plex-Client-Identifier': 'exitstrategy-dashboard' + ('-' + cid if cid else ''),
+        'X-Plex-Product': 'Exit Strategy Dashboard',
+        'X-Plex-Platform': 'Chrome',
+        'X-Plex-Device': 'Web',
+        'X-Plex-Device-Name': 'Exit Strategy Dashboard',
+        'X-Plex-Version': '1.0',
+        'Accept': 'application/json',
+    }
+
+def _plex_get(path, params=None, cid=None, timeout=20, **kw):
+    return requests.get(PLEX_URL + path, params=params, headers=_plex_headers(cid), timeout=timeout, **kw)
+
+def _plex_movie_section():
+    if _plex_cache['section']:
+        return _plex_cache['section']
+    r = _plex_get('/library/sections')
+    r.raise_for_status()
+    for d in r.json()['MediaContainer'].get('Directory', []):
+        if d.get('type') == 'movie':
+            _plex_cache['section'] = d['key']
+            return d['key']
+    return None
+
+def _plex_direct_ok(media):
+    # Browsers play H.264 with AAC or MP3 in an MP4 container natively.
+    return (media.get('container') in ('mp4', 'm4v') and media.get('videoCodec') == 'h264'
+            and media.get('audioCodec') in ('aac', 'mp3'))
+
+def _plex_brief(m):
+    media = (m.get('Media') or [{}])[0]
+    return {
+        'id': m.get('ratingKey'), 'title': m.get('title'), 'year': m.get('year'),
+        'sortTitle': m.get('titleSort') or m.get('title'),
+        'duration': m.get('duration'), 'contentRating': m.get('contentRating'),
+        'rating': m.get('audienceRating') or m.get('rating'),
+        'summary': m.get('summary'), 'tagline': m.get('tagline'),
+        'genres': [g['tag'] for g in m.get('Genre', [])],
+        'directors': [g['tag'] for g in m.get('Director', [])],
+        'cast': [g['tag'] for g in m.get('Role', [])][:6],
+        'thumb': m.get('thumb'), 'art': m.get('art'),
+        'addedAt': m.get('addedAt'), 'viewOffset': m.get('viewOffset') or 0,
+        'viewCount': m.get('viewCount') or 0, 'lastViewedAt': m.get('lastViewedAt'),
+        'resolution': media.get('videoResolution'),
+        'direct': _plex_direct_ok(media),
+    }
+
+@app.route('/api/plex/status')
+def plex_status():
+    if not _plex_token():
+        return jsonify({'configured': False, 'reachable': False})
+    try:
+        r = _plex_get('/identity', timeout=5)
+        return jsonify({'configured': True, 'reachable': r.ok})
+    except requests.RequestException:
+        return jsonify({'configured': True, 'reachable': False})
+
+@app.route('/api/plex/movies')
+def plex_movies():
+    if not _plex_token():
+        return jsonify({'error': 'PLEX_TOKEN not set'}), 503
+    with _plex_lock:
+        fresh = request.args.get('refresh') != '1' and _plex_cache['movies'] is not None \
+            and time.time() - _plex_cache['at'] < 120
+        if not fresh:
+            try:
+                sec = _plex_movie_section()
+                r = _plex_get(f'/library/sections/{sec}/all', params={'type': 1}, timeout=60)
+                r.raise_for_status()
+                _plex_cache['movies'] = [_plex_brief(m) for m in r.json()['MediaContainer'].get('Metadata', [])]
+                # Plex's own Continue Watching list (honours "remove from continue watching").
+                try:
+                    cw = _plex_get('/hubs/continueWatching', timeout=15).json()['MediaContainer']
+                    cw_items = cw.get('Metadata') or [x for h in cw.get('Hub', []) for x in h.get('Metadata', [])]
+                    _plex_cache['continue'] = [x['ratingKey'] for x in cw_items if x.get('type') == 'movie']
+                except (requests.RequestException, ValueError, KeyError):
+                    _plex_cache['continue'] = [m['id'] for m in _plex_cache['movies'] if m['viewOffset']]
+                _plex_cache['at'] = time.time()
+            except (requests.RequestException, ValueError, KeyError) as e:
+                if _plex_cache['movies'] is None:
+                    return jsonify({'error': f'Plex unavailable: {e}'}), 502
+        return jsonify({'movies': _plex_cache['movies'], 'continue': _plex_cache.get('continue', [])})
+
+@app.route('/api/plex/movie/<rk>')
+def plex_movie(rk):
+    if not _PLEX_RK_RE.match(rk):
+        return jsonify({'error': 'bad id'}), 400
+    try:
+        r = _plex_get(f'/library/metadata/{rk}')
+        r.raise_for_status()
+        m = r.json()['MediaContainer']['Metadata'][0]
+    except (requests.RequestException, ValueError, KeyError, IndexError) as e:
+        return jsonify({'error': f'Plex unavailable: {e}'}), 502
+    d = _plex_brief(m)
+    d['cast'] = [g['tag'] for g in m.get('Role', [])][:12]
+    return jsonify(d)
+
+@app.route('/api/plex/image')
+def plex_image():
+    path = request.args.get('path', '')
+    if not path.startswith('/library/metadata/') or '..' in path:
+        return jsonify({'error': 'bad path'}), 400
+    try:
+        w = max(40, min(1920, int(request.args.get('w', 240))))
+        h = max(40, min(1080, int(request.args.get('h', 360))))
+    except ValueError:
+        return jsonify({'error': 'bad size'}), 400
+    try:
+        r = _plex_get('/photo/:/transcode', params={'url': path, 'width': w, 'height': h, 'minSize': 1, 'upscale': 1}, timeout=20)
+    except requests.RequestException:
+        return '', 502
+    if not r.ok:
+        return '', r.status_code
+    resp = Response(r.content, mimetype=r.headers.get('Content-Type', 'image/jpeg'))
+    resp.headers['Cache-Control'] = 'public, max-age=604800'
+    return resp
+
+@app.route('/api/plex/movie/<rk>/file')
+def plex_movie_file(rk):
+    # Direct play: stream the original file through, honouring Range for seeking.
+    if not _PLEX_RK_RE.match(rk):
+        return jsonify({'error': 'bad id'}), 400
+    try:
+        m = _plex_get(f'/library/metadata/{rk}').json()['MediaContainer']['Metadata'][0]
+        media = m['Media'][0]
+        part = media['Part'][0]['key']
+    except (requests.RequestException, ValueError, KeyError, IndexError):
+        return jsonify({'error': 'not found'}), 404
+    if not _plex_direct_ok(media):
+        return jsonify({'error': 'needs HLS'}), 409
+    hdrs = _plex_headers()
+    hdrs.pop('Accept', None)
+    if request.headers.get('Range'):
+        hdrs['Range'] = request.headers['Range']
+    try:
+        up = requests.get(PLEX_URL + part, headers=hdrs, stream=True, timeout=(10, 60))
+    except requests.RequestException:
+        return '', 502
+    out = {k: up.headers[k] for k in ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges') if k in up.headers}
+    out.setdefault('Accept-Ranges', 'bytes')
+    def gen():
+        try:
+            for chunk in up.iter_content(256 * 1024):
+                yield chunk
+        finally:
+            up.close()
+    return Response(gen(), status=up.status_code, headers=out, direct_passthrough=True)
+
+@app.route('/api/plex/hls/start.m3u8')
+def plex_hls_start():
+    rk = request.args.get('id', '')
+    session = _PLEX_CID_RE.sub('', request.args.get('session', ''))[:64]
+    if not _PLEX_RK_RE.match(rk) or not session:
+        return jsonify({'error': 'bad id/session'}), 400
+    q = {'path': f'/library/metadata/{rk}', 'mediaIndex': 0, 'partIndex': 0, 'protocol': 'hls',
+         'fastSeek': 1, 'directPlay': 0, 'directStream': 1, 'directStreamAudio': 0,
+         'videoQuality': 100, 'maxVideoBitrate': 20000, 'subtitles': 'none',
+         'session': session, 'X-Plex-Session-Identifier': session}
+    hdrs = _plex_headers(request.args.get('cid'))
+    hdrs.pop('Accept', None)   # Plex answers start.m3u8 with 400 when JSON is requested
+    try:
+        r = requests.get(PLEX_URL + '/video/:/transcode/universal/start.m3u8', params=q, headers=hdrs, timeout=30)
+    except requests.RequestException:
+        return '', 502
+    # The playlist's URIs are relative ("session/<id>/base/index.m3u8"), so they
+    # resolve to /api/plex/hls/session/... below.
+    return Response(r.content, status=r.status_code, mimetype='application/vnd.apple.mpegurl',
+                    headers={'Cache-Control': 'no-store'})
+
+@app.route('/api/plex/hls/session/<path:sub>')
+def plex_hls_session(sub):
+    if '..' in sub or not re.match(r'^[A-Za-z0-9_-]+/[A-Za-z0-9_./-]+$', sub):
+        return '', 400
+    hdrs = _plex_headers(request.args.get('cid'))
+    hdrs.pop('Accept', None)
+    try:
+        up = requests.get(f'{PLEX_URL}/video/:/transcode/universal/session/{sub}', headers=hdrs, stream=True, timeout=(10, 90))
+    except requests.RequestException:
+        return '', 502
+    ctype = up.headers.get('Content-Type') or ('application/vnd.apple.mpegurl' if sub.endswith('.m3u8') else 'video/MP2T')
+    def gen():
+        try:
+            for chunk in up.iter_content(256 * 1024):
+                yield chunk
+        finally:
+            up.close()
+    return Response(gen(), status=up.status_code, mimetype=ctype, headers={'Cache-Control': 'no-store'})
+
+@app.route('/api/plex/hls/stop', methods=['POST'])
+def plex_hls_stop():
+    d = request.get_json(silent=True) or {}
+    session = _PLEX_CID_RE.sub('', str(d.get('session', '')))[:64]
+    if session:
+        try:
+            _plex_get('/video/:/transcode/universal/stop', params={'session': session}, cid=d.get('cid'), timeout=10)
+        except requests.RequestException:
+            pass
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/plex/movie/<rk>/action', methods=['POST'])
+def plex_movie_action(rk):
+    # Movie context menu: remove from Continue Watching / mark watched / unwatched.
+    if not _PLEX_RK_RE.match(rk):
+        return jsonify({'error': 'bad id'}), 400
+    action = (request.get_json(silent=True) or {}).get('action')
+    try:
+        if action == 'remove_continue':
+            r = requests.put(PLEX_URL + '/actions/removeFromContinueWatching', params={'ratingKey': rk},
+                             headers=_plex_headers(), timeout=15)
+        elif action in ('watched', 'unwatched'):
+            r = _plex_get('/:/scrobble' if action == 'watched' else '/:/unscrobble',
+                          params={'key': rk, 'identifier': 'com.plexapp.plugins.library'}, timeout=15)
+        else:
+            return jsonify({'error': 'unknown action'}), 400
+    except requests.RequestException:
+        return jsonify({'error': 'Plex unavailable'}), 502
+    if not r.ok:
+        return jsonify({'error': f'Plex said {r.status_code}'}), 502
+    with _plex_lock:
+        _plex_cache['at'] = 0
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/plex/timeline', methods=['POST'])
+def plex_timeline():
+    # Progress report -> Plex keeps the resume point / watched state.
+    d = request.get_json(silent=True) or {}
+    rk = str(d.get('id', ''))
+    state = d.get('state')
+    if not _PLEX_RK_RE.match(rk) or state not in ('playing', 'paused', 'stopped'):
+        return jsonify({'error': 'bad id/state'}), 400
+    try:
+        t_ms = int(float(d.get('time', 0)) * 1000)
+        dur_ms = int(float(d.get('duration', 0)) * 1000)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'bad time'}), 400
+    params = {'ratingKey': rk, 'key': f'/library/metadata/{rk}', 'state': state,
+              'time': t_ms, 'duration': dur_ms}
+    if d.get('session'):
+        params['X-Plex-Session-Identifier'] = _PLEX_CID_RE.sub('', str(d['session']))[:64]
+    try:
+        _plex_get('/:/timeline', params=params, cid=d.get('cid'), timeout=10)
+        if dur_ms and t_ms >= 0.95 * dur_ms and state == 'stopped':
+            _plex_get('/:/scrobble', params={'key': rk, 'identifier': 'com.plexapp.plugins.library'}, cid=d.get('cid'), timeout=10)
+    except requests.RequestException:
+        return jsonify({'error': 'Plex unavailable'}), 502
+    with _plex_lock:
+        _plex_cache['at'] = 0   # resume points changed; refetch the list next time
+    return jsonify({'status': 'ok'})
+# ─── end Plex movies siloed addition ─────────────────────────────────────────
+
+# ─── Plex Live TV (siloed addition, 2026-10-07) ──────────────────────────────
+# Media tab > Live TV: Plex's free channels (epg.provider.plex.tv, ~690 FAST
+# channels, no DRM). That service puts the account token into its playlist
+# URLs, so the master/variant playlists come through here with the token
+# swapped for /api/plex/live/pl?u=... links; the video segments themselves are
+# on the broadcasters' CDNs (CORS *, no token) and load straight into the
+# browser, so the Pi only relays small text files. Uses boat internet data.
+# The guide is per channel per day only, so it's fetched on demand and cached.
+# To back out: delete this block and the Live TV parts of the Media-tab blocks.
+import base64
+PLEX_EPG = 'https://epg.provider.plex.tv'
+_plexlive = {'channels': None, 'parts': {}, 'at': 0}
+_plexlive_guide = {}   # (gridKey, date) -> (fetched_at, [programs])
+_plexlive_lock = threading.Lock()
+_PLEXLIVE_ID_RE = re.compile(r'^[A-Za-z0-9-]{8,80}$')
+
+def _plexlive_headers(json_accept=True):
+    h = _plex_headers()
+    if not json_accept:
+        h.pop('Accept', None)
+    return h
+
+def _plexlive_load_channels(force=False):
+    with _plexlive_lock:
+        if not force and _plexlive['channels'] is not None and time.time() - _plexlive['at'] < 6 * 3600:
+            return _plexlive['channels']
+        r = requests.get(PLEX_EPG + '/lineups/plex/channels', headers=_plexlive_headers(), timeout=30)
+        r.raise_for_status()
+        chans, parts = [], {}
+        for c in r.json()['MediaContainer'].get('Channel', []):
+            if c.get('hidden') or c.get('language') != 'en':
+                continue          # English channels only (user asked to drop Spanish etc.)
+            try:
+                part = c['Media'][0]['Part'][0]['key']
+            except (KeyError, IndexError):
+                continue
+            parts[c['id']] = part
+            chans.append({'id': c['id'], 'title': c.get('title'), 'thumb': c.get('thumb'),
+                          'summary': c.get('summary'), 'lang': c.get('language'),
+                          'hd': bool(c.get('isHd')), 'grid': c.get('gridKey')})
+        chans.sort(key=lambda c: (c['title'] or '').lower())
+        _plexlive.update(channels=chans, parts=parts, at=time.time())
+        return chans
+
+def _plexlive_pl_url(abs_url):
+    # epg.provider.plex.tv URL -> our relay link, token removed.
+    # Plex spells it x-plex-token here (lower case) -- match any case.
+    u = re.sub(r'([?&])x-plex-token=[^&]*&?', r'\1', abs_url, flags=re.I).rstrip('?&')
+    return '/api/plex/live/pl?u=' + base64.urlsafe_b64encode(u.encode()).decode().rstrip('=')
+
+def _plexlive_rewrite(text, base_url):
+    token = _plex_token()
+    def fix(uri):
+        absu = requests.compat.urljoin(base_url, uri.strip())
+        host = re.sub(r'^https?://([^/]+).*', r'\1', absu)
+        return _plexlive_pl_url(absu) if host == 'epg.provider.plex.tv' else absu
+    out = []
+    for line in text.splitlines():
+        if line and not line.startswith('#'):
+            line = fix(line)
+        elif 'URI="' in line:
+            line = re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + fix(m.group(1)) + '"', line)
+        out.append(line)
+    body = '\n'.join(out) + '\n'
+    if token and token in body:          # belt and braces: never hand the token to a browser
+        body = body.replace(token, '')
+    return body
+
+def _plexlive_add_token(url):
+    # Relay links carry no token; put it back only on the server-side request.
+    sep = '&' if '?' in url else '?'
+    return url + sep + 'X-Plex-Token=' + _plex_token()
+
+def _plexlive_fetch_playlist(url):
+    try:
+        r = requests.get(url, headers=_plexlive_headers(json_accept=False), timeout=20)
+    except requests.RequestException:
+        return Response('upstream unavailable', status=502)
+    if not r.ok:
+        return Response('', status=r.status_code)
+    return Response(_plexlive_rewrite(r.text, r.url), mimetype='application/vnd.apple.mpegurl',
+                    headers={'Cache-Control': 'no-store'})
+
+_plexlive_net = {'t': 0, 'v': (None, None)}
+
+def _plexlive_uplink():
+    # (on_starlink, label). The boat's Starlink is the router's Ethernet WAN, so
+    # Live TV is off whenever that is the active uplink (user asked: no live TV
+    # streaming on Starlink). Uses the router status (itself cached) at most
+    # every 20 s, since stream playlists refresh every few seconds. Unknown -> allowed.
+    if time.time() - _plexlive_net['t'] < 20:
+        return _plexlive_net['v']
+    try:
+        st = router_status().get_json() or {}
+        v = (st.get('active') == 'wan', st.get('active_label')) if st.get('ok') else (None, None)
+    except Exception:
+        v = (None, None)
+    _plexlive_net.update(t=time.time(), v=v)
+    return v
+
+def _plexlive_blocked():
+    on_sl, _ = _plexlive_uplink()
+    if on_sl:
+        return Response('Live TV is off while the boat is on Starlink', status=403, mimetype='text/plain')
+    return None
+
+@app.route('/api/plex/live/netcheck')
+def plexlive_netcheck():
+    on_sl, label = _plexlive_uplink()
+    return jsonify({'starlink': bool(on_sl), 'uplink': label, 'known': on_sl is not None})
+
+@app.route('/api/plex/live/channels')
+def plexlive_channels():
+    if not _plex_token():
+        return jsonify({'error': 'PLEX_TOKEN not set'}), 503
+    try:
+        return jsonify({'channels': _plexlive_load_channels(request.args.get('refresh') == '1')})
+    except (requests.RequestException, ValueError, KeyError) as e:
+        return jsonify({'error': f'Plex Live TV unavailable (needs internet): {e}'}), 502
+
+@app.route('/api/plex/live/<cid>/index.m3u8')
+def plexlive_master(cid):
+    if not _PLEXLIVE_ID_RE.match(cid):
+        return '', 400
+    blocked = _plexlive_blocked()
+    if blocked:
+        return blocked
+    try:
+        _plexlive_load_channels()
+    except (requests.RequestException, ValueError, KeyError):
+        return '', 502
+    part = _plexlive['parts'].get(cid)
+    if not part:
+        return '', 404
+    return _plexlive_fetch_playlist(PLEX_EPG + part)
+
+@app.route('/api/plex/live/pl')
+def plexlive_playlist():
+    enc = request.args.get('u', '')
+    try:
+        url = base64.urlsafe_b64decode(enc + '=' * (-len(enc) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return '', 400
+    if not url.startswith(PLEX_EPG + '/'):
+        return '', 400            # only relay Plex's own playlist host
+    blocked = _plexlive_blocked()  # also stops a stream already playing (its playlist refreshes)
+    if blocked:
+        return blocked
+    return _plexlive_fetch_playlist(_plexlive_add_token(url))
+
+@app.route('/api/plex/live/guide/<grid>')
+def plexlive_guide(grid):
+    # Programmes from now on for one channel (today + tomorrow, local dates).
+    if not re.match(r'^[A-Za-z0-9]{6,40}$', grid):
+        return jsonify({'error': 'bad channel'}), 400
+    now = time.time()
+    progs = []
+    for day in (datetime.now(), datetime.now() + timedelta(days=1)):
+        key = (grid, day.strftime('%Y-%m-%d'))
+        with _plexlive_lock:
+            hit = _plexlive_guide.get(key)
+        if hit and now - hit[0] < 1800:
+            items = hit[1]
+        else:
+            try:
+                r = requests.get(PLEX_EPG + '/grid', params={'channelGridKey': grid, 'date': key[1]},
+                                 headers=_plexlive_headers(), timeout=20)
+                r.raise_for_status()
+                items = []
+                for x in r.json()['MediaContainer'].get('Metadata', []):
+                    for m in x.get('Media', []):
+                        items.append({'title': x.get('title'), 'show': x.get('grandparentTitle'),
+                                      'type': x.get('type'), 'summary': (x.get('summary') or '')[:400],
+                                      'begins': m.get('beginsAt'), 'ends': m.get('endsAt')})
+            except (requests.RequestException, ValueError, KeyError):
+                items = []
+            with _plexlive_lock:
+                _plexlive_guide[key] = (now, items)
+                if len(_plexlive_guide) > 3000:          # keep the cache bounded
+                    for k in sorted(_plexlive_guide, key=lambda k: _plexlive_guide[k][0])[:1000]:
+                        _plexlive_guide.pop(k, None)
+        progs.extend(items)
+    seen, out = set(), []
+    for pgm in sorted(progs, key=lambda p: p['begins'] or 0):
+        if (pgm['ends'] or 0) <= now or (pgm['begins'], pgm['title']) in seen:
+            continue
+        seen.add((pgm['begins'], pgm['title']))
+        out.append(pgm)
+    return jsonify({'programs': out[:16]})
+# ─── end Plex Live TV siloed addition ────────────────────────────────────────
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})

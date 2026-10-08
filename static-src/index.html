@@ -2183,8 +2183,183 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
 <script>var _mediaBootHash = location.hash;  // showPage() rewrites the hash during boot; capture it first</script>
 <div class="page" id="page-media">
   <div class="section"><span>Media</span></div>
+  <!-- Radio / Movies / Live TV switch (Plex, siloed addition 2026-10-07). The radio
+       iframe only hides, so music keeps playing while browsing movies. -->
+  <div class="wc-modes media-modes" id="media-modes">
+    <button class="wc-btn active" id="media-mode-radio" onclick="mediaSetMode('radio')">📻 Radio</button>
+    <button class="wc-btn" id="media-mode-movies" onclick="mediaSetMode('movies')">🎬 Movies</button>
+    <button class="wc-btn" id="media-mode-livetv" onclick="mediaSetMode('livetv')">📺 Live TV</button>
+  </div>
   <div class="media-embed-wrap" id="media-embed-wrap"></div>
+  <div class="plex-panel" id="plex-movies" hidden>
+    <div class="plex-toolbar">
+      <input type="search" id="plex-search" placeholder="Search titles, actors, directors…" autocomplete="off">
+      <select id="plex-genre"><option value="">All genres</option></select>
+      <select id="plex-sort">
+        <option value="title">Title A–Z</option>
+        <option value="added">Recently added</option>
+        <option value="year">Newest first</option>
+        <option value="rating">Highest rated</option>
+      </select>
+      <span class="plex-count" id="plex-count"></span>
+    </div>
+    <div id="plex-continue-wrap" hidden>
+      <div class="plex-row-label">Continue watching</div>
+      <div class="plex-continue" id="plex-continue"></div>
+    </div>
+    <div class="plex-grid" id="plex-grid"><div class="media-msg">Loading movies…</div></div>
+  </div>
+  <div class="plex-panel" id="plex-livetv" hidden>
+    <div class="live-layout" id="live-layout">
+      <!-- Search + favourites sit in the channel panel, so the preview gets the full height. -->
+      <div class="live-side">
+        <div class="live-side-tools">
+          <input type="search" id="live-search" placeholder="Search channels…" autocomplete="off">
+          <div class="live-side-row">
+            <label class="plex-check"><input type="checkbox" id="live-favs"> ★ Favorites</label>
+            <span class="plex-count" id="live-count"></span>
+          </div>
+        </div>
+        <div class="live-list" id="live-list"><div class="media-msg">Loading channels…</div></div>
+      </div>
+      <div class="live-stage">
+        <div class="live-video-wrap">
+          <video id="live-video" controls playsinline></video>
+          <div class="plex-player-msg" id="live-msg">Pick a channel<br><span style="font-size:12px;color:#6b82a0">Free Plex channels stream over the internet (about 1–3 GB per hour)</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
+<!-- Plex details pop-up and player: direct children of <body> so they position
+     against the window (night mode's Firefox filter sits on page blocks). -->
+<div class="plex-overlay" id="plex-detail" hidden onclick="if (event.target === this) plexCloseDetail()">
+  <div class="plex-detail-box" id="plex-detail-box"></div>
+</div>
+<!-- Movie context menu (right-click / long-press a poster). -->
+<div class="plex-menu" id="plex-menu" hidden></div>
+<!-- Live TV schedule pop-up (now + up next for the selected channel). -->
+<div class="plex-overlay" id="live-info-pop" hidden onclick="if (event.target === this) liveCloseInfo()">
+  <div class="plex-detail-box live-info-box">
+    <button class="plex-close-x" onclick="liveCloseInfo()" title="Close">✕</button>
+    <div class="live-info" id="live-info"></div>
+  </div>
+</div>
+<div class="plex-player" id="plex-player" hidden>
+  <div class="plex-player-bar">
+    <span class="plex-player-title" id="plex-player-title"></span>
+    <button class="wc-btn" onclick="plexClosePlayer()">✕ Close</button>
+  </div>
+  <video id="plex-video" controls playsinline></video>
+  <div class="plex-player-msg" id="plex-player-msg"></div>
+</div>
+<style>
+/* ─── Plex movies (siloed addition, 2026-10-07) ─── */
+.plex-panel[hidden],.plex-overlay[hidden],.plex-player[hidden],#plex-continue-wrap[hidden]{display:none!important}
+.plex-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.plex-toolbar input[type=search],.plex-toolbar select{background:#0f1628;border:1px solid #1e2d4a;color:#e0e6f0;border-radius:8px;padding:7px 10px;font-size:13px;color-scheme:dark}
+.plex-toolbar input[type=search]{flex:1 1 220px;min-width:160px}
+.plex-check{display:flex;align-items:center;gap:6px;font-size:13px;color:#8fa3bd;cursor:pointer;user-select:none}
+.plex-check input{accent-color:#4a9fd4}
+.plex-count{margin-left:auto;font-size:12px;color:#6b82a0}
+.plex-row-label{font-size:10px;color:#6b82a0;text-transform:uppercase;letter-spacing:.06em;margin:4px 0 8px}
+.plex-continue{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;margin-bottom:12px}
+.plex-continue .plex-card{flex:0 0 130px}
+.plex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px}
+.plex-card{cursor:pointer;min-width:0}
+.plex-poster{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;background:#0f1628;border:1px solid #1e2d4a;transition:transform .12s,border-color .12s}
+.plex-card:hover .plex-poster{transform:translateY(-2px);border-color:#4a9fd4}
+.plex-poster img{width:100%;height:100%;object-fit:cover;display:block}
+.plex-poster .plex-noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:8px;text-align:center;font-size:12px;color:#6b82a0}
+.plex-watched{position:absolute;top:6px;right:6px;background:#3db87a;color:#05140c;border-radius:50%;width:20px;height:20px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.plex-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.6)}
+.plex-progress span{display:block;height:100%;background:#e8a030}
+.plex-card-title{font-size:12px;color:#c9d4e0;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plex-card-year{font-size:11px;color:#6b82a0}
+.plex-menu{position:fixed;z-index:6500;min-width:220px;background:#0f1628;border:1px solid #2a3a5a;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.6);padding:4px;zoom:var(--ui,1)}
+.plex-menu[hidden]{display:none}
+.plex-menu-title{font-size:11px;color:#6b82a0;padding:6px 10px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.plex-menu button{display:block;width:100%;text-align:left;background:none;border:0;color:#e0e6f0;font-size:13px;padding:8px 10px;border-radius:6px;cursor:pointer}
+.plex-menu button:hover{background:#12203a;color:#4a9fd4}
+.plex-card{-webkit-touch-callout:none}
+.plex-overlay{position:fixed;inset:0;z-index:6000;background:rgba(3,6,14,.8);display:flex;align-items:center;justify-content:center;padding:16px}
+.plex-detail-box{position:relative;width:min(900px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#0f1628;border:1px solid #1e2d4a;border-radius:12px;zoom:var(--ui,1)}
+.plex-detail-hero{position:relative;padding:20px;display:flex;gap:20px;background-size:cover;background-position:center}
+.plex-detail-hero::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(15,22,40,.97) 30%,rgba(15,22,40,.8))}
+.plex-detail-hero > *{position:relative}
+.plex-detail-poster{flex:0 0 180px;aspect-ratio:2/3;border-radius:8px;overflow:hidden;background:#0a0e1a;border:1px solid #1e2d4a}
+.plex-detail-poster img{width:100%;height:100%;object-fit:cover}
+.plex-detail-info{flex:1;min-width:0}
+.plex-detail-info h2{font-size:22px;font-weight:600;color:#e0e6f0;margin-bottom:4px}
+.plex-meta{font-size:13px;color:#8fa3bd;margin-bottom:8px}
+.plex-meta b{color:#c9d4e0;font-weight:500}
+.plex-tagline{font-style:italic;color:#a0b0c0;font-size:13px;margin-bottom:8px}
+.plex-summary{font-size:14px;line-height:1.55;color:#c9d4e0;margin:10px 0}
+.plex-people{font-size:12px;color:#8fa3bd;line-height:1.6}
+.plex-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.plex-play-btn{background:#4a9fd4;color:#05101c;border:0;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer}
+.plex-play-btn:hover{filter:brightness(1.15)}
+.plex-close-x{position:absolute;top:10px;right:10px;z-index:2;background:rgba(10,14,26,.8);border:1px solid #1e2d4a;color:#c9d4e0;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:16px}
+.plex-player{position:fixed;inset:0;z-index:7000;background:#000;display:flex;flex-direction:column}
+.plex-player-bar{display:flex;align-items:center;gap:12px;padding:8px 12px;background:#0a0e1a}
+.plex-player-title{flex:1;min-width:0;color:#e0e6f0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plex-player video{flex:1;min-height:0;width:100%;background:#000}
+.plex-player-msg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#c9d4e0;font-size:14px;pointer-events:none;text-align:center}
+/* Live TV */
+.live-layout{display:grid;grid-template-columns:minmax(240px,25%) minmax(0,1fr);gap:14px;height:max(460px,calc(100vh - 290px))}
+.live-side{display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+.live-side-tools{display:flex;flex-direction:column;gap:6px}
+.live-side-tools input[type=search]{width:100%;background:#0f1628;border:1px solid #1e2d4a;color:#e0e6f0;border-radius:8px;padding:6px 10px;font-size:13px;color-scheme:dark}
+.live-side-row{display:flex;align-items:center;gap:8px}
+.live-side-row .plex-check{font-size:12px}
+.live-list{flex:1 1 auto;min-height:0;overflow-y:auto;border:1px solid #1e2d4a;border-radius:10px;background:#0a0e1a}
+/* Channel panel (left, ~25%): logo | name + current show + progress | ★.
+   The right side is a large preview of the selected channel (user's layout, 2026-10-07). */
+.live-row{display:grid;grid-template-columns:48px minmax(0,1fr) 24px 24px;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #131c30;cursor:pointer}
+.live-cell{min-width:0}
+.live-cell-title{font-size:12px;color:#8fa3bd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.live-row .live-bar{height:3px;margin:4px 0 0}
+.live-empty{font-size:11px;color:#445566}
+.live-row:hover{background:#0f1628}
+.live-row.active{background:#12203a;box-shadow:inset 3px 0 0 #4a9fd4}
+.live-logo{flex:0 0 48px;height:28px;display:flex;align-items:center;justify-content:center;background:#0f1628;border-radius:6px;overflow:hidden}
+.live-logo img{max-width:100%;max-height:100%;object-fit:contain}
+.live-row-title{font-size:13px;color:#e0e6f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live-fav{background:none;border:0;color:#445566;font-size:16px;cursor:pointer;padding:2px 4px}
+.live-fav.on{color:#e8a030}
+.live-stage{display:flex;flex-direction:column;min-width:0;min-height:0;gap:10px}
+/* Preview fills the right column; schedule is a pop-up (user asked, 2026-10-07). */
+.live-video-wrap{position:relative;background:#000;border-radius:10px;overflow:hidden;flex:1 1 auto;min-height:0}
+.live-sched{background:none;border:0;cursor:pointer;font-size:15px;padding:2px;opacity:.75}
+.live-sched:hover{opacity:1}
+.live-info-box{width:min(560px,100%);padding:18px 20px}
+.live-info-box .live-info{background:none;border:0;padding:0;overflow:visible}
+.live-video-wrap video{width:100%;height:100%;display:block;background:#000}
+.live-info{flex:1;min-height:0;overflow-y:auto;background:#0f1628;border:1px solid #1e2d4a;border-radius:10px;padding:12px 14px}
+.live-note{font-size:12px;color:#6b82a0}
+.live-info h3{font-size:16px;color:#e0e6f0;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:10px}
+.live-info h3 img{height:24px;max-width:70px;object-fit:contain}
+.live-now-title{font-size:14px;color:#c9d4e0;font-weight:500}
+.live-time{font-size:11px;color:#6b82a0;font-variant-numeric:tabular-nums}
+.live-bar{height:4px;background:#1e2d4a;border-radius:2px;margin:6px 0 8px;overflow:hidden}
+.live-bar span{display:block;height:100%;background:#4a9fd4}
+.live-sum{font-size:13px;color:#a0b0c0;line-height:1.5;margin-bottom:10px}
+.live-next{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;color:#a0b0c0}
+.live-next .live-time{padding-top:1px}
+@media (max-width:820px){
+  .live-layout{grid-template-columns:1fr;height:auto}
+  .live-stage{order:-1}
+  .live-list{flex:none}
+  .live-video-wrap{flex:none;aspect-ratio:16/9}
+  .live-list{max-height:60vh}
+}
+@media (max-width:600px){
+  .plex-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px}
+  .plex-detail-hero{flex-direction:column;align-items:center;text-align:center}
+  .plex-detail-poster{flex-basis:auto;width:140px}
+  .plex-actions{justify-content:center}
+}
+</style>
 <!-- ══════════════════ end Media (Boat Radio) page ══════════════════ -->
 
 <!-- ══════════════════ Webcams page — siloed addition ══════════════════ -->
@@ -12208,6 +12383,576 @@ showPage = function (page) { _showPageBeforeDiskFree(page); if (page === 'mqtt')
 updateDiskFree();
 setInterval(ifVisible(updateDiskFree), 60000);
 // ─── end Disk free space siloed addition ─────────────────────────────────────
+
+// ─── Plex movies on the Media tab (siloed addition, 2026-10-07) ─────────────
+// Radio / Movies / Live TV switch, a poster grid with search / genre / sort,
+// a details pop-up and a full-window player. Data and video come through the
+// /api/plex/* routes (the server holds the Plex token). MP4 H.264/AAC files
+// play directly; others use Plex's HLS (video copied, audio converted) via
+// hls.js. Progress goes back to Plex so resume / watched stay in sync.
+// To back out: delete this block, the Media-tab markup/style additions and
+// the Plex block in dashboard_api.py.
+var plexMovies = null, plexLoading = false, plexPlay = null, plexContinueIds = [];
+const plexCid = (() => {
+  try {
+    let c = localStorage.getItem('plexCid');
+    if (!c) { c = Math.random().toString(36).slice(2, 12); localStorage.setItem('plexCid', c); }
+    return c;
+  } catch (e) { return 'anon'; }
+})();
+const plexEsc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const plexImg = (path, w, h) => path ? `/api/plex/image?path=${encodeURIComponent(path)}&w=${w}&h=${h}` : '';
+function plexRuntime(ms) {
+  if (!ms) return '';
+  const m = Math.round(ms / 60000);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+function plexClock(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+
+function mediaSetMode(mode) {
+  if (!['radio', 'movies', 'livetv'].includes(mode)) mode = 'radio';
+  ['radio', 'movies', 'livetv'].forEach(m => {
+    const b = document.getElementById('media-mode-' + m);
+    if (b) b.classList.toggle('active', m === mode);
+  });
+  document.getElementById('media-embed-wrap').style.display = mode === 'radio' ? '' : 'none';
+  document.getElementById('plex-movies').hidden = mode !== 'movies';
+  document.getElementById('plex-livetv').hidden = mode !== 'livetv';
+  try { localStorage.setItem('mediaMode', mode); } catch (e) {}
+  if (mode === 'radio') mediaFit();
+  if (mode === 'movies' && !plexMovies) plexLoadMovies();
+  if (mode !== 'livetv' && typeof liveStop === 'function') liveStop();
+  if (mode === 'livetv' && typeof liveOpen === 'function') liveOpen();
+}
+
+async function plexLoadMovies(refresh) {
+  if (plexLoading) return;
+  plexLoading = true;
+  const grid = document.getElementById('plex-grid');
+  try {
+    const res = await fetch('/api/plex/movies' + (refresh ? '?refresh=1' : ''));
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.status);
+    plexMovies = d.movies;
+    plexContinueIds = d.continue || [];
+    const genres = [...new Set(plexMovies.flatMap(m => m.genres))].sort();
+    const sel = document.getElementById('plex-genre');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All genres</option>' + genres.map(g => `<option>${plexEsc(g)}</option>`).join('');
+    sel.value = cur;
+    plexRender();
+  } catch (e) {
+    if (!plexMovies) grid.innerHTML = `<div class="media-msg">Couldn't load movies from Plex (${plexEsc(e.message)}).<br>Check that Plex Media Server is running, then open this tab again.</div>`;
+  } finally {
+    plexLoading = false;
+  }
+}
+
+function plexCardHtml(m) {
+  const pct = m.viewOffset && m.duration ? Math.min(100, 100 * m.viewOffset / m.duration) : 0;
+  return `<div class="plex-card" data-id="${m.id}" onclick="plexOpenDetail('${m.id}')" title="${plexEsc(m.title)}${m.year ? ' (' + m.year + ')' : ''}">
+    <div class="plex-poster">
+      ${m.thumb ? `<img loading="lazy" alt="" src="${plexImg(m.thumb, 240, 360)}">` : `<div class="plex-noimg">${plexEsc(m.title)}</div>`}
+      ${m.viewCount && !pct ? '<span class="plex-watched" title="Watched">✓</span>' : ''}
+      ${pct ? `<div class="plex-progress"><span style="width:${pct.toFixed(1)}%"></span></div>` : ''}
+    </div>
+    <div class="plex-card-title">${plexEsc(m.title)}</div>
+    <div class="plex-card-year">${m.year || ''}</div>
+  </div>`;
+}
+
+function plexRender() {
+  if (!plexMovies) return;
+  const q = document.getElementById('plex-search').value.trim().toLowerCase();
+  const genre = document.getElementById('plex-genre').value;
+  const sort = document.getElementById('plex-sort').value;
+  let list = plexMovies.filter(m =>
+    (!genre || m.genres.includes(genre)) &&
+    (!q || [m.title, ...m.cast, ...m.directors].some(t => t && t.toLowerCase().includes(q))));
+  const byTitle = (a, b) => (a.sortTitle || '').localeCompare(b.sortTitle || '', undefined, { sensitivity: 'base', numeric: true });
+  const cmp = {
+    title: byTitle,
+    added: (a, b) => (b.addedAt || 0) - (a.addedAt || 0),
+    year: (a, b) => (b.year || 0) - (a.year || 0) || byTitle(a, b),
+    rating: (a, b) => (b.rating || 0) - (a.rating || 0) || byTitle(a, b),
+  }[sort] || byTitle;
+  list.sort(cmp);
+  document.getElementById('plex-count').textContent = `${list.length} of ${plexMovies.length} movies`;
+  document.getElementById('plex-grid').innerHTML = list.length ? list.map(plexCardHtml).join('')
+    : '<div class="media-msg">No movies match.</div>';
+  const cont = plexContinueIds.map(id => plexMovies.find(m => m.id === id)).filter(Boolean);   // Plex's own list
+  document.getElementById('plex-continue-wrap').hidden = !cont.length || !!q;
+  document.getElementById('plex-continue').innerHTML = cont.map(plexCardHtml).join('');
+}
+
+async function plexOpenDetail(id) {
+  const box = document.getElementById('plex-detail-box');
+  const base = (plexMovies || []).find(m => m.id === id) || { id, title: '…' };
+  const render = m => {
+    const meta = [m.year, plexRuntime(m.duration), m.contentRating, m.rating ? `★ ${Number(m.rating).toFixed(1)}` : '',
+                  m.resolution ? (/^\d+$/.test(m.resolution) ? m.resolution + 'p' : m.resolution.toUpperCase()) : ''].filter(Boolean);
+    const resume = m.viewOffset > 60000 && m.duration && m.viewOffset < m.duration * 0.95;
+    box.innerHTML = `
+      <button class="plex-close-x" onclick="plexCloseDetail()" title="Close">✕</button>
+      <div class="plex-detail-hero" style="${m.art ? `background-image:url('${plexImg(m.art, 1280, 720)}')` : ''}">
+        <div class="plex-detail-poster">${m.thumb ? `<img alt="" src="${plexImg(m.thumb, 360, 540)}">` : ''}</div>
+        <div class="plex-detail-info">
+          <h2>${plexEsc(m.title)}</h2>
+          <div class="plex-meta">${meta.map(plexEsc).join(' · ')}${m.viewCount ? ' · <b>Watched</b>' : ''}</div>
+          ${m.genres && m.genres.length ? `<div class="plex-meta">${m.genres.map(plexEsc).join(', ')}</div>` : ''}
+          ${m.tagline ? `<div class="plex-tagline">${plexEsc(m.tagline)}</div>` : ''}
+          <div class="plex-summary">${plexEsc(m.summary || '')}</div>
+          <div class="plex-people">
+            ${m.directors && m.directors.length ? `<div><b>Director:</b> ${m.directors.map(plexEsc).join(', ')}</div>` : ''}
+            ${m.cast && m.cast.length ? `<div><b>Cast:</b> ${m.cast.map(plexEsc).join(', ')}</div>` : ''}
+          </div>
+          <div class="plex-actions">
+            ${resume ? `<button class="plex-play-btn" onclick="plexStart('${m.id}', ${m.viewOffset / 1000})">▶ Resume from ${plexClock(m.viewOffset / 1000)}</button>
+                        <button class="wc-btn" onclick="plexStart('${m.id}', 0)">Play from start</button>`
+                     : `<button class="plex-play-btn" onclick="plexStart('${m.id}', 0)">▶ Play</button>`}
+          </div>
+        </div>
+      </div>`;
+  };
+  render(base);
+  document.getElementById('plex-detail').hidden = false;
+  try {
+    const res = await fetch('/api/plex/movie/' + encodeURIComponent(id));
+    if (res.ok && !document.getElementById('plex-detail').hidden) render(await res.json());
+  } catch (e) { /* keep the list's copy */ }
+}
+function plexCloseDetail() { document.getElementById('plex-detail').hidden = true; }
+
+function plexReport(state) {
+  const p = plexPlay, v = document.getElementById('plex-video');
+  if (!p || !v || !isFinite(v.duration)) return;
+  const body = JSON.stringify({ id: p.id, state, time: v.currentTime, duration: v.duration, cid: plexCid, session: p.session });
+  if (state === 'stopped' && navigator.sendBeacon) {
+    navigator.sendBeacon('/api/plex/timeline', new Blob([body], { type: 'application/json' }));
+  } else {
+    fetch('/api/plex/timeline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+  }
+}
+
+async function plexStart(id, startAt) {
+  const m = (plexMovies || []).find(x => x.id === id) || {};
+  if (typeof liveStop === 'function') liveStop();
+  plexCloseDetail();
+  plexClosePlayer(true);
+  const v = document.getElementById('plex-video');
+  const msg = document.getElementById('plex-player-msg');
+  document.getElementById('plex-player-title').textContent = m.title ? `${m.title}${m.year ? ' (' + m.year + ')' : ''}` : '';
+  document.getElementById('plex-player').hidden = false;
+  msg.textContent = 'Loading…';
+  const session = 'dash' + Math.random().toString(36).slice(2, 12);
+  plexPlay = { id, session, hls: null, timer: null, direct: !!m.direct };
+  const onReady = () => { msg.textContent = ''; };
+  v.addEventListener('playing', onReady, { once: true });
+  v.onerror = () => { msg.textContent = 'This movie could not be played.'; };
+  if (m.direct) {
+    v.src = '/api/plex/movie/' + encodeURIComponent(id) + '/file';
+    if (startAt) v.addEventListener('loadedmetadata', () => { v.currentTime = startAt; }, { once: true });
+  } else {
+    const url = `/api/plex/hls/start.m3u8?id=${encodeURIComponent(id)}&session=${session}&cid=${plexCid}`;
+    try { await webcamLoadHls(); } catch (e) {}
+    if (window.Hls && Hls.isSupported()) {
+      const hls = new Hls({ startPosition: startAt || 0, maxBufferLength: 30 });
+      plexPlay.hls = hls;
+      hls.on(Hls.Events.ERROR, (ev, data) => { if (data.fatal) msg.textContent = 'Playback error (' + data.details + ').'; });
+      hls.loadSource(url);
+      hls.attachMedia(v);
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = url;
+      if (startAt) v.addEventListener('loadedmetadata', () => { v.currentTime = startAt; }, { once: true });
+    } else {
+      msg.textContent = "This browser can't play this movie.";
+      return;
+    }
+  }
+  v.play().catch(() => { msg.textContent = 'Tap ▶ to start.'; });
+  v.onpause = () => { if (!v.ended && plexPlay) plexReport('paused'); };
+  v.onended = () => { plexReport('stopped'); };
+  plexPlay.timer = setInterval(() => { if (!v.paused) plexReport('playing'); }, 10000);
+}
+
+function plexClosePlayer(silent) {
+  const p = plexPlay, v = document.getElementById('plex-video');
+  if (p) {
+    plexReport('stopped');
+    clearInterval(p.timer);
+    if (p.hls) p.hls.destroy();
+    if (!p.direct) fetch('/api/plex/hls/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                 body: JSON.stringify({ session: p.session, cid: plexCid }) }).catch(() => {});
+    plexPlay = null;
+  }
+  v.onpause = v.onended = v.onerror = null;
+  v.pause();
+  v.removeAttribute('src');
+  v.load();
+  document.getElementById('plex-player').hidden = true;
+  if (!silent && plexMovies) setTimeout(() => plexLoadMovies(true), 800);   // refresh resume points
+}
+
+['plex-search', 'plex-genre', 'plex-sort'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener(id === 'plex-search' ? 'input' : 'change', plexRender);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('plex-player').hidden) plexClosePlayer();
+  else if (!document.getElementById('plex-detail').hidden) plexCloseDetail();
+});
+addEventListener('pagehide', () => { if (plexPlay) plexReport('stopped'); });
+(() => {
+  let mode = 'radio';
+  try { mode = localStorage.getItem('mediaMode') || 'radio'; } catch (e) {}
+  mediaSetMode(mode);
+})();
+
+// Movie context menu: right-click, or press and hold on touch screens.
+function plexMenuOpen(id, x, y) {
+  const m = (plexMovies || []).find(v => v.id === id);
+  if (!m) return;
+  const menu = document.getElementById('plex-menu');
+  const inCont = plexContinueIds.includes(id);
+  const items = [['details', 'Details']];
+  if (inCont) items.push(['remove_continue', 'Remove from Continue Watching']);
+  if (!m.viewCount || inCont) items.push(['watched', 'Mark as watched']);
+  if (m.viewCount || m.viewOffset) items.push(['unwatched', 'Mark as unwatched']);
+  menu.innerHTML = `<div class="plex-menu-title">${plexEsc(m.title)}${m.year ? ' (' + m.year + ')' : ''}</div>` +
+    items.map(([a, label]) => `<button onclick="plexMenuDo('${id}', '${a}')">${label}</button>`).join('');
+  menu.hidden = false;
+  const z = parseFloat(getComputedStyle(menu).zoom) || 1;
+  const w = menu.offsetWidth * z, h = menu.offsetHeight * z;
+  menu.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) / z + 'px';
+  menu.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) / z + 'px';
+}
+function plexMenuClose() { document.getElementById('plex-menu').hidden = true; }
+async function plexMenuDo(id, action) {
+  plexMenuClose();
+  if (action === 'details') { plexOpenDetail(id); return; }
+  const m = plexMovies.find(v => v.id === id);
+  // Show the change straight away; the list is re-read from Plex afterwards.
+  if (action === 'remove_continue' || action === 'watched') plexContinueIds = plexContinueIds.filter(x => x !== id);
+  if (action === 'watched' && m) { m.viewCount = (m.viewCount || 0) + 1; m.viewOffset = 0; }
+  if (action === 'unwatched' && m) { m.viewCount = 0; m.viewOffset = 0; plexContinueIds = plexContinueIds.filter(x => x !== id); }
+  plexRender();
+  try {
+    const res = await fetch(`/api/plex/movie/${encodeURIComponent(id)}/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
+    if (!res.ok) throw new Error((await res.json()).error || res.status);
+  } catch (e) {
+    alert('Plex could not do that: ' + e.message);
+  }
+  plexLoadMovies(true);
+}
+(() => {
+  const panel = document.getElementById('plex-movies');
+  panel.addEventListener('contextmenu', e => {
+    const card = e.target.closest('.plex-card');
+    if (!card) return;
+    e.preventDefault();
+    plexMenuOpen(card.dataset.id, e.clientX, e.clientY);
+  });
+  // Long press (touch): open the menu and swallow the click that follows.
+  let timer = null, fired = false, sx = 0, sy = 0;
+  panel.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    const card = e.target.closest('.plex-card');
+    if (!card) return;
+    fired = false; sx = e.clientX; sy = e.clientY;
+    timer = setTimeout(() => { fired = true; plexMenuOpen(card.dataset.id, sx, sy); }, 550);
+  });
+  const cancel = e => { if (timer && (!e || e.type !== 'pointermove' || Math.hypot(e.clientX - sx, e.clientY - sy) > 10)) { clearTimeout(timer); timer = null; } };
+  ['pointerup', 'pointercancel', 'pointermove'].forEach(t => panel.addEventListener(t, cancel));
+  panel.addEventListener('click', e => { if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#plex-menu')) plexMenuClose(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') plexMenuClose(); });
+  addEventListener('scroll', plexMenuClose, true);
+})();
+// ─── end Plex movies siloed addition ─────────────────────────────────────────
+
+// ─── Plex Live TV on the Media tab (siloed addition, 2026-10-07) ────────────
+// Plex's free channels (English only): list (search / ★ favourites) beside a
+// player with now / next. Streams are hls.js on /api/plex/live/<id>/index.m3u8
+// (playlists relayed by the Pi, video straight from the broadcaster's CDN).
+// "What's on" is fetched per channel only for rows on screen (the guide API
+// has no bulk call), a few at a time, and cached. To back out: delete this
+// block, the Live TV markup/CSS and the Plex Live TV block in dashboard_api.py.
+var liveChannels = null, liveLoading = false, liveCurrent = null, liveHls = null, liveObserver = null, liveBlocked = false;
+var LIVE_IDLE_MSG = 'Pick a channel<br><span style="font-size:12px;color:#6b82a0">Free Plex channels stream over the internet (about 1–3 GB per hour)</span>';
+var LIVE_STARLINK_MSG = '📡 Live TV is off while the boat is on Starlink<br><span style="font-size:12px;color:#6b82a0">It comes back automatically on Wi-Fi or another connection. Schedules still work.</span>';
+// Server refuses streams while the router's active uplink is Starlink; this
+// mirrors it in the page (checked on open and every 30 s while Live TV is shown).
+async function liveNetCheck() {
+  let d;
+  try { d = await (await fetch('/api/plex/live/netcheck')).json(); } catch (e) { return; }
+  const was = liveBlocked;
+  liveBlocked = !!d.starlink;
+  if (liveBlocked && !was) { liveStop(); }
+  else if (!liveBlocked && was) { document.getElementById('live-msg').innerHTML = LIVE_IDLE_MSG; }
+  if (liveBlocked) document.getElementById('live-msg').innerHTML = LIVE_STARLINK_MSG;
+  if (!document.getElementById('live-info-pop').hidden) liveInfo();
+}
+setInterval(ifVisible(() => {
+  if (currentPage === 'media' && !document.getElementById('plex-livetv').hidden) liveNetCheck();
+}), 30000);
+const liveGuide = {};          // grid -> { at, programs }
+const liveQueue = [];
+let liveInFlight = 0;
+const liveFavs = (() => { try { return new Set(JSON.parse(localStorage.getItem('liveFavs') || '[]')); } catch (e) { return new Set(); } })();
+const liveHM = sec => new Date(sec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+// Largest 16:9 preview that fits the window with no page scroll: the preview
+// box is sized to exactly 16:9 and the channel panel gets the rest of the
+// width (min 240px). Phones / portrait (stacked): full-width 16:9 video and
+// the list fills the space below it. The panel sits under the UI-scale zoom
+// (--ui), so window/rect sizes are divided by it to get CSS px.
+function liveFit() {
+  const lay = document.getElementById('live-layout');
+  const list = document.getElementById('live-list');
+  if (!lay || currentPage !== 'media' || document.getElementById('plex-livetv').hidden) return;
+  const z = parseFloat(getComputedStyle(document.getElementById('plex-livetv')).zoom) || 1;
+  const r = lay.getBoundingClientRect();
+  const bottomPad = 16;
+  if (innerWidth <= 820) {
+    lay.style.height = ''; lay.style.gridTemplateColumns = '';
+    list.style.maxHeight = list.style.height = '';
+    const lt = list.getBoundingClientRect().top;
+    list.style.height = Math.max(200, (innerHeight - lt - bottomPad) / z) + 'px';
+    list.style.maxHeight = 'none';
+    const over = document.documentElement.scrollHeight - innerHeight;
+    if (over > 0) list.style.height = Math.max(200, parseFloat(list.style.height) - over / z) + 'px';
+    return;
+  }
+  list.style.height = list.style.maxHeight = '';
+  const gap = 14 * z, minList = 240 * z;
+  const availH = innerHeight - r.top - bottomPad;
+  const videoW = Math.max(200 * z, Math.min(r.width - gap - minList, availH * 16 / 9));
+  const videoH = videoW * 9 / 16;
+  const listW = r.width - gap - videoW;
+  lay.style.gridTemplateColumns = `${(listW / z).toFixed(1)}px ${(videoW / z).toFixed(1)}px`;
+  lay.style.height = (videoH / z).toFixed(1) + 'px';
+  const over = document.documentElement.scrollHeight - innerHeight;
+  if (over > 0) {                      // e.g. page padding: shrink the preview to fit
+    const h = videoH - over, w = h * 16 / 9;
+    lay.style.gridTemplateColumns = `${((r.width - gap - w) / z).toFixed(1)}px ${(w / z).toFixed(1)}px`;
+    lay.style.height = (h / z).toFixed(1) + 'px';
+  }
+}
+// After applyUiScale() has updated --ui for the new window size.
+addEventListener('resize', () => requestAnimationFrame(liveFit));
+
+async function liveOpen() {
+  requestAnimationFrame(liveFit);
+  liveNetCheck();
+  if (liveChannels || liveLoading) return;
+  liveLoading = true;
+  try {
+    const res = await fetch('/api/plex/live/channels');
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.status);
+    liveChannels = d.channels;
+    try {
+      const saved = JSON.parse(localStorage.getItem('liveFilters') || '{}');
+      document.getElementById('live-favs').checked = !!saved.favs;
+    } catch (e) {}
+    liveRender();
+  } catch (e) {
+    document.getElementById('live-list').innerHTML = `<div class="media-msg">Couldn't load Live TV channels (${plexEsc(e.message)}).<br>Live TV needs an internet connection.</div>`;
+  } finally {
+    liveLoading = false;
+  }
+}
+
+// "Show · Episode", leaving out a part that is just the channel's own name
+// (many free channels list themselves as the show).
+function liveShowName(p, grid) {
+  const ch = ((liveChannels || []).find(c => c.grid === grid) || {}).title || '';
+  const same = a => a && ch && a.trim().toLowerCase() === ch.trim().toLowerCase();
+  const parts = [p.show, p.title].filter((x, i, a) => x && !same(x) && a.indexOf(x) === i);
+  return parts.join(' · ') || p.title || p.show || '';
+}
+function liveCells(grid) {
+  // Current show + progress for one channel row, from the cached guide.
+  const g = liveGuide[grid];
+  if (!g) return '<div class="live-cell-title live-empty">…</div>';
+  const now = Date.now() / 1000;
+  const cur = g.programs.find(p => p.begins <= now && p.ends > now);
+  if (!cur) return '<div class="live-cell-title live-empty">No guide info</div>';
+  const name = liveShowName(cur, grid);
+  const pct = Math.min(100, 100 * (now - cur.begins) / (cur.ends - cur.begins));
+  return `<div class="live-cell-title" title="${plexEsc(name)}">${plexEsc(name)}</div>
+    <div class="live-bar"><span style="width:${pct.toFixed(0)}%"></span></div>`;
+}
+function liveFillRow(row) {
+  row.querySelector('.live-nowcol').innerHTML = liveCells(row.dataset.grid);
+}
+
+function liveRender() {
+  if (!liveChannels) return;
+  const q = document.getElementById('live-search').value.trim().toLowerCase();
+  const favs = document.getElementById('live-favs').checked;
+  try { localStorage.setItem('liveFilters', JSON.stringify({ favs })); } catch (e) {}
+  const list = liveChannels.filter(c =>
+    (!favs || liveFavs.has(c.id)) &&
+    (!q || (c.title || '').toLowerCase().includes(q) || (c.summary || '').toLowerCase().includes(q)));
+  document.getElementById('live-count').textContent = `${list.length} channels`;
+  const box = document.getElementById('live-list');
+  box.innerHTML = list.length ? list.map(c => `
+    <div class="live-row${liveCurrent && liveCurrent.id === c.id ? ' active' : ''}" data-id="${plexEsc(c.id)}" data-grid="${plexEsc(c.grid || '')}" onclick="livePlay('${plexEsc(c.id)}')" title="${plexEsc(c.summary || '')}">
+      <div class="live-logo">${c.thumb ? `<img loading="lazy" alt="" src="${plexEsc(c.thumb)}">` : ''}</div>
+      <div class="live-cell">
+        <div class="live-row-title">${plexEsc(c.title)}</div>
+        <div class="live-nowcol">${liveCells(c.grid)}</div>
+      </div>
+      <button class="live-sched" title="Schedule" onclick="event.stopPropagation(); liveOpenInfo('${plexEsc(c.id)}')">📅</button>
+      <button class="live-fav${liveFavs.has(c.id) ? ' on' : ''}" title="Favorite" onclick="event.stopPropagation(); liveToggleFav('${plexEsc(c.id)}', this)">★</button>
+    </div>`).join('')
+    : `<div class="media-msg">${favs ? 'No favorites yet — tap ★ on a channel.' : 'No channels match.'}</div>`;
+  if (!liveObserver) {
+    liveObserver = new IntersectionObserver(entries => entries.forEach(e => {
+      if (e.isIntersecting) liveWantGuide(e.target.dataset.grid);
+    }), { root: box, rootMargin: '200px 0px' });
+  }
+  liveObserver.disconnect();
+  box.querySelectorAll('.live-row').forEach(r => liveObserver.observe(r));
+}
+
+function liveWantGuide(grid, force) {
+  if (!grid) return;
+  const g = liveGuide[grid];
+  const now = Date.now() / 1000;
+  const stale = !g || Date.now() - g.at > 30 * 60000 || (g.programs.length && !g.programs.some(p => p.begins <= now && p.ends > now));
+  if (!force && (!stale || g === 'pending')) return;
+  if (liveQueue.includes(grid)) return;
+  liveQueue.push(grid);
+  livePump();
+}
+function livePump() {
+  while (liveInFlight < 3 && liveQueue.length) {
+    const grid = liveQueue.shift();
+    liveInFlight++;
+    fetch('/api/plex/live/guide/' + encodeURIComponent(grid)).then(r => r.json()).then(d => {
+      liveGuide[grid] = { at: Date.now(), programs: d.programs || [] };
+      document.querySelectorAll(`.live-row[data-grid="${CSS.escape(grid)}"]`).forEach(liveFillRow);
+      if (liveInfoCh && liveInfoCh.grid === grid) liveInfo();
+    }).catch(() => {}).finally(() => { liveInFlight--; livePump(); });
+  }
+}
+
+function liveToggleFav(id, btn) {
+  if (liveFavs.has(id)) liveFavs.delete(id); else liveFavs.add(id);
+  try { localStorage.setItem('liveFavs', JSON.stringify([...liveFavs])); } catch (e) {}
+  if (btn) btn.classList.toggle('on', liveFavs.has(id));
+  if (document.getElementById('live-favs').checked) liveRender();
+}
+
+function liveInfo() {
+  const c = liveInfoCh, el = document.getElementById('live-info');
+  if (!c) return;
+  const g = liveGuide[c.grid];
+  const now = Date.now() / 1000;
+  const progs = g ? g.programs.filter(p => p.ends > now) : [];
+  const cur = progs.find(p => p.begins <= now);
+  const next = progs.filter(p => p !== cur).slice(0, 6);
+  const pct = cur ? Math.min(100, 100 * (now - cur.begins) / (cur.ends - cur.begins)) : 0;
+  el.innerHTML = `
+    <h3>${c.thumb ? `<img alt="" src="${plexEsc(c.thumb)}">` : ''}${plexEsc(c.title)}</h3>
+    ${cur ? `<div class="live-now-title">${plexEsc(liveShowName(cur, c.grid))}</div>
+             <div class="live-time">${liveHM(cur.begins)} – ${liveHM(cur.ends)}</div>
+             <div class="live-bar"><span style="width:${pct.toFixed(1)}%"></span></div>
+             ${cur.summary ? `<div class="live-sum">${plexEsc(cur.summary)}</div>` : ''}`
+          : `<div class="live-sum">${plexEsc(c.summary || '')}</div>`}
+    ${next.length ? `<div class="plex-row-label">Up next</div><div class="live-next">${next.map(p =>
+        `<span class="live-time">${liveHM(p.begins)}</span><span>${plexEsc(liveShowName(p, c.grid))}</span>`).join('')}</div>` : ''}
+    ${liveBlocked ? '<div class="live-note" style="margin-top:10px">📡 Live TV is off while the boat is on Starlink.</div>'
+      : liveCurrent && liveCurrent.id === c.id && liveHls ? '' : `<div class="plex-actions"><button class="plex-play-btn" onclick="livePlay('${plexEsc(c.id)}')">▶ Watch</button></div>`}
+    <div class="live-note" style="margin-top:10px">Free Plex channel · streams over the internet (about 1–3 GB per hour).</div>`;
+}
+
+// Schedule pop-up for any channel (📅 in its row), playing or not.
+var liveInfoCh = null;
+function liveOpenInfo(id) {
+  const c = (liveChannels || []).find(x => x.id === id);
+  if (!c) return;
+  liveInfoCh = c;
+  liveInfo();
+  liveWantGuide(c.grid, true);
+  document.getElementById('live-info-pop').hidden = false;
+}
+function liveCloseInfo() { document.getElementById('live-info-pop').hidden = true; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') liveCloseInfo(); });
+
+async function livePlay(id) {
+  const c = (liveChannels || []).find(x => x.id === id);
+  if (!c) return;
+  if (liveBlocked) { liveCloseInfo(); document.getElementById('live-msg').innerHTML = LIVE_STARLINK_MSG; return; }
+  liveStop();
+  liveCurrent = c;
+  document.querySelectorAll('.live-row').forEach(r => r.classList.toggle('active', r.dataset.id === id));
+  const v = document.getElementById('live-video'), msg = document.getElementById('live-msg');
+  msg.textContent = 'Tuning…';
+  liveWantGuide(c.grid, true);
+  const url = `/api/plex/live/${encodeURIComponent(id)}/index.m3u8`;
+  v.addEventListener('playing', () => { msg.textContent = ''; }, { once: true });
+  try { await webcamLoadHls(); } catch (e) {}
+  if (liveCurrent !== c) return;
+  if (window.Hls && Hls.isSupported()) {
+    liveHls = new Hls({ maxBufferLength: 20, liveSyncDurationCount: 3 });
+    liveHls.on(Hls.Events.ERROR, (ev, data) => {
+      if (!data.fatal) return;
+      if (data.response && data.response.code === 403) { liveBlocked = true; liveStop(); return; }   // switched to Starlink
+      msg.textContent = 'This channel is not available right now.';
+    });
+    liveHls.loadSource(url);
+    liveHls.attachMedia(v);
+  } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = url;
+  } else {
+    msg.textContent = "This browser can't play live TV.";
+    return;
+  }
+  v.play().catch(() => { if (!liveBlocked && liveCurrent === c && liveHls) msg.textContent = 'Tap ▶ to start.'; });
+  clearInterval(liveCurrent.timer);
+  liveCurrent.timer = setInterval(() => {
+    liveWantGuide(c.grid);
+    if (!document.getElementById('live-info-pop').hidden) liveInfo();
+  }, 30000);
+}
+
+function liveStop() {
+  const v = document.getElementById('live-video');
+  if (liveCurrent) clearInterval(liveCurrent.timer);
+  if (liveHls) { liveHls.destroy(); liveHls = null; }
+  if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+  const msg = document.getElementById('live-msg');
+  if (msg) msg.innerHTML = liveBlocked ? LIVE_STARLINK_MSG : LIVE_IDLE_MSG;
+  liveCloseInfo();
+}
+
+['live-search', 'live-favs'].forEach(id => {
+  document.getElementById(id).addEventListener(id === 'live-search' ? 'input' : 'change', liveRender);
+});
+setInterval(ifVisible(() => {
+  const box = document.getElementById('live-list');
+  if (!box || document.getElementById('plex-livetv').hidden || currentPage !== 'media') return;
+  const top = box.getBoundingClientRect().top, bottom = top + box.clientHeight;
+  box.querySelectorAll('.live-row').forEach(r => {
+    const rr = r.getBoundingClientRect();
+    if (rr.bottom < top || rr.top > bottom) return;
+    liveFillRow(r);
+    liveWantGuide(r.dataset.grid);     // refetches once the current show has ended
+  });
+}), 60000);
+const _showPageBeforeLive = showPage;
+showPage = function (page) { _showPageBeforeLive(page); if (page === 'media') requestAnimationFrame(liveFit); };
+if (!document.getElementById('plex-livetv').hidden) liveOpen();
+// ─── end Plex Live TV siloed addition ────────────────────────────────────────
 </script>
 </body>
 </html>
