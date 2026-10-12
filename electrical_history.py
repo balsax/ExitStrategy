@@ -18,6 +18,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from datetime import datetime, timezone
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'electrical_history.db')
@@ -44,7 +45,7 @@ def _connect():
 
 
 def _init():
-    with _connect() as c:
+    with closing(_connect()) as c, c:  # closing: "with conn" only commits; Python 3.12 leaves the file open until GC
         c.execute('CREATE TABLE IF NOT EXISTS raw (k TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL)')
         c.execute('CREATE INDEX IF NOT EXISTS raw_k_ts ON raw (k, ts)')
         c.execute('CREATE TABLE IF NOT EXISTS rollup (k TEXT NOT NULL, ts INTEGER NOT NULL, v REAL NOT NULL, '
@@ -125,7 +126,7 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
                     snap.update(_energy_balance(snap, vrm_fn() or {}))
                 except Exception as e:
                     print(f'electrical_history: energy balance skipped ({e})')
-            with _connect() as conn:
+            with closing(_connect()) as conn, conn:  # closing: "with conn" only commits; Python 3.12 leaves the file open until GC
                 if snap:
                     conn.executemany('INSERT INTO raw (k, ts, v) VALUES (?, ?, ?)',
                                      [(k, now, v) for k, v in snap.items()])
@@ -151,7 +152,7 @@ def series(keys, range_val):
     out = {}
     if not os.path.exists(DB_PATH):
         return {k: {'times': [], 'values': []} for k in keys}
-    with _connect() as conn:
+    with closing(_connect()) as conn, conn:  # closing: "with conn" only commits; Python 3.12 leaves the file open until GC
         for k in keys:
             rows = []
             if start_ts < raw_from:  # older part from the 5-minute rollup
