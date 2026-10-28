@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Exit Strategy · Nav Station</title>
+<!--
+  Square 720×720 nav-station display (Pi Zero 2 W + Waveshare 4" kiosk).
+  Standalone page: reads the same /api endpoints as index.html and shares
+  nothing with it, so it can be changed or deleted without touching the main
+  dashboard. Pages (swipe or tap the dots): At a glance, Chart, Electrical,
+  Anchor, Tanks, Watermaker, Radio, Alerts. View-only except alert Acknowledge and
+  the watermaker Start/Stop/Flush/Reset/Auto buttons.
+-->
+<!-- Leaflet 1.9.4 served from the Pi (assets/leaflet, matches the official SRI hashes) so the Chart page needs no internet -->
+<link rel="stylesheet" href="assets/leaflet/leaflet.css">
+<script src="assets/leaflet/leaflet.js"></script>
+<style>
+:root{
+  --bg:#05080f; --card:#0f1628; --line:#1e2d4a; --text:#e8eef7; --dim:#7d8ea8;
+  --accent:#4a9fd4; --ok:#3ecf8e; --warn:#f0a030; --crit:#ff5a5a;
+}
+html.night{
+  --bg:#000; --card:#120202; --line:#3a0a0a; --text:#ff4a3a; --dim:#9a2a20;
+  --accent:#ff4a3a; --ok:#ff4a3a; --warn:#ff7a3a; --crit:#ff2020;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,"Segoe UI",Roboto,"DejaVu Sans",sans-serif;overflow:hidden;user-select:none}
+html.night body{filter:brightness(.8)}
+#app{width:100vw;height:100vh;max-width:720px;max-height:720px;margin:0 auto;display:flex;flex-direction:column}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px 6px;height:64px;flex-shrink:0}
+.top .title{font-size:26px;font-weight:700;flex:0 0 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* alert chips left of the clock: unacknowledged alerts (red) then NWS advisories (amber); tap = Alerts page */
+.top .chips{flex:1 1 auto;min-width:0;display:flex;justify-content:center;gap:6px;overflow:hidden}
+.chip{flex:0 1 auto;min-width:0;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:17px;font-weight:700;padding:7px 11px;border-radius:10px;border:1.5px solid}
+.chip.crit{background:#4a0d0d;border-color:var(--crit);color:#ffd0d0;animation:pulse 1.2s infinite}
+.chip.wx{background:#3a2400;border-color:#a06a10;color:#ffb84d}
+.chip.more{flex-shrink:0;background:var(--card);border-color:var(--line);color:var(--dim)}
+html.night .chip{background:#200000!important;color:var(--text)!important;border-color:var(--line)!important}
+.top .clock{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
+.top button{flex-shrink:0;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:10px;font-size:20px;font-weight:600;padding:0 14px;height:46px}
+
+/* alert strip, shown on every page while something is unacknowledged */
+.strip{display:none;margin:0 12px 6px;padding:10px 14px;border-radius:10px;background:#4a0d0d;border:2px solid var(--crit);
+  color:#ffd0d0;font-size:22px;font-weight:700;animation:pulse 1.2s infinite;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strip.on{display:block}
+html.night .strip{background:#200000;color:var(--text)}
+@keyframes pulse{50%{opacity:.6}}
+.offline{display:none;margin:0 12px 6px;padding:10px 14px;border-radius:10px;background:#3a2a00;border:2px solid var(--warn);color:#ffd27a;font-size:22px;font-weight:700}
+.offline.on{display:block}
+
+/* pages */
+.pages{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none}
+.pages::-webkit-scrollbar{display:none}
+.page{flex:0 0 100%;scroll-snap-align:start;padding:6px 12px 0;display:flex;flex-direction:column;min-height:0}
+.dots{display:flex;justify-content:center;gap:18px;padding:10px 0 14px;flex-shrink:0}
+.dots button{width:18px;height:18px;border-radius:50%;border:2px solid var(--dim);background:transparent;padding:0}
+.dots button.on{background:var(--accent);border-color:var(--accent)}
+
+/* at a glance */
+.grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr);gap:10px;min-height:0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 16px;display:flex;flex-direction:column;justify-content:center;min-height:0;position:relative;overflow:hidden}
+.tile .lbl{font-size:20px;color:var(--dim);font-weight:600;letter-spacing:.02em}
+.tile .val{font-size:58px;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums}
+.tile .val small{font-size:26px;font-weight:600;color:var(--dim);margin-left:4px}
+.tile .sub{font-size:19px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .bar{position:absolute;left:0;bottom:0;height:6px;background:var(--ok)}
+.warn .val{color:var(--warn)} .warn .bar{background:var(--warn)}
+.crit .val{color:var(--crit)} .crit .bar{background:var(--crit)}
+.stale .val{color:var(--dim)}
+.wind-dial{position:absolute;right:12px;top:50%;transform:translateY(-50%);width:92px;height:92px}
+
+/* anchor */
+.anchor{flex:1;display:flex;flex-direction:column;gap:10px;min-height:0}
+.anchor .status{text-align:center;font-size:40px;font-weight:800;padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.anchor .status.ok{color:var(--ok)} .anchor .status.crit{color:#fff;background:#7a1010;border-color:var(--crit);animation:pulse 1s infinite}
+.anchor .status.off{color:var(--dim)}
+.anchor .row{flex:1;display:flex;gap:10px;min-height:0}
+.anchor .radar{flex:0 0 330px;background:var(--card);border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center}
+.anchor .facts{flex:1;display:flex;flex-direction:column;gap:10px}
+.anchor .facts .tile{flex:1}
+.anchor .facts .val{font-size:44px}
+
+/* tanks */
+.tanks{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-height:0}
+.tank{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;min-height:0}
+.tank .name{font-size:21px;font-weight:700;text-align:center;line-height:1.1}
+.tank .tube{flex:1;width:70%;border:2px solid var(--line);border-radius:10px;position:relative;overflow:hidden;background:#070b14}
+html.night .tank .tube{background:#000}
+.tank .fill{position:absolute;left:0;right:0;bottom:0;transition:height .6s}
+.tank .pct{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* alerts */
+.alerts{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;min-height:0;padding-bottom:6px}
+.al{background:var(--card);border:2px solid var(--crit);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px}
+.al.acked{border-color:var(--line);opacity:.7}
+.al.info{border-color:var(--warn)}
+.al .txt{flex:1;min-width:0}
+.al .t{font-size:26px;font-weight:700}
+.al .m{font-size:20px;color:var(--dim);margin-top:4px}
+.al button{flex-shrink:0;font-size:22px;font-weight:700;padding:16px 18px;border-radius:12px;border:2px solid var(--warn);background:transparent;color:var(--warn)}
+.al.acked button{border-color:var(--line);color:var(--dim);font-weight:600}
+/* electrical flow diagram (simplified from the main Electrical tab) */
+.eflow{flex:1;width:100%;min-height:0}
+.eflow .pipe{fill:none;stroke:var(--line);stroke-width:4;stroke-linecap:round}
+.eflow .box{fill:var(--card);stroke:var(--line);stroke-width:2}
+.eflow .box.srcb{stroke:#2a7a4a} .eflow .box.sinkb{stroke:#7a2a2a}
+.eflow .nl{font-size:20px;font-weight:700;fill:var(--dim);text-anchor:middle}
+.eflow .nv{font-size:30px;font-weight:800;fill:var(--text);text-anchor:middle}
+.eflow .ns{font-size:16px;fill:var(--dim);text-anchor:middle}
+.eflow .wl{font-size:18px;font-weight:700;fill:var(--text);text-anchor:middle;paint-order:stroke;stroke:var(--bg);stroke-width:6px}
+.eflow .bshell{fill:#070b14;stroke:#6b82a0;stroke-width:3}
+.eflow .bfill{fill:#2f9e6a} .eflow .bfill.warn{fill:#c98a20} .eflow .bfill.crit{fill:#c03a3a}
+.eflow .blab{fill:#fff}
+html.night .eflow .blab{fill:var(--text)}
+.eflow .bvin{fill:#fff;font-size:15px;font-weight:600;paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:3px}
+html.night .eflow .bvin{fill:var(--text)}
+.eflow .ebmid{stroke:#e8eef7;stroke-width:2.5;stroke-linecap:round}
+html.night .eflow .ebmid{stroke:var(--text)}
+.eflow .ebt{font-size:13px;font-weight:700;fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:3px}
+html.night #eb-in{fill:#3a0a05} html.night #eb-out{fill:#160303} html.night .eflow .ebt{fill:var(--text)}
+.eflow .bsoc{font-size:34px;font-weight:800;fill:#fff;text-anchor:middle;paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:4px}
+.eflow .net{font-size:30px;font-weight:800;text-anchor:middle}
+html.night .eflow .bfill{fill:#5a0a05} html.night .eflow .bsoc{fill:var(--text)}
+html.night .eflow .bshell{stroke:var(--dim)}
+html.night .eflow .box.srcb,html.night .eflow .box.sinkb{stroke:var(--line)}
+
+/* watermaker -- one gauge, three plain readouts, only the buttons that apply */
+.wm{flex:1;display:flex;flex-direction:column;gap:10px;min-height:0}
+.wm-state{display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:30px;font-weight:800}
+.wm-state .dot{width:16px;height:16px;border-radius:50%;background:currentColor;flex-shrink:0}
+.wm-state.live .dot{animation:pulse 1.6s infinite}
+.wm-state .run{margin-left:auto;font-size:26px;font-weight:700;color:var(--dim);font-variant-numeric:tabular-nums}
+.wm .fault{display:none;padding:10px 14px;border-radius:12px;background:#4a0d0d;border:2px solid var(--crit);color:#ffd0d0;font-size:21px;font-weight:700}
+.wm .fault.on{display:block}
+html.night .wm .fault{background:#200000;color:var(--text)}
+.wm-main{flex:1;display:flex;gap:10px;min-height:0}
+.wmg{flex:1.15;min-width:0;height:100%;background:var(--card);border:1px solid var(--line);border-radius:14px}
+.wmg .track{fill:none;stroke:var(--line);stroke-linecap:round}
+.wmg .val{fill:none;stroke-linecap:round;transition:stroke .4s}
+.wmg .hint{fill:none;stroke-linecap:butt;opacity:.8}
+.wmg .gv{font-size:64px;font-weight:800;fill:var(--text);text-anchor:middle;font-variant-numeric:tabular-nums}
+.wmg .gu{font-size:20px;font-weight:600;fill:var(--dim);text-anchor:middle}
+.wmg .gl{font-size:17px;font-weight:700;fill:var(--dim);text-anchor:middle}
+.wmg .end{font-size:14px;fill:var(--dim);text-anchor:middle}
+html.night .wmg .hint{stroke:var(--dim)}
+.wm-stats{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+.wm-stats .st{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 16px;display:flex;flex-direction:column;justify-content:center;position:relative}
+.wm-stats .l{font-size:18px;font-weight:600;color:var(--dim)}
+.wm-stats .v{font-size:40px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums}
+.wm-stats .v small{font-size:18px;font-weight:600;color:var(--dim);margin-left:6px}
+.wm-stats .q{position:absolute;right:14px;top:12px;font-size:17px;font-weight:800}
+.wm-stats .valve{float:right;font-weight:700}
+.wm-stats .tbar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:4px}
+.wm-stats .tbar i{display:block;height:100%;width:0;background:#2dd4bf;transition:width .8s}
+html.night .wm-stats .tbar i{background:var(--dim)}
+.wm .btns{display:flex;gap:10px}
+.wm .btns button{flex:1;font-size:26px;font-weight:800;padding:18px 6px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--text)}
+.wm .btns button.start{border-color:#2a7a4a;color:#3ecf8e}
+.wm .btns button.stop{border-color:#7a2a2a;color:#ff6b6b}
+.wm .btns button.flush{border-color:#1a6a5a;color:#2dd4bf}
+.wm .btns button.reset,.wm .btns button.auto{border-color:#5a3a8a;color:#a78bfa}
+.wm .btns button.confirm{background:#5a3810;border-color:var(--warn);color:#fff;animation:pulse .8s infinite}
+html.night .wm .btns button{color:var(--text)!important;border-color:var(--line)!important}
+.wm .msg{font-size:19px;color:var(--dim);min-height:24px;text-align:center}
+/* radio (Boat Radio / pianobar via /api/radio proxy) */
+.rd{flex:1;display:flex;flex-direction:column;gap:12px;min-height:0;position:relative}
+.rd-now{display:flex;gap:16px;min-height:0}
+.rd-art{flex:0 0 290px;height:290px;border-radius:16px;overflow:hidden;background:var(--card);border:1px solid var(--line);position:relative}
+.rd-art img{width:100%;height:100%;object-fit:cover;display:block}
+.rd-noart{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:90px;color:var(--dim)}
+html.night .rd-art img{filter:grayscale(1) brightness(.5) sepia(1) hue-rotate(-50deg) saturate(4)}
+.rd-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
+.rd-station{align-self:flex-start;max-width:100%;font-size:18px;font-weight:700;color:var(--accent);background:var(--card);border:1px solid var(--line);border-radius:20px;padding:6px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-title{font-size:30px;font-weight:800;line-height:1.15;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.rd-artist{font-size:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-album{font-size:18px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-prog{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:8px}
+.rd-prog i{display:block;height:100%;width:0;background:var(--accent)}
+.rd-times{display:flex;justify-content:space-between;font-size:15px;color:var(--dim);font-variant-numeric:tabular-nums}
+.rd-ctl{display:flex;justify-content:space-around;align-items:center;padding:4px 10px}
+.rd-ctl button{width:88px;height:88px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;justify-content:center;padding:0}
+.rd-ctl button svg{width:40px;height:40px;fill:var(--text)}
+.rd-ctl button.big{width:112px;height:112px;background:var(--accent);border-color:var(--accent)}
+.rd-ctl button.big svg{width:56px;height:56px;fill:#fff}
+html.night .rd-ctl button.big{background:var(--card)} html.night .rd-ctl button.big svg{fill:var(--text)}
+.rd-ctl button.loved svg{fill:#3ecf8e} .rd-ctl button.flash{opacity:.4}
+.rd-vol{display:flex;align-items:center;gap:12px;padding:0 6px}
+.rd-vol .lbl{font-size:18px;color:var(--dim);font-weight:600;min-width:70px}
+.rd-vol button{width:60px;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:30px;font-weight:700;padding:0}
+.rd-volbar{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.rd-volbar i{display:block;height:100%;width:0;background:var(--accent)}
+.rd-off{display:none;position:absolute;inset:0;background:var(--bg);flex-direction:column;align-items:center;justify-content:center;gap:24px;font-size:28px;font-weight:700;color:var(--dim)}
+.rd-off.on{display:flex}
+.rd-off button{font-size:28px;font-weight:800;padding:20px 40px;border-radius:16px;border:2px solid #2a7a4a;background:var(--card);color:#3ecf8e}
+.rd-list{display:none;position:absolute;inset:0;background:var(--bg);flex-direction:column;z-index:5}
+.rd-list.on{display:flex}
+.rd-list-head{display:flex;align-items:center;justify-content:space-between;font-size:24px;font-weight:800;padding:4px 4px 10px}
+.rd-list-head button{width:56px;height:48px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:24px}
+.rd-items{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.rd-items button{text-align:left;font-size:22px;font-weight:600;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text)}
+.rd-items button.cur{border-color:var(--accent);color:var(--accent)}
+/* chart / AIS */
+.cmap-wrap{flex:1;position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);min-height:0}
+#cmap{position:absolute;inset:0;background:#0a0e1a}
+#cmap .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)}  /* same dark street style as the main Chart tab */
+html.night #cmap .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.5) sepia(1) hue-rotate(-40deg) saturate(3)}
+html.night #cmap{background:#000}
+.cmap-btns{position:absolute;right:10px;top:10px;z-index:500;display:flex;flex-direction:column;gap:8px}
+.cmap-btns button{width:56px;height:56px;border-radius:12px;border:1px solid var(--line);background:rgba(15,22,40,.9);color:var(--text);font-size:30px;font-weight:700;padding:0}
+.cmap-btns button.on{border-color:var(--accent);color:var(--accent)}
+.cmap-info{position:absolute;left:10px;bottom:10px;z-index:500;background:rgba(15,22,40,.9);border:1px solid var(--line);border-radius:12px;padding:8px 14px;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.cmap-pop{display:none;position:absolute;left:10px;top:10px;right:80px;z-index:500;background:rgba(15,22,40,.95);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:18px;line-height:1.35}
+.cmap-pop.on{display:block}
+.cmap-pop b{font-size:22px}
+.cmap-msg{display:none;position:absolute;inset:0;z-index:600;align-items:center;justify-content:center;text-align:center;font-size:24px;font-weight:700;color:var(--dim);background:var(--bg)}
+.cmap-msg.on{display:flex}
+.cm-boat,.cm-ais{background:none;border:none}
+#cmap .leaflet-control-attribution{background:rgba(10,14,26,.7);color:var(--dim);font-size:11px}
+#cmap .leaflet-control-attribution a{color:var(--dim)}
+.empty{flex:1;display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--ok);font-weight:700}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="title" id="title">At a glance</div>
+    <div class="chips" id="chips"></div>
+    <div class="clock" id="clock">--:--</div>
+    <button id="night-btn" title="Night mode">Night</button>
+  </div>
+  <div class="offline" id="offline">⚠ No connection to dashboard</div>
+
+  <div class="pages" id="pages">
+    <section class="page" data-title="At a glance">
+      <div class="grid">
+        <div class="tile" id="t-bat48"><div class="lbl">48V House</div><div class="val">--</div><div class="sub">&nbsp;</div><div class="bar"></div></div>
+        <div class="tile" id="t-bat12"><div class="lbl">12V House</div><div class="val">--</div><div class="sub">&nbsp;</div><div class="bar"></div></div>
+        <div class="tile" id="t-depth"><div class="lbl">Depth</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+        <div class="tile" id="t-wind"><div class="lbl">Apparent wind</div><div class="val">--</div><div class="sub">&nbsp;</div>
+          <svg class="wind-dial" viewBox="-50 -50 100 100">
+            <circle r="44" fill="none" stroke="var(--line)" stroke-width="4"/>
+            <path d="M0,-30 C10,-18 12,8 9,26 L-9,26 C-12,8 -10,-18 0,-30Z" fill="none" stroke="var(--dim)" stroke-width="3"/>
+            <g id="wind-arrow" style="display:none"><path d="M0,-27 L10,-47 L-10,-47Z" fill="var(--accent)"/></g>
+          </svg>
+        </div>
+        <div class="tile" id="t-sog"><div class="lbl">Speed (SOG)</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+        <div class="tile" id="t-hdg"><div class="lbl">Heading</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+      </div>
+    </section>
+
+    <section class="page" data-title="Chart">
+      <div class="cmap-wrap">
+        <div id="cmap"></div>
+        <div class="cmap-btns">
+          <button id="cm-in">+</button><button id="cm-out">−</button><button id="cm-follow" class="on">⌖</button>
+        </div>
+        <div class="cmap-info" id="cm-info">--</div>
+        <div class="cmap-pop" id="cm-pop"></div>
+        <div class="cmap-msg" id="cm-msg"></div>
+      </div>
+    </section>
+
+    <section class="page" data-title="Electrical">
+      <svg class="eflow" id="eflow" viewBox="0 0 700 560" preserveAspectRatio="xMidYMid meet"></svg>
+    </section>
+
+    <section class="page" data-title="Anchor">
+      <div class="anchor">
+        <div class="status off" id="a-status">Anchor watch off</div>
+        <div class="row">
+          <div class="radar"><svg id="a-radar" width="300" height="300" viewBox="-150 -150 300 300"></svg></div>
+          <div class="facts">
+            <div class="tile" id="a-dist"><div class="lbl">From anchor</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+            <div class="tile" id="a-radius"><div class="lbl">Alarm radius</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+            <div class="tile" id="a-depth"><div class="lbl">Depth</div><div class="val">--</div><div class="sub">&nbsp;</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" data-title="Tanks">
+      <div class="tanks" id="tanks"></div>
+    </section>
+
+    <section class="page" data-title="Watermaker">
+      <div class="wm">
+        <div class="wm-state" id="wm-state"><span class="dot"></span><span id="wm-badge">--</span><span class="run" id="wm-cyc"></span></div>
+        <div class="fault" id="wm-fault"></div>
+        <div class="wm-main">
+          <svg class="wmg" id="wmg" viewBox="0 0 360 250" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="wm-stats">
+            <div class="st"><div class="l">Product flow</div><div class="v"><span id="wm-flow">--</span><small>GPH</small></div></div>
+            <div class="st"><div class="l">Water quality</div><div class="v"><span id="wm-cond">--</span><small>µS/cm</small></div><div class="q" id="wm-q"></div></div>
+            <div class="st"><div class="l">Tank <span class="valve" id="wm-valve"></span></div><div class="v"><span id="wm-tank">--</span><small>%</small></div><div class="tbar"><i id="wm-tbar"></i></div></div>
+          </div>
+        </div>
+        <div class="btns" id="wm-btns">
+          <button class="start" data-cmd="start">▶ Start</button>
+          <button class="stop" data-cmd="stop">■ Stop</button>
+          <button class="flush" data-cmd="flush">⟳ Flush</button>
+          <button class="reset" data-cmd="reset">⟲ Reset fault</button>
+          <button class="auto" data-cmd="auto">Back to Auto</button>
+        </div>
+        <div class="msg" id="wm-msg">&nbsp;</div>
+      </div>
+    </section>
+
+    <section class="page" data-title="Radio">
+      <div class="rd" id="rd">
+        <div class="rd-now">
+          <div class="rd-art"><img id="rd-art" alt=""><div class="rd-noart" id="rd-noart">♪</div></div>
+          <div class="rd-meta">
+            <div class="rd-station" id="rd-station-btn"><span id="rd-station">--</span> ▾</div>
+            <div class="rd-title" id="rd-title">--</div>
+            <div class="rd-artist" id="rd-artist"></div>
+            <div class="rd-album" id="rd-album"></div>
+            <div class="rd-prog"><i id="rd-prog"></i></div>
+            <div class="rd-times"><span id="rd-pos"></span><span id="rd-dur"></span></div>
+          </div>
+        </div>
+        <div class="rd-ctl" id="rd-ctl">
+          <button data-act="ban" title="Thumbs down"><svg viewBox="0 0 24 24"><path d="M15 3H6c-.8 0-1.5.5-1.8 1.2l-3 7.1c-.1.2-.2.5-.2.7v2c0 1.1.9 2 2 2h6.3l-1 4.6v.3c0 .4.2.8.4 1.1L9.8 23l6.6-6.6c.4-.4.6-.9.6-1.4V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg></button>
+          <button data-act="toggle" class="big" id="rd-play" title="Play / pause"><svg viewBox="0 0 24 24" id="rd-play-ico"></svg></button>
+          <button data-act="next" title="Skip"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+          <button data-act="love" id="rd-love" title="Thumbs up"><svg viewBox="0 0 24 24"><path d="M9 21h9c.8 0 1.5-.5 1.8-1.2l3-7.1c.1-.2.2-.5.2-.7v-2c0-1.1-.9-2-2-2h-6.3l1-4.6v-.3c0-.4-.2-.8-.4-1.1L14.2 1 7.6 7.6C7.2 8 7 8.5 7 9v10c0 1.1.9 2 2 2zM1 9h4v12H1V9z"/></svg></button>
+        </div>
+        <div class="rd-vol" id="rd-vol">
+          <span class="lbl" id="rd-vol-lbl">Stereo</span>
+          <button data-vol="-5">−</button>
+          <div class="rd-volbar"><i id="rd-volbar"></i></div>
+          <button data-vol="5">+</button>
+        </div>
+        <div class="rd-off" id="rd-off"><div id="rd-off-msg">Boat Radio is off</div><button id="rd-start">▶ Start radio</button></div>
+        <div class="rd-list" id="rd-list"><div class="rd-list-head">Choose a station<button id="rd-list-close">✕</button></div><div class="rd-items" id="rd-items"></div></div>
+      </div>
+    </section>
+
+    <section class="page" data-title="Alerts">
+      <div class="alerts" id="alerts"></div>
+    </section>
+  </div>
+  <div class="dots" id="dots"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const M_TO_FT = 3.28084;
+const NAV_STALE_S = 30;        // same as GPS_STALE_THRESHOLD_S on the main dashboard
+const OFFLINE_AFTER_S = 15;
+
+// ─── state ──────────────────────────────────────────────────────────────────
+let victron = {}, topics = {}, anchor = {}, alerts = [], wxAlerts = [], anchorTrack = [];
+let lastOk = Date.now(), alertsOpen = false;
+
+async function getJSON(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(r.status);
+  lastOk = Date.now();
+  return r.json();
+}
+
+// ─── formatting helpers ─────────────────────────────────────────────────────
+function navVal(topic) {
+  const rec = topics[topic];
+  if (!rec) return { v: null, stale: true };
+  const v = parseFloat(rec.value);
+  const age = rec.time ? (Date.now() - new Date(rec.time).getTime()) / 1000 : 0;
+  return { v: isNaN(v) ? null : v, stale: age > NAV_STALE_S, age };
+}
+function fmtDur(min) {
+  if (min == null || !isFinite(min)) return '';
+  min = Math.round(min);
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return h >= 48 ? `${Math.round(h / 24)}d` : `${h}h ${m}m`;
+}
+function setTile(id, val, unit, sub, level, barPct) {
+  const el = $(id);
+  el.classList.remove('warn', 'crit', 'stale');
+  if (level) el.classList.add(level);
+  el.querySelector('.val').innerHTML = val == null ? '--' : `${esc(val)}${unit ? `<small>${esc(unit)}</small>` : ''}`;
+  el.querySelector('.sub').innerHTML = sub ? esc(sub) : '&nbsp;';
+  const bar = el.querySelector('.bar');
+  if (bar) bar.style.width = barPct == null ? '0' : `${Math.max(0, Math.min(100, barPct))}%`;
+}
+function distM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, r = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * r / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lon2 - lon1) * r / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+
+// ─── page 1: at a glance ────────────────────────────────────────────────────
+function battery(id, soc, mode, ttg, warn, crit, volts) {
+  if (typeof soc !== 'number') return setTile(id, null, '', volts ? `${volts.toFixed(2)} V` : '', 'stale');
+  const lvl = soc <= crit ? 'crit' : soc <= warn ? 'warn' : '';
+  let sub = volts ? `${volts.toFixed(1)} V` : '';
+  if (mode === 'charge') sub += ttg > 0 ? ` · Charged in ${fmtDur(ttg)}` : ' · Charging';
+  else if (mode === 'discharge' && ttg > 0) sub += ` · ${fmtDur(ttg)} left`;
+  setTile(id, soc.toFixed(0), '%', sub, lvl, soc);
+}
+function renderGlance() {
+  const v = victron;
+  battery('t-bat48', v.soc, v.ttg_mode, v.time_to_go, 30, 20, v.voltage);   // same thresholds as the main dashboard
+  battery('t-bat12', v.soc_12v, v.ttg_mode_12v, v.ttg_12v, 50, 30, v.v_12v);
+
+  const depth = navVal('boat/nav/depth');
+  const alarmM = anchor.depth_alarm_m || 1.8288;
+  if (depth.v == null) setTile('t-depth', null, '', 'No depth data', 'stale');
+  else setTile('t-depth', (depth.v * M_TO_FT).toFixed(1), 'ft', depth.stale ? 'Stale' : `${depth.v.toFixed(1)} m`,
+               depth.stale ? 'stale' : depth.v < alarmM ? 'crit' : '');
+
+  const aws = navVal('boat/nav/wind/speed'), awa = navVal('boat/nav/wind/angle');
+  const arrow = $('wind-arrow');
+  if (aws.v == null) { setTile('t-wind', null, '', 'No wind data', 'stale'); arrow.style.display = 'none'; }
+  else {
+    let side = '';
+    if (awa.v != null) {
+      const a = ((awa.v % 360) + 360) % 360;
+      side = a <= 180 ? `${Math.round(a)}° stbd` : `${Math.round(360 - a)}° port`;
+      arrow.style.display = ''; arrow.setAttribute('transform', `rotate(${a})`);
+    } else arrow.style.display = 'none';
+    setTile('t-wind', aws.v.toFixed(1), 'kn', aws.stale ? 'Stale' : side, aws.stale ? 'stale' : aws.v >= 25 ? 'warn' : '');
+  }
+
+  const sog = navVal('boat/nav/gps/sog'), cog = navVal('boat/nav/gps/cog');
+  if (sog.v == null) setTile('t-sog', null, '', 'No GPS', 'stale');
+  else setTile('t-sog', sog.v.toFixed(1), 'kn', sog.stale ? 'Stale' : cog.v != null ? `COG ${Math.round(cog.v)}°` : '', sog.stale ? 'stale' : '');
+
+  const hdg = navVal('boat/nav/heading');
+  if (hdg.v == null) setTile('t-hdg', null, '', 'No heading', 'stale');
+  else setTile('t-hdg', `${Math.round(hdg.v)}°`, '', hdg.stale ? 'Stale' : '', hdg.stale ? 'stale' : '');
+}
+
+
+// ─── Electrical ─────────────────────────────────────────────────────────────
+// Same sources the main Electrical tab merges: VRM (/api/victron), the
+// Victron simulator / Bluetooth Orions (/api/victron/sim, /api/victron/ble).
+let vsim = {}, vble = {};
+const num = x => typeof x === 'number' && isFinite(x) ? x : null;
+function fmtW(w) {
+  if (w == null) return null;
+  const a = Math.abs(w);
+  return a >= 1000 ? (w / 1000).toFixed(1) : String(Math.round(w));
+}
+const wUnit = w => w != null && Math.abs(w) >= 1000 ? 'kW' : 'W';
+// Layout (viewBox 700×560): sources on the left/top, 48V bank centre-left,
+// the three 12V batteries (diesel start, bow thruster, house) in a column on
+// the right, loads along the bottom. Shore feeds AC loads directly and/or
+// charges the 48V bank (the MultiPlus is implied); with no shore the bank
+// inverts for the AC loads. Dots behave like the main Electrical tab: 1–5 per
+// line and faster with more watts; the pipe widens with power.
+const EN = {
+  solar:  { x: 80,  y: 75,  label: 'Solar',      kind: 'srcb' },
+  alt:    { x: 458, y: 98,  label: 'Alternator', kind: 'srcb', w: 96, h: 46, compact: true },
+  shore:  { x: 80,  y: 250, label: 'Shore',      kind: 'srcb' },
+  acload: { x: 80,  y: 500, label: 'AC loads',   kind: 'sinkb' },
+  dc48:   { x: 330, y: 500, label: '48V loads',  kind: 'sinkb' },
+  load12: { x: 600, y: 500, label: '12V loads',  kind: 'sinkb', w: 120, h: 64 },
+};
+const BAT = {
+  b48:  { x: 330, y: 250, w: 96, h: 150, label: '48V',      warn: 30, crit: 20 },
+  bdsl: { x: 600, y: 95,  w: 64, h: 92,  label: 'Diesel',   warn: 50, crit: 30 },
+  bthr: { x: 600, y: 235, w: 64, h: 92,  label: 'Thruster', warn: 50, crit: 30 },
+  b12:  { x: 600, y: 375, w: 64, h: 92,  label: 'House',    warn: 50, crit: 30 },
+};
+const EDGES = {
+  solar:   { d: 'M145,75 C250,75 312,100 312,200', cls: 'src' },
+  alt48:   { d: 'M410,98 C365,98 350,125 350,200', cls: 'src' },
+  altdsl:  { d: 'M506,98 L568,98', cls: 'src' },
+  shore48: { d: 'M145,250 L305,250', cls: 'src' },
+  shoreac: { d: 'M80,287 L80,463', cls: 'src' },
+  invac:   { d: 'M300,300 C300,420 150,410 130,463', cls: 'inv' },
+  dc48:    { d: 'M330,300 L330,463', cls: 'sink' },
+  b48dsl:  { d: 'M355,205 C480,205 510,120 568,118', cls: 'src' },
+  b48thr:  { d: 'M355,250 C480,250 510,235 568,235', cls: 'src' },
+  b48h:    { d: 'M355,295 C480,295 510,375 568,375', cls: 'src' },
+  dslthr:  { d: 'M600,141 L600,181', cls: 'src' },
+  load12:  { d: 'M600,421 L600,468', cls: 'sink' },
+};
+const EF_COLORS = { src: '#3ecf8e', sink: '#ff6b6b', inv: '#f0a030' };
+(function buildFlow() {
+  const svg = $('eflow');
+  // energy balance bar (whole system, like the main tab): green = in, red = out
+  let h = `<text class="net" id="eb-net" x="330" y="22" style="font-size:21px"></text>
+    <clipPath id="eb-clip"><rect x="185" y="32" width="290" height="19" rx="6"/></clipPath>
+    <g clip-path="url(#eb-clip)"><rect x="185" y="32" width="290" height="19" fill="#7a2a2a" id="eb-out"/>
+      <rect x="185" y="32" width="0" height="19" fill="#2a7a4a" id="eb-in"/></g>
+    <line class="ebmid" x1="330" y1="28" x2="330" y2="55"/>
+    <text class="ebt" id="eb-intext" x="192" y="46"></text>
+    <text class="ebt" id="eb-outtext" x="468" y="46" style="text-anchor:end"></text>`;
+  for (const [k, e] of Object.entries(EDGES)) h += `<path class="pipe" id="ep-${k}" d="${e.d}"/><g id="ed-${k}"></g>`;
+  for (const [k, n] of Object.entries(EN)) {
+    const w = n.w || 130, hh = n.h || 74;
+    const ly = n.compact ? -4 : hh > 70 ? -9 : -6, vy = n.compact ? 15 : hh > 70 ? 24 : 22;
+    const lf = n.compact ? 13 : w < 120 ? 17 : 20, vf = n.compact ? 16 : w < 120 ? 22 : 26;
+    h += `<g id="eg-${k}"><rect class="box ${n.kind}" x="${n.x - w / 2}" y="${n.y - hh / 2}" width="${w}" height="${hh}" rx="${n.compact ? 9 : 12}"/>
+          <text class="nl" x="${n.x}" y="${n.y + ly}" style="font-size:${lf}px">${n.label}</text>
+          <text class="nv" id="en-${k}" x="${n.x}" y="${n.y + vy}" style="font-size:${vf}px">--</text></g>`;
+  }
+  for (const [k, b] of Object.entries(BAT)) {
+    const x0 = b.x - b.w / 2, y0 = b.y - b.h / 2, big = b.w > 80;
+    h += `<rect x="${b.x - (big ? 14 : 10)}" y="${y0 - 8}" width="${big ? 28 : 20}" height="10" rx="3" fill="#6b82a0"/>
+          <rect class="bshell" x="${x0}" y="${y0}" width="${b.w}" height="${b.h}" rx="${big ? 10 : 8}"/>
+          <clipPath id="clip-${k}"><rect x="${x0 + 5}" y="${y0 + 5}" width="${b.w - 10}" height="${b.h - 10}" rx="5"/></clipPath>
+          <rect class="bfill" id="bf-${k}" clip-path="url(#clip-${k})" x="${x0 + 5}" y="${y0 + b.h - 5}" width="${b.w - 10}" height="0"/>
+          <text class="nl blab" x="${b.x}" y="${y0 + (big ? 30 : 22)}" style="font-size:${big ? 22 : 12}px;paint-order:stroke;stroke:rgba(0,0,0,.5);stroke-width:4px">${b.label}</text>
+          <text class="bsoc" id="bs-${k}" x="${b.x}" y="${b.y + b.h / 2 - (big ? 18 : 12)}" style="font-size:${big ? 34 : 26}px">--</text>`;
+  }
+  svg.innerHTML = h;
+  for (const k of Object.keys(EDGES)) { const p = $(`ep-${k}`); EDGES[k].len = p.getTotalLength(); EDGES[k].dots = []; }
+})();
+const flowNorm = w => Math.max(0, Math.min(1, Math.log10(Math.max(w, 10) / 10) / Math.log10(500)));
+function setEdge(k, w, reverse) {
+  const e = EDGES[k], pipe = $(`ep-${k}`), g = $(`ed-${k}`);
+  const on = w != null && w >= 5;
+  const night = document.documentElement.classList.contains('night');
+  if (!on) {
+    pipe.style.strokeWidth = ''; pipe.style.stroke = ''; pipe.style.opacity = '';
+    g.innerHTML = ''; e.dots = []; return;
+  }
+  const n = flowNorm(w), c = Math.pow(n, 1.5);
+  pipe.style.strokeWidth = (1.5 + 22.5 * c).toFixed(1);
+  pipe.style.stroke = night ? 'var(--dim)' : EF_COLORS[e.cls];
+  pipe.style.opacity = (0.35 + 0.3 * n).toFixed(2);
+  // same rules as the main tab: 1 + round(4n) dots, 0.0015–0.009 of the pipe per frame (60 fps)
+  const want = 1 + Math.round(4 * n), spd = (0.0015 + 0.0075 * n) * 60, r = 3.5 + 4 * c;
+  while (e.dots.length < want) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    g.appendChild(el);
+    e.dots.push({ el, t: e.dots.length ? (e.dots[0].t + e.dots.length / want) % 1 : Math.random() });
+  }
+  while (e.dots.length > want) e.dots.pop().el.remove();
+  e.dots.forEach((d, i) => {
+    d.spd = spd * (0.92 + 0.16 * ((i * 37) % 10) / 10) * (reverse ? -1 : 1);
+    d.el.setAttribute('r', r.toFixed(1));
+    d.el.setAttribute('fill', night ? 'var(--text)' : EF_COLORS[e.cls]);
+  });
+}
+// Moves the dots; only runs while the Electrical page is showing.
+(function animateFlow() {
+  let last = performance.now();
+  function frame(t) {
+    const dt = Math.min(0.1, (t - last) / 1000); last = t;
+    if (pageEls[curPage()] && pageEls[curPage()].dataset.title === 'Electrical') {
+      for (const [k, e] of Object.entries(EDGES)) {
+        if (!e.dots.length) continue;
+        const p = $(`ep-${k}`);
+        e.dots.forEach(d => {
+          d.t = (d.t + d.spd * dt + 1) % 1;
+          const pt = p.getPointAtLength(d.t * e.len);
+          d.el.setAttribute('cx', pt.x.toFixed(1)); d.el.setAttribute('cy', pt.y.toFixed(1));
+        });
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+function setBattery(k, soc, sub) {
+  const b = BAT[k], f = $(`bf-${k}`);
+  const inner = b.h - 10, hh = typeof soc === 'number' ? inner * Math.max(0, Math.min(100, soc)) / 100 : 0;
+  f.setAttribute('y', b.y - b.h / 2 + 5 + inner - hh); f.setAttribute('height', hh);
+  f.classList.toggle('crit', soc <= b.crit); f.classList.toggle('warn', soc > b.crit && soc <= b.warn);
+  $(`bs-${k}`).textContent = typeof soc === 'number' ? Math.round(soc) : '--';
+}
+function setNode(k, w, text) { $(`en-${k}`).textContent = text != null ? text : (w == null ? '--' : `${fmtW(w)} ${wUnit(w)}`); }
+function renderElectrical() {
+  const d = Object.assign({}, victron, vsim, vble);
+  const posW = x => num(x) == null ? null : Math.max(0, x);
+  const mulW = (v, i) => num(v) != null && num(i) != null ? Math.max(0, v * i) : null;
+  const eng = !!d.engine_running;
+
+  // solar: what the MPPTs deliver to the bank, else panel power
+  const pv = [d.mppt_pv_power, d.mppt_bimini_pv_power].map(num).filter(x => x != null);
+  const pvW = pv.length ? pv.reduce((a, b) => a + b, 0) : null;
+  const chg = [mulW(d.mppt_bat_voltage, d.mppt_bat_current), mulW(d.mppt_bimini_bat_voltage, d.mppt_bimini_bat_current)].filter(x => x != null);
+  setNode('solar', pvW); setEdge('solar', chg.length ? chg.reduce((a, b) => a + b, 0) : pvW);
+
+  // alternator: straight into the diesel battery, and into the 48V bank via the Orion 12|48
+  const altOut = eng ? posW(d.orion_alt_output_power) || 0 : 0;
+  const altRaw = eng ? mulW(d.shunt_diesel_voltage, d.engine_alternator_current) : null;
+  const altDsl = altRaw == null ? 0 : Math.max(0, altRaw - altOut / 0.88);
+  setNode('alt', null, eng ? `${fmtW(altRaw != null ? altRaw : altOut)} ${wUnit(altRaw != null ? altRaw : altOut)}` : 'Off');
+  setEdge('alt48', altOut); setEdge('altdsl', altDsl);
+  $('eg-alt').style.opacity = eng ? '' : '.45';
+
+  // shore: passes through to AC loads and/or charges the bank; no shore = inverting
+  const grid = posW(d.grid), ac = posW(d.ac_load), mpdc = num(d.mp_dc_power);
+  const onShore = grid != null && grid >= 10;
+  setNode('shore', grid, grid != null && grid < 10 ? '0 W' : null);
+  $('eg-shore').style.opacity = onShore ? '' : '.45';  // dimmed like the alternator when unplugged
+  setNode('acload', ac);
+  const toBank = onShore ? (mpdc != null ? Math.max(0, mpdc) : Math.max(0, grid - (ac || 0))) : 0;
+  setEdge('shore48', toBank);
+  setEdge('shoreac', onShore ? Math.min(ac || 0, grid) : 0);
+  setEdge('invac', onShore ? (mpdc != null && mpdc < -10 ? -mpdc : 0) : (mpdc != null && mpdc < 0 ? -mpdc : ac));
+
+  const dc = posW(d.dc48_load_power); setNode('dc48', dc, dc == null ? '—' : null); setEdge('dc48', dc);
+
+  // 12V house via the Orion 48|12
+  const v12 = num(d.v_12v), i12 = num(d.i_12v);
+  const load12 = num(d.house_load_power) != null ? d.house_load_power : (v12 != null && i12 != null ? Math.max(0, -i12) * v12 : null);
+  setNode('load12', load12); setEdge('load12', load12);
+  const chg12 = i12 > 0 && v12 != null ? i12 * v12 : 0;
+  setEdge('b48h', load12 == null && !chg12 ? null : ((load12 || 0) + chg12) / 0.9);
+
+  // thruster + diesel batteries: the second Orion 48|12 keeps them up with the
+  // engine off; with it running the Cyrix joins them to the alternator
+  const thrIn = d.shunt_thruster_current > 0 ? mulW(d.shunt_thruster_voltage, d.shunt_thruster_current) : 0;
+  const dslIn = d.shunt_diesel_current > 0 ? mulW(d.shunt_diesel_voltage, d.shunt_diesel_current) : 0;
+  setEdge('b48thr', eng ? 0 : thrIn / 0.9);
+  setEdge('b48dsl', eng ? 0 : dslIn / 0.9);
+  setEdge('dslthr', eng ? thrIn : 0);
+
+  const v48 = num(d.voltage), i48 = num(d.current);
+  setBattery('b48', num(d.soc), v48 != null ? `${v48.toFixed(1)} V` : '');
+  setBattery('b12', num(d.soc_12v), v12 != null ? `${v12.toFixed(1)} V` : '');
+  setBattery('bdsl', num(d.shunt_diesel_soc), num(d.shunt_diesel_voltage) != null ? `${d.shunt_diesel_voltage.toFixed(1)} V` : '');
+  setBattery('bthr', num(d.shunt_thruster_soc), num(d.shunt_thruster_voltage) != null ? `${d.shunt_thruster_voltage.toFixed(1)} V` : '');
+
+  // energy balance: everything coming in vs everything being used
+  const solarIn = chg.length ? chg.reduce((a, b) => a + b, 0) : (pvW || 0);
+  const altIn = eng ? (altRaw != null ? altRaw : altOut) : 0;
+  const thrLoad = num(d.shunt_thruster_current) < 0 ? -d.shunt_thruster_current * (num(d.shunt_thruster_voltage) || 13) : 0;
+  const dslLoad = num(d.shunt_diesel_current) < 0 ? -d.shunt_diesel_current * (num(d.shunt_diesel_voltage) || 13) : 0;
+  const inW = solarIn + altIn + (onShore ? grid : 0);
+  const outW = (ac || 0) + (dc || 0) + (load12 || 0) + thrLoad + dslLoad;
+  const bal = inW - outW, tot = inW + outW;
+  $('eb-in').setAttribute('width', tot > 0 ? (290 * inW / tot).toFixed(1) : 145);
+  $('eb-intext').textContent = `In ${fmtW(inW)} ${wUnit(inW)}`;
+  $('eb-outtext').textContent = `Out ${fmtW(outW)} ${wUnit(outW)}`;
+  const nb = $('eb-net');
+  nb.textContent = Math.abs(bal) < 20 ? 'Balanced' : `${bal > 0 ? '+' : '−'}${fmtW(Math.abs(bal))} ${wUnit(bal)} · ${bal > 0 ? 'Gaining' : 'Draining'}`;
+  nb.style.fill = Math.abs(bal) < 20 ? 'var(--dim)' : bal > 0 ? 'var(--ok)' : 'var(--warn)';
+}
+
+// ─── Watermaker ─────────────────────────────────────────────────────────────
+// Same commands as the Watermaker tab (POST /api/watermaker/control, which
+// publishes boat/watermaker/cmd/mode) and the same state gating. Start, Stop
+// and Flush need a second tap within 4 s so a brush against the screen can't
+// run the pump. Manual device control and fault bypasses stay on the main tab.
+const WM_VALID = { start: ['idle'], flush: ['idle'], stop: ['priming', 'ramping_up', 'producing', 'flushing'], reset: ['fault'], auto: ['manual'] };
+const WM_CONFIRM = new Set(['start', 'stop', 'flush']);
+const WM_BADGE = {
+  idle: ['Idle', '#6b82a0'], priming: ['Priming', '#4a9fd4'], ramping_up: ['Ramping up', '#4a9fd4'],
+  producing: ['Producing', '#3db87a'], flushing: ['Flushing', '#2dd4bf'], fault: ['FAULT', '#ff5a5a'], manual: ['Manual', '#a78bfa'],
+};
+let wmMode = null, wmOnline = false, wmArmed = null, wmArmTimer = null, wmMsgTimer = null;
+function wmSay(text) {  // feedback line clears itself so an old message never looks current
+  $('wm-msg').textContent = text;
+  clearTimeout(wmMsgTimer);
+  wmMsgTimer = setTimeout(() => { $('wm-msg').innerHTML = '&nbsp;'; }, 8000);
+}
+function wmGet(k) { const r = topics['boat/watermaker/' + k]; return r ? r.value : null; }
+function wmNum(k) { const v = parseFloat(wmGet(k)); return isNaN(v) ? null : v; }
+function fmtHMS(sec) {
+  const s = Math.max(0, Math.round(sec)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+// One membrane-pressure gauge: a plain track, a value arc coloured by zone
+// (green < 850 psi, amber < 1000, red above, as on the main tab) and thin
+// amber/red marks showing where those zones start. Flow, quality and tank are
+// plain readouts beside it.
+const HP = { cx: 180, cy: 185, r: 140, w: 20, max: 1200 };
+function hpPt(v, r) {
+  const a = Math.PI * (1 - Math.max(0, Math.min(HP.max, v)) / HP.max);
+  return [HP.cx + r * Math.cos(a), HP.cy - r * Math.sin(a)];
+}
+function hpArc(v0, v1, r) {
+  const [x0, y0] = hpPt(v0, r), [x1, y1] = hpPt(v1, r);
+  return `M${x0.toFixed(1)},${y0.toFixed(1)} A${r},${r} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}`;
+}
+$('wmg').innerHTML = `
+  <path class="track" d="${hpArc(0, HP.max, HP.r)}" stroke-width="${HP.w}"/>
+  <path class="hint" d="${hpArc(850, 1000, HP.r + 17)}" stroke="#e8a030" stroke-width="4"/>
+  <path class="hint" d="${hpArc(1000, 1200, HP.r + 17)}" stroke="#e05050" stroke-width="4"/>
+  <path class="val" id="hp-val" d="" stroke-width="${HP.w}"/>
+  <text class="end" x="${HP.cx - HP.r}" y="${HP.cy + 26}">0</text>
+  <text class="end" x="${HP.cx + HP.r}" y="${HP.cy + 26}">1200</text>
+  <text class="gv" id="hp-num" x="${HP.cx}" y="${HP.cy - 20}">--</text>
+  <text class="gu" x="${HP.cx}" y="${HP.cy + 8}">psi</text>
+  <text class="gl" x="${HP.cx}" y="${HP.cy + 50}">Membrane pressure</text>`;
+
+function renderWatermaker() {
+  wmMode = wmGet('mode');
+  const status = wmGet('status');
+  wmOnline = wmMode != null && status !== 'offline';
+  const night = document.documentElement.classList.contains('night');
+  const running = ['priming', 'ramping_up', 'producing', 'flushing'].includes(wmMode);
+
+  const [txt, col] = !wmOnline ? ['Offline', '#ff5a5a'] : (WM_BADGE[wmMode] || [wmMode, '#6b82a0']);
+  const st = $('wm-state');
+  $('wm-badge').textContent = txt;
+  st.style.color = night ? '' : col;
+  st.classList.toggle('live', running);
+  $('wm-cyc').textContent = running && wmNum('production/current_time_sec') != null ? fmtHMS(wmNum('production/current_time_sec')) : '';
+
+  const faults = (wmGet('fault_reasons_all') || '').split(',').map(x => x.trim()).filter(Boolean);
+  const fEl = $('wm-fault');
+  if (faults.length || wmMode === 'fault') {
+    fEl.textContent = '⚠ ' + (faults.length ? faults.join(' • ') : ((wmGet('fault_reason') || '').trim() || 'Fault active'));
+    fEl.classList.add('on');
+  } else fEl.classList.remove('on');
+
+  const ok = v => wmOnline && v != null;
+  const flow = wmNum('flow/rate'), cond = wmNum('flow/conductivity_comp'), hp = wmNum('pressure/hp'), tank = wmNum('tank/level');
+
+  const p = ok(hp) ? Math.max(0, hp) : null, val = $('hp-val');
+  $('hp-num').textContent = p == null ? '--' : Math.round(p);
+  if (p != null && p >= 5) {
+    val.setAttribute('d', hpArc(0, Math.min(p, HP.max), HP.r));
+    val.style.stroke = night ? 'var(--text)' : p >= 1000 ? '#e05050' : p >= 850 ? '#e8a030' : '#3db87a';
+  } else val.setAttribute('d', '');
+
+  $('wm-flow').textContent = ok(flow) ? (Math.max(0, flow) * 60 / 3785.411784).toFixed(1) : '--';
+  const c = ok(cond) ? Math.max(0, cond) : null, q = $('wm-q');
+  $('wm-cond').textContent = c == null ? '--' : Math.round(c);
+  if (c == null || !running) q.textContent = '';
+  else {
+    const [qt, qc] = c < 500 ? ['Good', '#3ecf8e'] : c < 1000 ? ['Fair', '#f0a030'] : ['High', '#ff5a5a'];
+    q.textContent = qt; q.style.color = night ? 'var(--text)' : qc;
+  }
+  const tp = ok(tank) ? Math.max(0, Math.min(100, tank)) : null;
+  $('wm-tank').textContent = tp == null ? '--' : Math.round(tp);
+  $('wm-tbar').style.width = `${tp || 0}%`;
+  const divert = wmGet('divert/state'), valve = $('wm-valve');
+  valve.textContent = !running ? '' : divert === '1' ? 'filling' : divert === '0' ? 'overboard' : '';
+  valve.style.color = night ? '' : divert === '1' ? '#3ecf8e' : '#f0a030';
+
+  // only the buttons that make sense right now
+  document.querySelectorAll('#wm-btns button').forEach(b => {
+    b.style.display = wmOnline && WM_VALID[b.dataset.cmd].includes(wmMode) ? '' : 'none';
+  });
+}
+function wmDisarm() {
+  wmArmed = null; clearTimeout(wmArmTimer);
+  document.querySelectorAll('#wm-btns button.confirm').forEach(b => { b.classList.remove('confirm'); b.textContent = b.dataset.label; });
+}
+document.querySelectorAll('#wm-btns button').forEach(b => { b.dataset.label = b.textContent; });
+$('wm-btns').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-cmd]');
+  if (!b) return;
+  const cmd = b.dataset.cmd, msg = $('wm-msg');
+  if (!wmOnline) { wmDisarm(); wmSay('Watermaker controller is offline.'); return; }
+  if (!WM_VALID[cmd].includes(wmMode)) {
+    wmDisarm(); wmSay(`Can't ${b.dataset.label.replace(/^\W+/, '')} while ${(WM_BADGE[wmMode] || [wmMode])[0]}.`); return;
+  }
+  if (WM_CONFIRM.has(cmd) && wmArmed !== cmd) {
+    wmDisarm(); wmArmed = cmd;
+    b.classList.add('confirm'); b.textContent = 'Tap again';
+    wmSay(`Tap again to ${b.dataset.label.replace(/^\W+/, '').toLowerCase()}.`);
+    wmArmTimer = setTimeout(() => { wmDisarm(); msg.innerHTML = '&nbsp;'; }, 4000);
+    return;
+  }
+  wmDisarm();
+  b.disabled = true; wmSay('Sending…');
+  try {
+    const r = await fetch('/api/watermaker/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: cmd }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    wmSay(`Sent “${cmd}” — waiting for the watermaker…`);
+  } catch (e) {
+    wmSay(`⚠ Command failed: ${e.message}`);
+  } finally { b.disabled = false; }
+});
+
+
+// ─── Chart / AIS ────────────────────────────────────────────────────────────
+// North-up dark street map (OpenStreetMap, cached on the Pi so areas
+// already viewed work offline), own boat and AIS targets from /api/ais/targets. The map is only
+// created the first time the page is opened, and only updates while visible.
+// Drag pans the map (use the dots to change page); ⌖ re-centres and follows.
+let cmap = null, cmBoat = null, cmFollow = true, cmAis = {}, cmSel = null, cmTracks = {}, cmOwnTrack = null, cmTrackAt = 0;
+const cmTri = (deg, fill, size, stroke) => `<svg width="${size}" height="${size}" viewBox="-12 -12 24 24" style="transform:rotate(${deg || 0}deg)">
+  <path d="M0,-10 L7,9 L0,5 L-7,9 Z" fill="${fill}" stroke="${stroke || '#000'}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+function cmIcon(deg, fill, size, stroke) {
+  return L.divIcon({ className: 'cm-ais', html: cmTri(deg, fill, size, stroke), iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+}
+const AIS_COLORS = { Tanker: '#e05050', Cargo: '#3db87a', Passenger: '#4a9fd4', Sailing: '#c084fc', Fishing: '#e8a030', Tug: '#e8a030' };
+function cmInit() {
+  if (cmap || typeof L === 'undefined') {
+    if (typeof L === 'undefined') { $('cm-msg').textContent = 'Map library could not load (no internet?)'; $('cm-msg').classList.add('on'); }
+    return;
+  }
+  const lat = navVal('boat/nav/gps/latitude').v, lon = navVal('boat/nav/gps/longitude').v;
+  const start = lat != null && lon != null ? [lat, lon] : [anchor.anchor_lat || 27.7, anchor.anchor_lon || -82.69];
+  cmap = L.map('cmap', { zoomControl: false, minZoom: 6, maxZoom: 18 }).setView(start, 14);
+  cmap.attributionControl.setPrefix(false);
+  // OpenStreetMap street map, cached on the Pi (/api/charts/streets), shown dark
+  const tiles = L.tileLayer('/api/charts/streets/tiles/{z}/{x}/{y}.png', { maxZoom: 18, maxNativeZoom: 18, attribution: '© OpenStreetMap' }).addTo(cmap);
+  tiles.on('tileerror', e => {   // the tile server answers 503 when busy -- retry a few times
+    const n = (e.tile._tries || 0) + 1; if (n > 3) return; e.tile._tries = n;
+    setTimeout(() => { if (e.tile.isConnected) e.tile.src = tiles.getTileUrl(e.coords) + '?retry=' + n; }, 2500 * n);
+  });
+  cmap.on('dragstart', () => { cmFollow = false; $('cm-follow').classList.remove('on'); });
+  cmap.on('click', () => { cmSel = null; $('cm-pop').classList.remove('on'); });
+  $('cm-in').onclick = () => cmap.zoomIn();
+  $('cm-out').onclick = () => cmap.zoomOut();
+  $('cm-follow').onclick = () => { cmFollow = true; $('cm-follow').classList.add('on'); renderChart(); };
+}
+function cmVisible() { return pageEls[curPage()] && pageEls[curPage()].dataset.title === 'Chart'; }
+async function renderChart() {
+  if (!cmap || !cmVisible()) return;
+  const lat = navVal('boat/nav/gps/latitude'), lon = navVal('boat/nav/gps/longitude');
+  const hdg = navVal('boat/nav/heading').v, cog = navVal('boat/nav/gps/cog').v, sog = navVal('boat/nav/gps/sog').v;
+  const night = document.documentElement.classList.contains('night');
+  const haveFix = lat.v != null && lon.v != null && !lat.stale;
+  if (haveFix) {
+    const icon = cmIcon(hdg != null ? hdg : cog, night ? '#ff4a3a' : '#ffd23f', 34, '#000');
+    if (!cmBoat) cmBoat = L.marker([lat.v, lon.v], { icon, zIndexOffset: 1000 }).addTo(cmap);
+    else { cmBoat.setLatLng([lat.v, lon.v]); cmBoat.setIcon(icon); }
+    if (cmFollow) cmap.panTo([lat.v, lon.v], { animate: false });
+  }
+  $('cm-info').textContent = !haveFix ? 'No GPS fix'
+    : `${sog != null ? sog.toFixed(1) : '--'} kn · ${cog != null ? Math.round(cog) + '°' : '--'}`;
+
+  let targets = [];
+  try { targets = (await getJSON('/api/ais/targets')).targets || []; } catch (e) { return; }
+  const seen = new Set();
+  targets.forEach(t => {
+    if (t.lat == null || t.lon == null) return;
+    seen.add(t.mmsi);
+    const stale = t.age_s > 180;
+    const col = night ? '#a02a20' : (AIS_COLORS[t.type] || '#9fb3c8');
+    const icon = cmIcon(t.heading != null ? t.heading : t.cog, col, 24, stale ? '#666' : '#000');
+    let m = cmAis[t.mmsi];
+    if (!m) { m = cmAis[t.mmsi] = L.marker([t.lat, t.lon], { icon }).addTo(cmap); m.on('click', ev => { L.DomEvent.stopPropagation(ev); cmSel = t.mmsi; cmShowPop(); }); }
+    else { m.setLatLng([t.lat, t.lon]); m.setIcon(icon); }
+    m.setOpacity(stale ? 0.45 : 1);
+    m._t = t;
+  });
+  Object.keys(cmAis).forEach(k => { if (!seen.has(k)) { cmap.removeLayer(cmAis[k]); delete cmAis[k]; } });
+  if (cmSel) cmShowPop();
+
+  // tracks: last 15 min per AIS target (server-recorded every 5 s) + own boat; refreshed every 10 s
+  if (Date.now() - cmTrackAt < 9000) return;
+  cmTrackAt = Date.now();
+  let trails = {}, own = [];
+  try { trails = await getJSON('/api/ais/trails'); } catch (e) {}
+  try { own = await getJSON('/api/ais/own_trail'); } catch (e) {}
+  for (const [mmsi, pts] of Object.entries(trails)) {
+    const m = cmAis[mmsi];
+    if (!m || pts.length < 2) { if (cmTracks[mmsi]) { cmap.removeLayer(cmTracks[mmsi]); delete cmTracks[mmsi]; } continue; }
+    const ll = pts.map(q => [q.lat, q.lon]).concat([m.getLatLng()]);
+    const col = night ? '#a02a20' : (AIS_COLORS[m._t.type] || '#9fb3c8');
+    if (!cmTracks[mmsi]) cmTracks[mmsi] = L.polyline(ll, { color: col, weight: 2.5, opacity: .7, dashArray: '4 5', interactive: false }).addTo(cmap);
+    else cmTracks[mmsi].setLatLngs(ll).setStyle({ color: col });
+  }
+  Object.keys(cmTracks).forEach(k => { if (!trails[k] || !cmAis[k]) { cmap.removeLayer(cmTracks[k]); delete cmTracks[k]; } });
+  const ownLl = (own || []).map(q => [q.lat, q.lon]);
+  if (haveFix) ownLl.push([lat.v, lon.v]);
+  const ownCol = night ? '#ff4a3a' : '#ffd23f';
+  if (ownLl.length >= 2) {
+    if (!cmOwnTrack) cmOwnTrack = L.polyline(ownLl, { color: ownCol, weight: 3, opacity: .8, interactive: false }).addTo(cmap);
+    else cmOwnTrack.setLatLngs(ownLl).setStyle({ color: ownCol });
+  } else if (cmOwnTrack) { cmap.removeLayer(cmOwnTrack); cmOwnTrack = null; }
+}
+function cmShowPop() {
+  const m = cmAis[cmSel], pop = $('cm-pop');
+  if (!m) { pop.classList.remove('on'); return; }
+  const t = m._t, lat = navVal('boat/nav/gps/latitude').v, lon = navVal('boat/nav/gps/longitude').v;
+  let dist = '';
+  if (lat != null && lon != null) {
+    const nm = distM(lat, lon, t.lat, t.lon) / 1852;
+    dist = ` · ${nm < 10 ? nm.toFixed(2) : nm.toFixed(0)} nm, ${Math.round(bearingDeg(lat, lon, t.lat, t.lon))}°`;
+  }
+  pop.innerHTML = `<b>${esc(t.name || t.mmsi)}</b><br>${esc(t.type || 'Vessel')} · ${t.sog != null ? t.sog.toFixed(1) : '--'} kn ${t.cog != null ? Math.round(t.cog) + '°' : ''}${dist}`
+    + `<br><span style="color:var(--dim)">${esc(t.nav_status || '')}${t.age_s > 180 ? ` · last heard ${Math.round(t.age_s / 60)} min ago` : ''}</span>`;
+  pop.classList.add('on');
+}
+setInterval(renderChart, 5000);
+
+// ─── Radio ──────────────────────────────────────────────────────────────────
+// Boat Radio (pianobar-web on :5010) through the dashboard's /api/radio proxy.
+// Play/pause, skip, thumbs, station and the AirPlay stereo volume; station
+// editing, "this device" listening etc. stay on the main Media tab. Polls only
+// while the Radio page is showing.
+const RD_PLAY = '<path d="M8 5v14l11-7z"/>', RD_PAUSE = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+let rd = null, rdAt = 0, rdBusy = false;
+async function rdPost(path, body) {
+  const r = await fetch('/api/radio/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+const mmss = t => t == null || !isFinite(t) ? '' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function renderRadio() {
+  const off = $('rd-off');
+  if (!rd) { off.classList.add('on'); $('rd-off-msg').textContent = 'Boat Radio is not reachable'; $('rd-start').style.display = 'none'; return; }
+  const playing = rd.status === 'playing', running = rd.running && rd.status !== 'stopped';
+  if (!running) {
+    off.classList.add('on'); $('rd-off-msg').textContent = rd.message || 'Boat Radio is off'; $('rd-start').style.display = '';
+    return;
+  }
+  off.classList.remove('on');
+  const song = rd.song || {};
+  $('rd-station').textContent = rd.station || 'Choose a station';
+  $('rd-title').textContent = song.title || (rd.status === 'select_station' ? 'Choose a station' : '--');
+  $('rd-artist').textContent = song.artist || '';
+  $('rd-album').textContent = song.album || '';
+  const img = $('rd-art');
+  if (song.cover) { if (img.getAttribute('src') !== song.cover) img.src = song.cover; img.style.display = ''; $('rd-noart').style.display = 'none'; }
+  else { img.removeAttribute('src'); img.style.display = 'none'; $('rd-noart').style.display = ''; }
+  $('rd-play-ico').innerHTML = playing ? RD_PAUSE : RD_PLAY;
+  $('rd-love').classList.toggle('loved', song.rating === 1);
+  const ap = rd.airplay || {}, hasVol = ap.enabled && typeof ap.volume === 'number';
+  $('rd-vol').style.visibility = hasVol ? '' : 'hidden';
+  if (hasVol) { $('rd-volbar').style.width = `${ap.volume}%`; $('rd-vol-lbl').textContent = `Stereo ${ap.volume}`; }
+  rdProgress();
+}
+function rdProgress() {
+  if (!rd || !rd.duration) { $('rd-prog').style.width = '0'; $('rd-pos').textContent = ''; $('rd-dur').textContent = ''; return; }
+  const pos = Math.min(rd.duration, (rd.position || 0) + (rd.status === 'playing' ? (Date.now() - rdAt) / 1000 : 0));
+  $('rd-prog').style.width = `${100 * pos / rd.duration}%`;
+  $('rd-pos').textContent = mmss(pos); $('rd-dur').textContent = mmss(rd.duration);
+}
+async function pollRadio(force) {
+  if (!force && (!pageEls[curPage()] || pageEls[curPage()].dataset.title !== 'Radio')) return;
+  try { const r = await fetch('/api/radio/api/state', { cache: 'no-store' }); rd = r.ok ? await r.json() : null; } catch (e) { rd = null; }
+  rdAt = Date.now();
+  renderRadio();
+}
+$('rd-ctl').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-act]');
+  if (!b || rdBusy) return;
+  rdBusy = true; b.classList.add('flash');
+  try { await rdPost('api/cmd', { action: b.dataset.act }); } catch (e) {}
+  b.classList.remove('flash'); rdBusy = false;
+  setTimeout(() => pollRadio(true), b.dataset.act === 'next' ? 1500 : 300);
+});
+$('rd-vol').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-vol]');
+  if (!b || !rd || !rd.airplay || typeof rd.airplay.volume !== 'number') return;
+  const v = Math.max(0, Math.min(100, rd.airplay.volume + Number(b.dataset.vol)));
+  rd.airplay.volume = v; renderRadio();
+  try { await rdPost('api/airplay/volume', { percent: v }); } catch (e) {}
+});
+$('rd-start').addEventListener('click', async () => {
+  $('rd-off-msg').textContent = 'Starting…';
+  try { await rdPost('api/player/start'); } catch (e) {}
+  setTimeout(() => pollRadio(true), 2500);
+});
+$('rd-station-btn').addEventListener('click', () => {
+  if (!rd || !rd.stations) return;
+  $('rd-items').innerHTML = rd.stations.map((n, i) => `<button data-i="${i}" class="${n === rd.station ? 'cur' : ''}">${esc(n)}</button>`).join('');
+  $('rd-list').classList.add('on');
+  const cur = $('rd-items').querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'center' });
+});
+$('rd-list-close').addEventListener('click', () => $('rd-list').classList.remove('on'));
+$('rd-items').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-i]');
+  if (!b) return;
+  $('rd-list').classList.remove('on');
+  $('rd-title').textContent = 'Changing station…';
+  try { await rdPost('api/station', { index: Number(b.dataset.i) }); } catch (e) {}
+  setTimeout(() => pollRadio(true), 2000);
+});
+setInterval(pollRadio, 3000);
+setInterval(() => { if (rd && pageEls[curPage()] && pageEls[curPage()].dataset.title === 'Radio') rdProgress(); }, 1000);
+
+// ─── page 2: anchor ─────────────────────────────────────────────────────────
+function renderAnchor() {
+  const st = $('a-status'), svg = $('a-radar');
+  const lat = navVal('boat/nav/gps/latitude'), lon = navVal('boat/nav/gps/longitude');
+  const depth = navVal('boat/nav/depth');
+  const radius = anchor.radius_m;
+  setTile('a-radius', radius ? Math.round(radius * M_TO_FT) : null, 'ft', '', '');
+  setTile('a-depth', depth.v == null ? null : (depth.v * M_TO_FT).toFixed(1), 'ft',
+          depth.v == null ? 'No depth data' : depth.stale ? 'Stale' : `Alarm under ${Math.round((anchor.depth_alarm_m || 1.8288) * M_TO_FT)} ft`,
+          depth.v == null || depth.stale ? 'stale' : depth.v < (anchor.depth_alarm_m || 1.8288) ? 'crit' : '');
+
+  if (!anchor.active) {
+    st.className = 'status off'; st.textContent = 'Anchor watch off';
+    setTile('a-dist', null, '', 'Start it on the main dashboard', 'stale');
+    svg.innerHTML = ''; return;
+  }
+  if (lat.v == null || lon.v == null || lat.stale) {
+    st.className = 'status crit'; st.textContent = 'GPS LOST';
+    setTile('a-dist', null, '', 'No GPS fix', 'crit');
+    svg.innerHTML = ''; return;
+  }
+  const d = distM(anchor.anchor_lat, anchor.anchor_lon, lat.v, lon.v);
+  const brg = bearingDeg(lat.v, lon.v, anchor.anchor_lat, anchor.anchor_lon);
+  const dragging = radius && d > radius;
+  st.className = dragging ? 'status crit' : 'status ok';
+  st.textContent = dragging ? 'DRAGGING' : 'Holding';
+  setTile('a-dist', Math.round(d * M_TO_FT), 'ft', `Anchor bears ${Math.round(brg)}°`, dragging ? 'crit' : '');
+
+  // radar: anchor at centre, alarm circle, the last hour's track and the boat.
+  // Local east/north metres from the anchor (flat-earth is fine at this scale).
+  const mLat = 111320, mLon = 111320 * Math.cos(anchor.anchor_lat * Math.PI / 180);
+  const toXY = (la, lo) => [(lo - anchor.anchor_lon) * mLon, -(la - anchor.anchor_lat) * mLat];
+  const track = anchorTrack.map(([la, lo]) => toXY(la, lo));
+  const [bxm, bym] = toXY(lat.v, lon.v);
+  const far = Math.max(radius || 0, d, ...track.map(([x, y]) => Math.hypot(x, y)), 1);
+  const R = 125, scale = R / far;
+  const pts = track.concat([[bxm, bym]]).map(([x, y]) => `${(x * scale).toFixed(1)},${(y * scale).toFixed(1)}`).join(' ');
+  const bx = bxm * scale, by = bym * scale;
+  svg.innerHTML = `
+    <circle r="${(radius || 0) * scale}" fill="none" stroke="${dragging ? 'var(--crit)' : 'var(--accent)'}" stroke-width="3" stroke-dasharray="8 6"/>
+    <text x="0" y="-138" text-anchor="middle" font-size="16" fill="var(--dim)">N</text>
+    <text x="0" y="7" text-anchor="middle" font-size="22">⚓</text>
+    ${track.length ? `<polyline points="${pts}" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>` : ''}
+    <circle cx="${bx}" cy="${by}" r="11" fill="${dragging ? 'var(--crit)' : 'var(--ok)'}" stroke="var(--bg)" stroke-width="3"/>
+    <text x="0" y="146" text-anchor="middle" font-size="14" fill="var(--dim)">${track.length ? 'Track: last hour' : ''}</text>`;
+}
+
+// ─── page 3: tanks ──────────────────────────────────────────────────────────
+// Thresholds match the server's push alerts (LOW_TANK_ALARM_PCT / BLACK_TANK_ALARM_PCT).
+const TANKS = [
+  { key: 'fresh_1', name: 'Fresh<br>Bow',   color: '#4a9fd4', low: 20 },
+  { key: 'fresh_2', name: 'Fresh<br>Stern', color: '#4a9fd4', low: 20 },
+  { key: 'diesel',  name: 'Diesel<br>&nbsp;', color: '#e8a030', low: 20 },
+  { key: 'black',   name: 'Black<br>water', color: '#8b5e34', high: 75 },
+];
+$('tanks').innerHTML = TANKS.map(t => `
+  <div class="tank" id="tank-${t.key}"><div class="name">${t.name}</div>
+    <div class="tube"><div class="fill" style="height:0;background:${t.color}"></div></div>
+    <div class="pct">--</div></div>`).join('');
+function renderTanks() {
+  TANKS.forEach(t => {
+    const el = $(`tank-${t.key}`), p = navVal(`boat/nav/tanks/${t.key}/level`);
+    const pctEl = el.querySelector('.pct'), fill = el.querySelector('.fill');
+    if (p.v == null) { pctEl.textContent = '--'; pctEl.style.color = 'var(--dim)'; fill.style.height = '0'; return; }
+    const pct = Math.max(0, Math.min(100, p.v));
+    const bad = (t.low != null && pct <= t.low) || (t.high != null && pct >= t.high);
+    pctEl.textContent = `${Math.round(pct)}%`;
+    pctEl.style.color = bad ? 'var(--crit)' : '';
+    fill.style.height = `${pct}%`;
+    fill.style.background = document.documentElement.classList.contains('night') ? 'var(--dim)' : bad ? 'var(--crit)' : t.color;
+  });
+}
+
+// ─── page 4: alerts ─────────────────────────────────────────────────────────
+function ago(sec) {
+  if (!sec) return '';
+  const m = Math.round((Date.now() / 1000 - sec) / 60);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`;
+}
+function renderAlerts() {
+  const box = $('alerts');
+  const open = alerts.filter(a => !a.acked_at);
+  const rows = alerts.map(a => `
+    <div class="al${a.acked_at ? ' acked' : ''}">
+      <div class="txt"><div class="t">${a.acked_at ? '✓ ' : ''}${esc(a.title || a.key)}</div>
+        <div class="m">${esc(a.message || '')}${a.since ? ` · ${ago(a.since)}` : ''}</div></div>
+      <button data-key="${esc(a.key)}" data-ack="${a.acked_at ? 0 : 1}">${a.acked_at ? 'Un-ack' : 'Acknowledge'}</button>
+    </div>`);
+  wxAlerts.forEach(w => rows.push(`
+    <div class="al info"><div class="txt"><div class="t">⚠ ${esc(w.event)}</div>
+      <div class="m">${esc(w.ends ? `Until ${new Date(w.ends).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : (w.headline || ''))}</div></div></div>`));
+  box.innerHTML = rows.length ? rows.join('') : '<div class="empty">✓ No active alerts</div>';
+
+  // top-bar chips (replaced the full-width red strip): the most important one, then "+N"
+  alertsOpen = open.length > 0;
+  const chips = open.map(a => ['crit', a.title || a.key]).concat(wxAlerts.map(w => ['wx', w.event]));
+  const shown = chips.slice(0, 1);
+  $('chips').innerHTML = shown.map(([c, t]) => `<div class="chip ${c}">⚠ ${esc(t)}</div>`).join('')
+    + (chips.length > shown.length ? `<div class="chip more">+${chips.length - shown.length}</div>` : '');
+}
+$('alerts').addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-key]');
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await fetch(`/api/alerts/${encodeURIComponent(b.dataset.key)}/${b.dataset.ack === '1' ? 'ack' : 'unack'}`, { method: 'POST' });
+  } catch (e) {}
+  pollAlerts();
+});
+$('chips').addEventListener('click', () => goPage(pageEls.findIndex(el => el.dataset.title === 'Alerts')));
+
+// ─── paging ─────────────────────────────────────────────────────────────────
+const pagesEl = $('pages'), pageEls = [...document.querySelectorAll('.page')];
+$('dots').innerHTML = pageEls.map((_, i) => `<button data-i="${i}" aria-label="${esc(pageEls[i].dataset.title)}"></button>`).join('');
+$('dots').addEventListener('click', ev => { const b = ev.target.closest('button'); if (b) goPage(+b.dataset.i); });
+function curPage() { return Math.round(pagesEl.scrollLeft / pagesEl.clientWidth); }
+function goPage(i) { pagesEl.scrollTo({ left: i * pagesEl.clientWidth, behavior: 'smooth' }); }
+function onPage() {
+  const i = curPage();
+  if (pageEls[i] && pageEls[i].dataset.title === 'Chart' && onPage.lastC !== i) { cmInit(); if (cmap) { cmap.invalidateSize(); renderChart(); } }
+  onPage.lastC = i;
+  if (pageEls[i] && pageEls[i].dataset.title === 'Radio' && onPage.last !== i) pollRadio(true);
+  onPage.last = i;
+  $('title').textContent = pageEls[i] ? pageEls[i].dataset.title : '';
+  document.querySelectorAll('#dots button').forEach((b, j) => b.classList.toggle('on', j === i));
+  if (pageEls[i]) { try { localStorage.setItem('squarePage', pageEls[i].dataset.title); } catch (e) {} }
+}
+pagesEl.addEventListener('scroll', onPage, { passive: true });
+// stay on the last opened page, including across reloads
+try {
+  const saved = pageEls.findIndex(e => e.dataset.title === localStorage.getItem('squarePage'));
+  if (saved > 0) pagesEl.scrollTo({ left: saved * pagesEl.clientWidth, behavior: 'instant' });
+} catch (e) {}
+onPage();
+
+// ─── night mode (remembered on this screen) ─────────────────────────────────
+function setNight(on) {
+  document.documentElement.classList.toggle('night', on);
+  $('night-btn').textContent = on ? 'Day' : 'Night';
+  try { localStorage.setItem('squareNight', on ? '1' : '0'); } catch (e) {}
+  renderTanks(); renderWatermaker();
+}
+$('night-btn').addEventListener('click', () => setNight(!document.documentElement.classList.contains('night')));
+try { setNight(localStorage.getItem('squareNight') === '1'); } catch (e) { setNight(false); }
+
+// ─── polling ────────────────────────────────────────────────────────────────
+async function pollFast() {
+  try { victron = await getJSON('/api/victron'); } catch (e) {}
+  try { topics = (await getJSON('/api/mqtt/topics')).topics || {}; } catch (e) {}
+  try { vsim = await getJSON('/api/victron/sim'); } catch (e) { vsim = {}; }
+  try { vble = await getJSON('/api/victron/ble'); } catch (e) { vble = {}; }
+  for (const k of Object.keys(vble)) if (vble[k] === '--') delete vble[k];
+  renderGlance(); renderElectrical(); renderAnchor(); renderTanks(); renderWatermaker();
+}
+async function pollAnchor() {
+  try { anchor = await getJSON('/api/anchor/state'); } catch (e) {}
+  if (anchor.active) { try { anchorTrack = await getJSON('/api/anchor/trail_recent?minutes=60&max=360'); } catch (e) {} }
+  else anchorTrack = [];
+  renderAnchor();
+}
+async function pollAlerts() { try { alerts = (await getJSON('/api/alerts')).alerts || []; } catch (e) {} renderAlerts(); }
+async function pollWx() { try { wxAlerts = (await getJSON('/api/weather/alerts')).alerts || []; } catch (e) {} renderAlerts(); }
+
+function tick() {
+  $('clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  $('offline').classList.toggle('on', (Date.now() - lastOk) / 1000 > OFFLINE_AFTER_S);
+}
+
+pollAnchor().then(pollFast); pollAlerts(); pollWx(); tick();
+setInterval(pollFast, 3000);
+setInterval(pollAnchor, 10000);
+setInterval(pollAlerts, 5000);
+setInterval(pollWx, 300000);
+setInterval(tick, 1000);
+// a long-running kiosk: reload once a day so page updates from a deploy arrive
+setTimeout(() => location.reload(), 24 * 3600 * 1000);
+</script>
+</body>
+</html>

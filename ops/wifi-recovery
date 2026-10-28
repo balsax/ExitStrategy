@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""
+wifi-recovery: turn the Pi's Wi-Fi (wlan0) into a recovery hotspot when the Pi
+can't be reached on the network, so the dashboard (Network > Ethernet settings)
+can be used to fix eth0 after a network change.
+
+  wifi-recovery daemon          run the controller (wifi-recovery.service)
+  wifi-recovery on              start the hotspot now (manual: stays on until `off`)
+  wifi-recovery off             stop the hotspot, back to the Wi-Fi backup client
+  wifi-recovery status          print state JSON
+
+wlan0 is otherwise idle (the Wi-Fi backup client was removed 2026-10-05; if one
+is ever configured again, netplan-wpa-wlan0 is stopped while the hotspot runs).
+In recovery it runs hostapd (wifi-recovery-ap.service)
+with a runtime systemd-networkd file that gives it 10.42.0.1/24 and a DHCP
+server. No default route / DNS is offered to clients, so a phone keeps using
+cellular for everything else and reaches the Pi at http://10.42.0.1:5003.
+
+Controller rules (checked every CHECK_S):
+  B  boot window: hotspot on for BOOT_WINDOW_S after boot
+  A  automatic:   on when neither eth0's gateway nor (in client mode) wlan0's
+                  gateway has answered a ping for TRIGGER_S
+  off:            eth0's gateway answering for RECOVER_S, no eth0-config change
+                  waiting for Keep, and no clients connected (or CLIENT_GRACE_S
+                  passed since eth0 recovered). Manual `on` stays until `off`.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+IFACE = 'wlan0'
+HOSTAPD_UNIT = 'wifi-recovery-ap.service'
+CLIENT_UNIT = f'netplan-wpa-{IFACE}.service'
+NET_FILE = '/run/systemd/network/05-wifi-recovery.network'    # sorts before 10-netplan-wlan0.network
+STATE_DIR = '/run/wifi-recovery'
+STATE_FILE = os.path.join(STATE_DIR, 'state.json')
+MANUAL_FLAG = os.path.join(STATE_DIR, 'manual')
+BOOT_SKIP_FLAG = os.path.join(STATE_DIR, 'boot-window-skipped')  # manual `off` ends this boot's window
+HOSTAPD_CONF = '/etc/hostapd/wifi-recovery.conf'
+AP_ADDRESS = '10.42.0.1/24'
+CHECK_S = 15
+BOOT_WINDOW_S = 600
+TRIGGER_S = 300
+RECOVER_S = 60
+CLIENT_GRACE_S = 1800
+RENEW_AFTER_S = 45          # eth0 gateway silent this long -> ask DHCP for a fresh lease
+RENEW_EVERY_S = 120         # (e.g. the boat router moved to a new subnet; harmless with a static IP)
+
+NETWORK_UNIT = f"""# Written by /usr/local/sbin/wifi-recovery while the recovery hotspot is on.
+[Match]
+Name={IFACE}
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+Address={AP_ADDRESS}
+DHCPServer=yes
+ConfigureWithoutCarrier=yes
+IPv6AcceptRA=no
+LinkLocalAddressing=no
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=50
+# no router / DNS: clients keep their own internet (e.g. cellular)
+EmitRouter=no
+EmitDNS=no
+"""
+
+
+def run(args, timeout=30):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 1, '', 'timeout')
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def active():
+    return os.path.exists(NET_FILE) and run(['systemctl', 'is-active', HOSTAPD_UNIT]).stdout.strip() == 'active'
+
+
+def clients():
+    return run(['iw', 'dev', IFACE, 'station', 'dump']).stdout.count('Station ')
+
+
+def ssid():
+    try:
+        for line in open(HOSTAPD_CONF):
+            if line.startswith('ssid='):
+                return line.split('=', 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def gateway_ok(dev):
+    out = run(['ip', '-4', 'route', 'show', 'default', 'dev', dev]).stdout.split()
+    if 'via' not in out:
+        return False
+    gw = out[out.index('via') + 1]
+    return run(['ping', '-n', '-q', '-c', '1', '-W', '2', '-I', dev, gw], timeout=6).returncode == 0
+
+
+def wlan_client_ok():
+    return run(['iw', 'dev', IFACE, 'link']).stdout.startswith('Connected') and gateway_ok(IFACE)
+
+
+def eth0_change_pending():
+    return run(['systemctl', 'is-active', 'eth0-config-revert.timer']).stdout.strip() == 'active'
+
+
+def write_state(extra):
+    os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+    st = {'active': active(), 'ssid': ssid(), 'address': AP_ADDRESS.split('/')[0],
+          'manual': os.path.exists(MANUAL_FLAG), 'clients': clients() if active() else 0,
+          'updated': time.time()}
+    try:
+        prev = json.load(open(STATE_FILE))
+        st['since'] = prev.get('since') if prev.get('active') and st['active'] else None
+        st['reason'] = prev.get('reason') if st['active'] else None
+    except (OSError, ValueError):
+        st['since'], st['reason'] = None, None
+    st.update(extra)
+    tmp = STATE_FILE + '.new'
+    with open(tmp, 'w') as f:
+        json.dump(st, f)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, STATE_FILE)
+    return st
+
+
+def turn_on(reason):
+    if not os.path.exists(HOSTAPD_CONF):
+        log(f'cannot start: {HOSTAPD_CONF} missing')
+        return False
+    if active():
+        return True
+    log(f'starting recovery hotspot ({reason})')
+    with open(NET_FILE, 'w') as f:
+        f.write(NETWORK_UNIT)
+    run(['systemctl', 'stop', CLIENT_UNIT])
+    run(['networkctl', 'reload'])
+    r = run(['systemctl', 'start', HOSTAPD_UNIT])
+    run(['networkctl', 'reconfigure', IFACE])
+    if r.returncode != 0:
+        log('hostapd failed to start: ' + (r.stderr.strip() or '?'))
+        turn_off('hostapd failed')
+        return False
+    write_state({'reason': reason, 'since': time.time()})
+    return True
+
+
+def turn_off(why):
+    log(f'stopping recovery hotspot ({why}); back to Wi-Fi client')
+    run(['systemctl', 'stop', HOSTAPD_UNIT])
+    if os.path.exists(NET_FILE):
+        os.remove(NET_FILE)
+    run(['networkctl', 'reload'])
+    # wlan0 is unmanaged without the hotspot file: drop 10.42.0.1 and put the
+    # radio back in station mode so wifi-scan (router auto-rejoin) works again.
+    run(['ip', 'addr', 'flush', 'dev', IFACE])
+    run(['iw', 'dev', IFACE, 'set', 'type', 'managed'])
+    run(['ip', 'link', 'set', IFACE, 'up'])
+    if run(['systemctl', 'cat', CLIENT_UNIT]).returncode == 0:      # only if a Wi-Fi client is configured again
+        run(['systemctl', 'start', CLIENT_UNIT])
+    run(['networkctl', 'reconfigure', IFACE])
+    try:
+        os.remove(MANUAL_FLAG)
+    except OSError:
+        pass
+    write_state({'reason': None, 'since': None})
+
+
+def daemon():
+    started = time.time()
+    with open('/proc/uptime') as f:
+        uptime = float(f.read().split()[0])
+    window_left = BOOT_WINDOW_S - uptime              # only right after boot, not on a service restart
+    boot_window_until = started + window_left if window_left > 0 else 0
+    if os.path.exists(NET_FILE) and not boot_window_until:
+        turn_off('leftover from a previous run')
+
+    def stop(*_):
+        if active():
+            turn_off('service stopping')
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    log(f'started (boot window until {time.ctime(boot_window_until) if boot_window_until else "n/a"})')
+    unhealthy_since = None
+    healthy_since = None
+    eth_bad_since = None
+    last_renew = 0.0
+    while True:
+        now = time.time()
+        in_window = now < boot_window_until and not os.path.exists(BOOT_SKIP_FLAG)
+        eth_ok = gateway_ok('eth0')
+        # Router moved to another subnet / handed out a new lease: a DHCP client
+        # would otherwise keep its old address until the lease runs out.
+        if eth_ok:
+            eth_bad_since = None
+        else:
+            eth_bad_since = eth_bad_since or now
+            if now - eth_bad_since >= RENEW_AFTER_S and now - last_renew >= RENEW_EVERY_S:
+                last_renew = now
+                log('eth0 gateway not answering; requesting a fresh DHCP lease')
+                run(['networkctl', 'renew', 'eth0'])
+                run(['networkctl', 'reconfigure', 'eth0'])
+        if not active():
+            healthy_since = None
+            if in_window:
+                turn_on('boot window')
+            elif eth_ok or wlan_client_ok():
+                unhealthy_since = None
+            else:
+                unhealthy_since = unhealthy_since or now
+                if now - unhealthy_since >= TRIGGER_S:
+                    if turn_on('no network reachable'):
+                        unhealthy_since = None
+        else:
+            unhealthy_since = None
+            healthy_since = (healthy_since or now) if eth_ok else None
+            n = clients()
+            if not os.path.exists(MANUAL_FLAG) and not in_window and healthy_since \
+                    and now - healthy_since >= RECOVER_S and not eth0_change_pending() \
+                    and (n == 0 or now - healthy_since >= CLIENT_GRACE_S):
+                turn_off('Ethernet reachable again')
+        write_state({'eth0_ok': eth_ok, 'boot_window_until': boot_window_until or None,
+                     'unhealthy_since': unhealthy_since})
+        time.sleep(CHECK_S)
+
+
+if __name__ == '__main__':
+    if os.geteuid() != 0:
+        print(json.dumps({'ok': False, 'error': 'must run as root (sudo)'}))
+        sys.exit(1)
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ''
+    if cmd == 'daemon':
+        daemon()
+    elif cmd == 'on':
+        os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+        open(MANUAL_FLAG, 'w').close()
+        ok = turn_on('started manually')
+        print(json.dumps({'ok': ok, 'error': None if ok else 'hotspot failed to start (see journalctl -u wifi-recovery-ap)'}))
+    elif cmd == 'off':
+        os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+        open(BOOT_SKIP_FLAG, 'w').close()       # else the daemon restarts it while the boot window is open
+        turn_off('stopped manually')
+        print(json.dumps({'ok': True}))
+    elif cmd == 'status':
+        print(json.dumps({'ok': True, **write_state({})}))
+    else:
+        print(json.dumps({'ok': False, 'error': 'usage: daemon | on | off | status'}))
+        sys.exit(2)

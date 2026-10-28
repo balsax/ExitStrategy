@@ -508,6 +508,11 @@ html{background:#0a0e1a}
 .marine-alert-detail-body .marine-alert-detail-times{color:#8a97a8;margin-top:6px;font-size:11px}
 .marine-alert-detail-body .marine-alert-detail-where{margin-bottom:6px}
 .marine-alert-detail-body .marine-alert-detail-instruction{margin-top:6px}
+/* Larger, brighter advisory text (siloed addition) -- the 12px grey was hard to read */
+.marine-alert-detail-head{font-size:22px}
+.marine-alert-detail-item{font-size:20px;line-height:1.45}
+.marine-alert-detail-body{font-size:20px;line-height:1.55;color:#e6edf5}
+.marine-alert-detail-body .marine-alert-detail-times{font-size:17px;color:#a9b6c6}
 @media (max-width:820px){.anchor-radar-wrap{width:100%}}
 @media (max-width:900px){.wm-gauges{grid-template-columns:1fr}.wm-tank-col{position:static;transform:none;margin-top:1rem}.sys-stat-grid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:520px){.sys-stat-grid{grid-template-columns:1fr}}
@@ -634,6 +639,8 @@ body.chart-fullscreen-active #page-chart{position:fixed;inset:0;z-index:5000;bac
 body.chart-fullscreen-active #page-chart .flow-wrap{flex:1;display:flex;flex-direction:column;min-height:0;margin-bottom:0}
 body.chart-fullscreen-active .chart-map-wrap{flex:1;height:auto;min-height:0}
 .leaflet-container.chart-dark-base{background:#0a0e1a}
+/* Satellite: dim for Dark instead of inverting the photo (siloed addition) */
+.leaflet-container.chart-dark-base.chart-sat-base .leaflet-tile-pane{filter:brightness(.55)}
 /* Dark theme applies to whichever base SOURCE (Chart/Streets) is active --
    see updateChartBase() -- rather than being its own tile source (Carto's
    free dark_all tiles now watermark "API key required" on every tile, a
@@ -774,6 +781,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .ebal .eb-title{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b82a0;text-align:center}
 .ebal .eb-net{font-size:18px;font-weight:600;text-align:center;color:#8fa3bd}
 .ebal .eb-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#1a2438}
+/* centre tick: green past it = gaining, red past it = draining */
+.ebal .eb-barwrap{position:relative}
+.ebal .eb-mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:#e8eef7;border-radius:1px}
 .ebal .eb-in{background:#3db87a;opacity:.85;width:50%;transition:width .8s}
 .ebal .eb-out{background:#d9534f;opacity:.85;width:50%;transition:width .8s}
 .ebal .eb-rows{display:flex;justify-content:space-between;font-size:11px;color:#6b82a0}
@@ -899,6 +909,19 @@ svg.fsvg .flow-hit:hover{stroke:rgba(255,255,255,.07)}
 #page-weather .wind-speed-chart-canvas-wrap > canvas{position:absolute;top:0;left:0}
 /* ─── end Weather fit-to-window ────────────────────────────────────────── */
 
+/* ─── Alert acknowledge (siloed addition, Diagnostics > Server Health) ─── */
+.alert-row{align-items:center}
+.alert-row .bt-card-name{flex-direction:column;align-items:flex-start;gap:1px;white-space:normal}
+.alert-row .bt-card-name::before{display:none}
+.alert-row .alert-msg{font-size:11px;color:#8fa3bf}
+.alert-row.acked .bt-card-name > b{color:#6b82a0}
+.marine-alert-chip.acked,.marine-alert-chip.minor.acked{animation:none;opacity:.55}
+.hdr-ack-menu{position:fixed;z-index:3000;min-width:220px;max-width:320px;background:#111a2e;border:1px solid #2a3b5c;border-radius:8px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:6px}
+.hdr-ack-menu .t{font-size:12px;color:#c8d3e6;padding:2px 4px 4px}
+.hdr-ack-menu button{font-size:13px;text-align:left;padding:7px 10px;border-radius:6px;cursor:pointer;background:#0a0e1a;border:1px solid #334455;color:#e0e6f0}
+.hdr-ack-menu button.ack{border-color:#e8a030;color:#e8a030}
+.alert-ack-btn{flex:none;font-size:12px;padding:4px 12px;border-radius:6px;cursor:pointer;background:#0a0e1a;border:1px solid #e8a030;color:#e8a030}
+.alert-row.acked .alert-ack-btn{border-color:#334455;color:#6b82a0}
 /* ─── Starlink card (siloed addition, Diagnostics > Server Health) ──────── */
 .sl-rows{margin-top:8px;display:flex;flex-direction:column;gap:3px}
 .sl-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 8px;background:#0a0e1a;border:.5px solid #1e2d4a;border-radius:6px}
@@ -1361,7 +1384,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <div class="nb ebal">
         <div class="eb-title">Energy balance</div>
         <div class="eb-net" id="eb-net">--</div>
-        <div class="eb-bar"><div class="eb-in" id="eb-in-bar"></div><div class="eb-out" id="eb-out-bar"></div></div>
+        <div class="eb-barwrap"><div class="eb-bar"><div class="eb-in" id="eb-in-bar"></div><div class="eb-out" id="eb-out-bar"></div></div><span class="eb-mid"></span></div>
         <div class="eb-rows"><span class="eb-lin">In <b id="eb-in">--</b></span><span class="eb-lout">Out <b id="eb-out">--</b></span></div>
       </div>
     </div>
@@ -1629,6 +1652,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
           <div class="chart-layer-toggles" id="chart-base-source">
             <label><input type="radio" name="chart-base-source" value="Chart" checked> Chart</label>
             <label><input type="radio" name="chart-base-source" value="Streets"> Streets</label>
+            <label><input type="radio" name="chart-base-source" value="Satellite"> 🛰️ Satellite</label>
           </div>
           <div class="chart-basemap-heading">Style</div>
           <div class="chart-layer-toggles" id="chart-base-theme">
@@ -2259,6 +2283,12 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   <div class="plex-player-msg" id="plex-player-msg"></div>
 </div>
 <style>
+/* ─── Admin tools in Diagnostics (siloed addition, 2026-10-10) ─── */
+.admin-tool-bar{display:flex;align-items:center;gap:12px;font-size:12px;color:#6b82a0;margin-bottom:8px}
+.admin-tool-bar span{flex:1;min-width:0}
+.admin-tool-bar a{color:#4a9fd4;text-decoration:none;white-space:nowrap}
+.admin-tool-frame{height:max(420px,calc(100vh - 300px));border:1px solid #1e2d4a;border-radius:10px;overflow:hidden;background:#000}
+.admin-tool-frame iframe{width:100%;height:100%;border:0;display:block;background:#fff}
 /* ─── Plex movies (siloed addition, 2026-10-07) ─── */
 .plex-panel[hidden],.plex-overlay[hidden],.plex-player[hidden],#plex-continue-wrap[hidden]{display:none!important}
 .plex-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
@@ -2422,6 +2452,9 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
       <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')">Simulators</button>
+      <!-- siloed Admin tools: Console (Shell In A Box) + Database (phpMyAdmin) -->
+      <button class="diag-subtab-btn" id="diag-sub-console-btn" onclick="showDiagSub('console')">Console</button>
+      <button class="diag-subtab-btn" id="diag-sub-db-btn" onclick="showDiagSub('db')">Database</button>
     </div>
 
     <div class="diag-panel" id="diag-panel-mqtt">
@@ -2466,8 +2499,14 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <div class="diag-panel active" id="diag-panel-system">
       <div class="notice" id="sys-notice" style="margin-bottom:1rem;display:none"><span>⚠️</span> No server health data yet — dashboard_api.py's system_health_loop publishes every 20s; give it a minute after a fresh start.</div>
 
+      <!-- siloed Alert acknowledge: active push alerts, Ack stops repeats until the condition clears -->
+      <div class="section" style="margin-top:0">
+        <span>Push alerts <span id="alerts-summary" style="color:#3db87a;font-size:10px;margin-left:8px;text-transform:none;letter-spacing:0"></span></span>
+      </div>
+      <div class="bt-card-list" id="alerts-list" style="margin:0 0 16px"><div class="bt-card-empty">Loading…</div></div>
+
       <!-- System status (moved here from Overview) -->
-      <div class="section clickable" style="margin-top:0" onclick="toggleStatus()">
+      <div class="section clickable" onclick="toggleStatus()">
         <span>System status <span id="status-summary" style="color:#3db87a;font-size:10px;margin-left:8px;text-transform:none;letter-spacing:0">● All systems online</span></span>
         <span id="status-toggle" style="font-size:14px;color:#6b82a0">▶</span>
       </div>
@@ -2504,9 +2543,9 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
           <div class="mlive-val" id="sys-cpu-val">--%</div>
           <div class="spark-wrap"><canvas id="spark-cpu"></canvas></div>
         </div>
-        <div class="mlive wm-clickable" onclick="openSystemModal('temp','CPU Temp','°C','#e05050')">
+        <div class="mlive wm-clickable" onclick="openSystemModal('temp','CPU Temp','°F','#e05050')">
           <div class="mlive-label">CPU Temp</div>
-          <div class="mlive-val" id="sys-temp-val">--°C</div>
+          <div class="mlive-val" id="sys-temp-val">--°F</div>
           <div class="spark-wrap"><canvas id="spark-temp"></canvas></div>
         </div>
         <div class="mlive wm-clickable" onclick="openSystemModal('load1','Load Average','','#2dd4bf')">
@@ -2598,6 +2637,22 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <div class="card no-click" id="sim-list">
         <div class="mqtt-empty">Loading…</div>
       </div>
+    </div>
+
+    <!-- siloed Admin tools panels: frames are created the first time each tab opens. -->
+    <div class="diag-panel" id="diag-panel-console">
+      <div class="admin-tool-bar">
+        <span>Console — Shell In A Box on this Pi (sign in with your Linux user)</span>
+        <a href="/api/tools/console/" target="_blank" rel="noopener">Open in new tab ↗</a>
+      </div>
+      <div class="admin-tool-frame" id="admin-frame-console"></div>
+    </div>
+    <div class="diag-panel" id="diag-panel-db">
+      <div class="admin-tool-bar">
+        <span>Database — phpMyAdmin (sign in with your MariaDB user)</span>
+        <a href="/api/tools/db/" target="_blank" rel="noopener">Open in new tab ↗</a>
+      </div>
+      <div class="admin-tool-frame" id="admin-frame-db"></div>
     </div>
   </div>
 </div>
@@ -3063,13 +3118,13 @@ const WM_METRICS = {
   pump_speed: { label: 'HP Pump Speed',     unit: '%',     color: '#a05ad4' },
   current:    { label: 'Pump Current',      unit: 'A',     color: '#d4527a' },
   efficiency: { label: 'Efficiency',        unit: '%',     color: '#c9d454' },
-  product_temp: { label: 'Product Temperature', unit: '°C', color: '#f97316' },
+  product_temp: { label: 'Product Temperature', unit: '°F', color: '#f97316', c2f: true },
 };
 const SYS_METRICS = {
   cpu:       { label: 'CPU Usage',       unit: '%',    color: '#4a9fd4' },
   mem:       { label: 'Memory Usage',    unit: '%',    color: '#e8a030' },
   disk:      { label: 'Disk Usage',      unit: '%',    color: '#3db87a' },
-  temp:      { label: 'CPU Temp',        unit: '°C',   color: '#e05050' },
+  temp:      { label: 'CPU Temp',        unit: '°F',   color: '#e05050', c2f: true },
   wifi:      { label: 'WiFi Signal',     unit: 'dBm',  color: '#a05ad4' },
   load1:     { label: 'Load Average',    unit: '',     color: '#2dd4bf' },
   net_rx:    { label: 'Network RX',      unit: 'KB/s', color: '#c9a35a' },
@@ -3181,18 +3236,18 @@ const NODE_DEFS = {
       { key: 'voltage',     label: 'Voltage',         unit: 'V',  color: '#4a9fd4' },
       { key: 'current',     label: 'Current',         unit: 'A',  color: '#3db87a' },
       { key: 'power',       label: 'Power',           unit: 'W',  color: '#a78bfa' },
-      { key: 'temp',        label: 'Temperature',     unit: '°C', color: '#f97316' },
+      { key: 'temp',        label: 'Temperature',     unit: '°F', color: '#f97316', fmt: v => cToF(v).toFixed(1) },
       { key: 'soh',         label: 'State of Health', unit: '%',  color: '#2dd4bf' },
       { key: 'cell_min',    label: 'Cell Min',        unit: 'V',  color: '#6b82a0' },
       { key: 'cell_max',    label: 'Cell Max',        unit: 'V',  color: '#6b82a0' },
-      { key: 'time_to_go',  label: 'Time to Go',      unit: 'min',color: '#6b82a0' },
+      { key: 'time_to_go',  label: 'Time to Go',      unit: '',   color: '#6b82a0', labelFn: ttgLabel, fmt: fmtDuration },
       { key: 'consumed_ah', label: 'Consumed Ah',     unit: 'Ah', color: '#6b82a0' },
     ],
     chartSeries: [
       { code: 'bs',  label: 'SOC',     unit: '%', color: '#e8a030' },
       { code: 'bv',  label: 'Voltage', unit: 'V', color: '#4a9fd4' },
       { code: 'bc',  label: 'Current', unit: 'A', color: '#3db87a' },
-      { code: 'bT',  label: 'Temp',    unit: '°C',color: '#f97316' },
+      { code: 'bT',  label: 'Temp',    unit: '°F',color: '#f97316' },  // VRM Graph returns the account's unit (°F)
     ]
   },
   bat12h: {
@@ -3202,7 +3257,7 @@ const NODE_DEFS = {
       { key: 'soc_12v',   label: 'State of Charge', unit: '%',  color: '#2dd4bf' },
       { key: 'v_12v',     label: 'Voltage',         unit: 'V',  color: '#4a9fd4' },
       { key: 'i_12v',     label: 'Current',         unit: 'A',  color: '#3db87a' },
-      { key: 'ttg_12v',   label: 'Time to Go',      unit: 'min',color: '#6b82a0' },
+      { key: 'ttg_12v',   label: 'Time to Go',      unit: '',   color: '#6b82a0', labelFn: d => ttgLabel({ ttg_mode: d.ttg_mode_12v }), fmt: fmtDuration },
       { key: 'cah_12v',   label: 'Consumed Ah',     unit: 'Ah', color: '#6b82a0' },
     ],
     chartSeries: [
@@ -3822,7 +3877,8 @@ document.querySelectorAll('#fcanvas .nd[onclick]').forEach(nd => {
   const link = [nd.id, null, d => {
     const def = NODE_DEFS[key];
     return { title: def.title, hint: 'Click for details & history',
-             rows: (def.liveFields || []).map(f => [f.label, fmtTipVal(d[f.key], f.unit, f.isText)]) };
+             rows: (def.liveFields || []).map(f => [f.labelFn ? f.labelFn(d) : f.label,
+                                                     f.fmt && d[f.key] != null ? `${f.fmt(d[f.key])}${f.unit ? ' ' + f.unit : ''}` : fmtTipVal(d[f.key], f.unit, f.isText)]) };
   }];
   nd.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && NODE_DEFS[key]) showFlowTip(link, e); });
   nd.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideFlowTip(); });
@@ -4089,6 +4145,22 @@ function socColor(pct) {
 // (blue water, amber diesel, brown waste), the same way real tank gauges
 // and plumbing labels are color-coded, regardless of how full it is.
 const TANK_COLORS = { fresh_1: '#4a9fd4', fresh_2: '#4a9fd4', diesel: '#e8a030', black: '#8b5e34' };
+
+// 48V time to go: label follows the direction of current; value is minutes
+function ttgLabel(d) {
+  return d.ttg_mode === 'charge' ? 'Time to Charged' : d.ttg_mode === 'discharge' ? 'Time Remaining' : 'Time to Go';
+}
+function fmtDuration(min) {
+  if (typeof min !== 'number') return min;
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `${h}h ${String(min % 60).padStart(2, '0')}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+// All temperatures display in °F; sources that report °C (CPU, VRM battery,
+// watermaker product water) are flagged c2f / converted with cToF.
+function cToF(c) { return c * 9 / 5 + 32; }
 
 function fmtVal(v, unit, isText) {
   if (isText) return `<span style="color:#e0e6f0">${v ?? '--'}</span>`;
@@ -5464,7 +5536,7 @@ function renderSystemHealth() {
   setStat('sys-cpu-val', cpu, v => `${v.toFixed(1)}%`, 70, 90);
   setStat('sys-mem-val', mem, v => `${v.toFixed(1)}%`, 75, 90);
   setStat('sys-disk-val', disk, v => `${v.toFixed(1)}%`, 80, 95);
-  setStat('sys-temp-val', temp, v => `${v.toFixed(1)}°C`, 65, 80);
+  setStat('sys-temp-val', temp, v => `${cToF(v).toFixed(1)}°F`, 65, 80);  // thresholds stay in °C (raw value)
 
   const wifiEl = document.getElementById('sys-wifi-val');
   if (wifi === null) { wifiEl.textContent = 'Not connected'; wifiEl.style.color = '#445566'; }
@@ -5673,7 +5745,7 @@ async function fetchData() {
       setText('temp', `${d.temp_f.toFixed(1)}<span class="card-unit">°F</span>`);
       const pct = Math.min(100, Math.max(0, ((d.temp_f - 60) / 50) * 100));
       document.getElementById('temp-bar').style.width = pct + '%';
-      setText('temp-sub', `${((d.temp_f - 32) * 5 / 9).toFixed(1)}°C`);
+      setText('temp-sub', '');
     }
     if (d.humidity !== undefined) {
       setText('humidity', `${d.humidity.toFixed(1)}<span class="card-unit">%</span>`);
@@ -5751,7 +5823,7 @@ async function fetchVictron() {
     setText('batt-state', charging ? 'Charging' : discharging ? 'Discharging' : 'Idle');
     document.getElementById('batt-state').className = 'card-value ' + (charging ? 'good' : discharging ? 'warn' : 'info');
     setText('batt-state-sub', charging ? 'Shore/engine charging the bank'
-      : discharging && d.time_to_go ? `~${Math.round(d.time_to_go / 3600)}h to empty at this rate`
+      : discharging && d.ttg_mode === 'discharge' ? `~${fmtDuration(d.time_to_go)} to empty at this rate`
       : discharging ? 'Running on battery power'
       : 'No significant current flow');
     setText('shore-status', shoreOn ? 'Connected' : 'Not Connected');
@@ -5945,7 +6017,7 @@ function openNodeModal(nodeKey) {
     penSource = 'vrm';
     if (def.history === 'elec') { penSource = 'db'; penEndpoint = '/api/electrical/history'; } // Electrical history (siloed)
     penMetrics = {};
-    def.chartSeries.forEach(s => { penMetrics[s.code] = { label: s.label, unit: s.unit, color: s.color }; });
+    def.chartSeries.forEach(s => { penMetrics[s.code] = { label: s.label, unit: s.unit, color: s.color, c2f: s.c2f }; });
     activePens = new Set([def.chartSeries[0].code]);
     document.querySelector('.modal-stats').style.display = 'none';
     document.getElementById('wm-pen-btns').style.display = 'flex';
@@ -5973,12 +6045,12 @@ function refreshModalLive() {
   const grid = document.getElementById('modal-live-grid');
   grid.innerHTML = '';
   (def.liveFields || []).forEach(f => {
-    const val = data[f.key];
-    const hasVal = val !== undefined && val !== null;
+    const hasVal = data[f.key] !== undefined && data[f.key] !== null;
+    const val = f.fmt && hasVal ? f.fmt(data[f.key]) : data[f.key];
     const div = document.createElement('div');
     div.className = 'mlive';
     div.innerHTML = `
-      <div class="mlive-label">${f.label}</div>
+      <div class="mlive-label">${f.labelFn ? f.labelFn(data) : f.label}</div>
       <div class="mlive-val" style="color:${hasVal ? f.color : '#445566'}">${fmtVal(val, f.unit, f.isText)}</div>
     `;
     grid.appendChild(div);
@@ -6143,6 +6215,10 @@ async function loadPenHistory(isAutoRefresh = false) {
       seriesMap = d.series || {};
     }
     if (seq !== chartRequestSeq) return; // superseded by a newer load -- discard
+    pens.forEach(m => {  // °C sources shown in °F
+      const sr = seriesMap[m];
+      if (penMetrics[m] && penMetrics[m].c2f && sr && sr.values) sr.values = sr.values.map(v => v === null ? v : cToF(v));
+    });
     renderMultiPenChart(pens, seriesMap, isAutoRefresh);
   } catch (e) {
     if (seq === chartRequestSeq && !isAutoRefresh) showChartLoading('Error loading history');
@@ -6160,7 +6236,8 @@ async function loadVRMHistory() {
     const res = await fetch(`/api/victron/history?code=${currentSeries.code}&range=${currentDuration}`);
     const d = await res.json();
     if (seq !== chartRequestSeq) return;
-    renderChart(d.times, d.values, currentSeries.color, currentSeries.unit);
+    const vals = currentSeries.c2f && d.values ? d.values.map(v => v === null ? v : cToF(v)) : d.values;  // °C sources shown in °F
+    renderChart(d.times, vals, currentSeries.color, currentSeries.unit);
   } catch (e) {
     if (seq === chartRequestSeq) showChartLoading('Error loading history');
   }
@@ -7220,7 +7297,7 @@ async function fetchWeatherConditions() {
     const d = await res.json();
     if (d.temp_f !== undefined) {
       setText('wx-temp', `${d.temp_f.toFixed(1)}<span class="card-unit">°F</span>`);
-      setText('wx-temp-sub', `${((d.temp_f - 32) * 5 / 9).toFixed(1)}°C`);
+      setText('wx-temp-sub', '');
     }
     if (d.humidity !== undefined) {
       setText('wx-humidity', `${d.humidity.toFixed(1)}<span class="card-unit">%</span>`);
@@ -8395,7 +8472,7 @@ async function initChartMap() {
   // Setting .checked above only updates the radios' visual state, not the
   // map — Streets can attach immediately; Chart depends on the async NCDS
   // fetch below and is handled there once it resolves.
-  if (savedChartSource === 'Streets') updateChartBase();
+  if (savedChartSource === 'Streets' || savedChartSource === 'Satellite') updateChartBase();
 
   // Layers default OFF and are created but not attached to the map yet —
   // the checkbox row above the map (#chart-layer-toggles) is what actually
@@ -12351,6 +12428,34 @@ updateChartBase = function () { _chartBaseBeforePicker(); updateChartBasemapLabe
 updateChartBasemapLabel();
 // ─── end Chart base-map picker ───────────────────────────────────────────────
 
+// ─── Satellite base (siloed addition) ────────────────────────────────────────
+// Third "Map" choice in #chart-basemap-menu. Tiles come through the Pi
+// (/api/charts/satellite/tiles), which keeps every tile it has fetched on disk,
+// so revisited areas cost no internet and still show when offline.
+let chartSatelliteLayer = null;
+const _chartBaseBeforeSatellite = updateChartBase;
+updateChartBase = function () {
+  const source = (document.querySelector('#chart-base-source input:checked') || {}).value || 'Chart';
+  if (chartMap) chartMap.getContainer().classList.toggle('chart-sat-base', source === 'Satellite');
+  if (source !== 'Satellite' || !chartMap) return _chartBaseBeforeSatellite();
+  if (!chartSatelliteLayer) {
+    chartSatelliteLayer = L.tileLayer('/api/charts/satellite/tiles/{z}/{x}/{y}.jpg', {
+      maxZoom: 18, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics',
+    });
+  }
+  const isDark = (document.querySelector('#chart-base-theme input:checked') || {}).value === 'Dark';
+  if (chartActiveBaseLayer !== chartSatelliteLayer) {
+    if (chartActiveBaseLayer) chartMap.removeLayer(chartActiveBaseLayer);
+    chartSatelliteLayer.addTo(chartMap);
+    chartActiveBaseLayer = chartSatelliteLayer;
+  }
+  chartMap.getContainer().classList.toggle('chart-dark-base', isDark);
+  localStorage.setItem('chartBaseSource', 'Satellite');
+  localStorage.setItem('chartBaseTheme', isDark ? 'Dark' : 'Light');
+  updateChartBasemapLabel();
+};
+// ─── end Satellite siloed addition ───────────────────────────────────────────
+
 // ─── Disk free space on Server Health cards (siloed addition, 2026-10-07) ───
 // Adds "· 444 GB free of 1.8 TB" after the Disk Usage and Boot Partition
 // card labels, from /api/system/disk_space (the MQTT feed only has %).
@@ -12958,6 +13063,154 @@ const _showPageBeforeLive = showPage;
 showPage = function (page) { _showPageBeforeLive(page); if (page === 'media') requestAnimationFrame(liveFit); };
 if (!document.getElementById('plex-livetv').hidden) liveOpen();
 // ─── end Plex Live TV siloed addition ────────────────────────────────────────
+
+// ─── Admin tools in Diagnostics (siloed addition, 2026-10-10) ───────────────
+// Console / Database sub-tabs embed Shell In A Box and phpMyAdmin through
+// /api/tools/<tool>/ (dashboard_api.py). Frames load on first open and are
+// kept (a console session survives switching tabs). Wraps showDiagSub, which
+// runs during boot -- only var state here. To back out: delete this block, the
+// two buttons/panels, the CSS block and the route block in dashboard_api.py.
+var adminToolsLoaded = {};
+function adminToolFit(tool) {
+  const box = document.getElementById('admin-frame-' + tool);
+  if (!box || !box.offsetParent) return;
+  const z = parseFloat(getComputedStyle(document.getElementById('page-mqtt')).zoom) || 1;
+  const top = box.getBoundingClientRect().top;
+  box.style.height = Math.max(320, (innerHeight - top - 16) / z) + 'px';
+}
+function adminToolOpen(tool) {
+  if (!adminToolsLoaded[tool]) {
+    adminToolsLoaded[tool] = true;
+    const f = document.createElement('iframe');
+    f.src = '/api/tools/' + tool + '/';
+    f.title = tool === 'db' ? 'phpMyAdmin' : 'Console';
+    document.getElementById('admin-frame-' + tool).appendChild(f);
+  }
+  requestAnimationFrame(() => adminToolFit(tool));
+}
+var _showDiagSubBeforeAdmin = showDiagSub;
+showDiagSub = function (tab) {
+  _showDiagSubBeforeAdmin(tab);
+  ['console', 'db'].forEach(t => {
+    const p = document.getElementById('diag-panel-' + t), b = document.getElementById('diag-sub-' + t + '-btn');
+    if (p) p.classList.toggle('active', tab === t);
+    if (b) b.classList.toggle('active', tab === t);
+  });
+  if ((tab === 'console' || tab === 'db') && currentPage === 'mqtt') adminToolOpen(tab);
+};
+var _showPageBeforeAdmin = showPage;
+showPage = function (page) {
+  _showPageBeforeAdmin(page);
+  if (page === 'mqtt' && (diagSubTab === 'console' || diagSubTab === 'db')) adminToolOpen(diagSubTab);
+};
+addEventListener('resize', () => requestAnimationFrame(() => { adminToolFit('console'); adminToolFit('db'); }));
+// ─── end Admin tools siloed addition ─────────────────────────────────────────
+
+// ─── Alert acknowledge (siloed addition) ───────────────────────────────────────
+// Lists the server's active push alerts (/api/alerts). Ack = no more pushes for
+// that alert until its condition has been clear for 5 minutes; then it re-arms.
+function alertsEsc(t) { return String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+function alertsAgo(ts) {
+  if (!ts) return '';
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 2880 ? `${Math.floor(m / 60)}h ${m % 60}m ago` : `${Math.floor(m / 1440)}d ago`;
+}
+let alertsLatest = [];
+async function fetchAlerts() {
+  const list = document.getElementById('alerts-list');
+  if (!list) return;
+  let alerts;
+  try { alerts = (await (await fetch('/api/alerts')).json()).alerts || []; }
+  catch (e) { list.innerHTML = '<div class="bt-card-empty">Alert status unavailable</div>'; return; }
+  alertsLatest = alerts;
+  renderHeaderAlerts();
+  const open = alerts.filter(a => !a.acked_at).length;
+  const sum = document.getElementById('alerts-summary');
+  sum.textContent = open ? `● ${open} active` : alerts.length ? '● All acknowledged' : '● None active';
+  sum.style.color = open ? '#e8a030' : '#3db87a';
+  list.innerHTML = alerts.length ? alerts.map(a => `
+    <div class="bt-card-row alert-row${a.acked_at ? ' acked' : ''}">
+      <span class="bt-card-name"><b>${alertsEsc(a.title)}</b><span class="alert-msg">${alertsEsc(a.message)}</span></span>
+      <span class="bt-card-sub">${a.acked_at ? 'Acked ' + alertsAgo(a.acked_at) : 'Since ' + alertsAgo(a.since)}</span>
+      <button class="alert-ack-btn" onclick="alertAck('${alertsEsc(a.key)}', ${a.acked_at ? 'false' : 'true'})">${a.acked_at ? 'Un-ack' : 'Ack'}</button>
+    </div>`).join('') : '<div class="bt-card-empty">No push alerts active</div>';
+}
+async function alertAck(key, ack) {
+  try { await fetch(`/api/alerts/${encodeURIComponent(key)}/${ack ? 'ack' : 'unack'}`, { method: 'POST' }); } catch (e) {}
+  fetchAlerts();
+}
+fetchAlerts();
+setInterval(fetchAlerts, 15000);
+// ─── end Alert acknowledge siloed addition ─────────────────────────────────────
+
+// ─── Banner ack (siloed addition) ──────────────────────────────────────────────
+// Header chips that have a matching push alert open a small menu on click:
+// Acknowledge (same as Diagnostics > Push alerts) or go to the chip's page.
+// Chips whose push alerts are all acked stay visible, dimmed, with a ✓.
+const HDR_ACK_KEYS = {
+  bat48: ['house_soc_alarm', 'house_soc_warning'],
+  bat12: ['crit_bat12'], batdiesel: ['crit_batdiesel'], batthrust: ['crit_batthrust'],
+  anchor: ['anchor_drag'], depth: ['anchor_depth'], gps: ['anchor_gps'],
+};
+const _hdrAckSetHeaderAlert = setHeaderAlert;
+setHeaderAlert = function (id, alert) {
+  if (alert) alert.hid = id;
+  _hdrAckSetHeaderAlert(id, alert);
+};
+function hdrAckState(hid) {
+  const keys = HDR_ACK_KEYS[hid] || [];
+  const active = alertsLatest.filter(a => keys.includes(a.key));
+  return { active, open: active.filter(a => !a.acked_at) };
+}
+const _hdrAckRenderHeaderAlerts = renderHeaderAlerts;
+renderHeaderAlerts = function () {
+  _hdrAckRenderHeaderAlerts();
+  const box = document.getElementById('hdr-alerts');
+  if (!box) return;
+  // same order renderHeaderAlerts used for data-i
+  const shown = Object.values(headerAlerts).sort((a, b) => (a.level === 'crit' ? 0 : 1) - (b.level === 'crit' ? 0 : 1));
+  box.querySelectorAll('.marine-alert-chip').forEach(el => {
+    const a = shown[+el.dataset.i];
+    if (!a || !a.hid) return;
+    const st = hdrAckState(a.hid);
+    if (!st.active.length) return;   // no push alert behind this chip: keep the normal click
+    const acked = !st.open.length;
+    el.classList.toggle('acked', acked);
+    if (acked) { el.firstElementChild.textContent = '✓'; el.title = 'Acknowledged -- no more phone alerts until it clears. ' + el.title; }
+    const navClick = a.onclick || (a.page ? () => showPage(a.page) : null);
+    el.onclick = ev => { ev.stopPropagation(); hdrAckMenu(el, a, st, navClick); };
+  });
+};
+function hdrAckMenuClose() { document.getElementById('hdr-ack-menu')?.remove(); }
+function hdrAckMenu(chip, a, st, navClick) {
+  hdrAckMenuClose();
+  const m = document.createElement('div');
+  m.id = 'hdr-ack-menu'; m.className = 'hdr-ack-menu';
+  m.onclick = ev => ev.stopPropagation();
+  const t = document.createElement('div'); t.className = 't'; t.textContent = a.text; m.appendChild(t);
+  const b1 = document.createElement('button');
+  if (st.open.length) {
+    b1.className = 'ack'; b1.textContent = '✓ Acknowledge (stop phone alerts)';
+    b1.onclick = async () => { hdrAckMenuClose(); await Promise.all(st.open.map(x => alertAck(x.key, true))); };
+  } else {
+    b1.textContent = 'Un-acknowledge (resume phone alerts)';
+    b1.onclick = async () => { hdrAckMenuClose(); await Promise.all(st.active.map(x => alertAck(x.key, false))); };
+  }
+  m.appendChild(b1);
+  if (navClick) {
+    const pg = a.page && document.getElementById('nav-' + a.page);
+    const b2 = document.createElement('button');
+    b2.textContent = `Open ${pg ? pg.innerText.replace(/^\S+\s*/, '').trim() || 'details' : 'details'} →`;
+    b2.onclick = () => { hdrAckMenuClose(); navClick(); };
+    m.appendChild(b2);
+  }
+  document.body.appendChild(m);
+  const r = chip.getBoundingClientRect();
+  m.style.top = (r.bottom + 6) + 'px';
+  m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 8)) + 'px';
+}
+document.addEventListener('click', hdrAckMenuClose);
+// ─── end Banner ack siloed addition ────────────────────────────────────────────
 </script>
 </body>
 </html>

@@ -152,6 +152,32 @@ def index():
     record_access()
     return send_from_directory('static-src', 'index.html')
 
+# ─── Boat Radio proxy for the square nav-station display (siloed addition) ──
+# square.html is served from this origin and pianobar-web (:5010) sends no CORS
+# headers, so the few calls the Radio page needs are passed through here.
+# Only this allowlist is forwarded; station editing etc. stay in the Media tab.
+RADIO_URL = 'http://127.0.0.1:5010'
+RADIO_ALLOWED = {('GET', 'api/state'), ('POST', 'api/cmd'), ('POST', 'api/station'),
+                 ('POST', 'api/player/start'), ('POST', 'api/airplay/volume')}
+
+@app.route('/api/radio/<path:sub>', methods=['GET', 'POST'])
+def radio_proxy(sub):
+    if (request.method, sub) not in RADIO_ALLOWED:
+        return jsonify({'error': 'not allowed'}), 404
+    try:
+        r = requests.request(request.method, f'{RADIO_URL}/{sub}', json=request.get_json(silent=True),
+                             timeout=12)
+    except requests.RequestException:
+        return jsonify({'error': 'Boat Radio is not running'}), 503
+    return Response(r.content, status=r.status_code, mimetype='application/json',
+                    headers={'Cache-Control': 'no-store'})
+# ─── end Boat Radio proxy ───────────────────────────────────────────────────
+
+# Square nav-station display (siloed addition); prod nginx serves the same file from /var/www/dashboard
+@app.route('/square.html')
+def square_page():
+    return send_from_directory('static-src', 'square.html')
+
 @app.route('/assets/<path:filename>')
 def assets(filename):
     return send_from_directory('static-src/assets', filename)
@@ -350,6 +376,47 @@ def get_vrm_data():
             if r['code'] == 'TTG':
                 val = round(val * 60)  # hours -> minutes, the unit the Electrical tab shows
             result[f"{per_instance[r['code']]}_{suffix}"] = val
+    # ─── 48V time to go / consumed Ah (siloed addition) ──────────────────────
+    # The 48V BMS (VRM instance 512) reports TTG 0 h, CE 0 Ah and a capacity of
+    # 20 Ah, and 'tTTG'/'bAC' never appear -- so derive both from SOC + current.
+    # time_to_go is minutes: to 100% while charging, to 0% while discharging.
+    BANK48_AH = 200
+    result.pop('time_to_go', None)
+    result.pop('consumed_ah', None)
+    soc48, cur48 = result.get('soc'), result.get('current')
+    if isinstance(soc48, float):
+        result['consumed_ah'] = round(-(100 - soc48) / 100 * BANK48_AH, 1)
+        if isinstance(cur48, float) and abs(cur48) >= 0.5:
+            charging48 = cur48 > 0
+            ah_left = (100 - soc48 if charging48 else soc48) / 100 * BANK48_AH
+            result['time_to_go'] = round(ah_left / abs(cur48) * 60)
+            result['ttg_mode'] = 'charge' if charging48 else 'discharge'
+    # ─── end 48V time to go siloed addition ──────────────────────────────────
+    # ─── 12V time to charged (siloed addition) ───────────────────────────────
+    # The 12V SmartShunt (instance 279) reports real CE and TTG, but TTG is 0 h
+    # while charging. Keep its TTG when discharging (it counts to the shunt's
+    # discharge floor); while charging, derive time to 100% from SOC, current
+    # and the shunt's capacity ('ca'). ttg_12v stays in minutes.
+    cap12 = 150.0
+    for r in data.get('records', []):
+        if r.get('instance') == 279 and r.get('code') == 'ca':
+            try:
+                cap12 = float(r.get('rawValue'))
+            except (TypeError, ValueError):
+                pass
+    soc12, cur12 = result.get('soc_12v'), result.get('i_12v')
+    result.pop('ttg_mode_12v', None)
+    if isinstance(soc12, float) and isinstance(cur12, float) and abs(cur12) >= 0.5:
+        if cur12 > 0:
+            result['ttg_12v'] = round((100 - soc12) / 100 * cap12 / cur12 * 60)
+            result['ttg_mode_12v'] = 'charge'
+        else:
+            if not result.get('ttg_12v'):
+                result['ttg_12v'] = round(soc12 / 100 * cap12 / -cur12 * 60)
+            result['ttg_mode_12v'] = 'discharge'
+    else:
+        result.pop('ttg_12v', None)
+    # ─── end 12V time to charged siloed addition ─────────────────────────────
     # 'ms' (mapped to mp_state above) is the Cerbo GX's serial number, not the
     # MultiPlus -- the VE.Bus state (Bulk / Absorption / Float / Inverting ...) is 'S'.
     # MultiPlus DC side on its own (the battery's current is the net of every
@@ -1518,6 +1585,22 @@ def anchor_trail_route():
     with ANCHOR_TRAIL_LOCK:
         return jsonify(list(_anchor_trail))
 
+# Recent slice of the anchor trail for the square nav-station display (siloed
+# addition): last `minutes` (default 60), thinned to at most `max` points so a
+# Pi Zero kiosk isn't pulling the whole ~7 h trail every poll.
+@app.route('/api/anchor/trail_recent')
+def anchor_trail_recent():
+    minutes = max(1, min(request.args.get('minutes', 60, type=int), 600))
+    max_pts = max(10, min(request.args.get('max', 360, type=int), 2000))
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    with ANCHOR_TRAIL_LOCK:
+        pts = [p for p in _anchor_trail if p['t'] >= cutoff]
+    step = max(1, math.ceil(len(pts) / max_pts))
+    out = pts[::step]
+    if pts and out[-1] is not pts[-1]:
+        out.append(pts[-1])
+    return jsonify([[p['lat'], p['lon']] for p in out])
+
 @app.route('/api/anchor/drop', methods=['POST'])
 def anchor_drop():
     data = request.get_json(silent=True) or {}
@@ -1615,7 +1698,9 @@ try:
 except ImportError:
     GPIO_AVAILABLE = False
 
-def send_ntfy(title, message, priority='urgent', tags='warning'):
+def send_ntfy(title, message, priority='urgent', tags='warning', alert_key=None):
+    if alert_key and not alert_should_send(alert_key, title, message):
+        return False  # acknowledged in Diagnostics > Alerts (siloed addition below)
     # Header values must be Latin-1 (HTTP spec) — emoji/non-ASCII in the Title
     # header raises UnicodeEncodeError in requests, so keep the title plain
     # ASCII and let ntfy's Tags header supply the icon instead.
@@ -1626,7 +1711,7 @@ def send_ntfy(title, message, priority='urgent', tags='warning'):
         r = requests.post(
             f'https://ntfy.sh/{topic}',
             data=message.encode('utf-8'),
-            headers={'Title': title, 'Priority': priority, 'Tags': tags},
+            headers={'Title': title, 'Priority': priority, 'Tags': tags, **alert_ntfy_actions(alert_key, topic)},
             timeout=5,
         )
         r.raise_for_status()
@@ -1634,6 +1719,167 @@ def send_ntfy(title, message, priority='urgent', tags='warning'):
     except Exception as e:
         print(f'send_ntfy failed: {e}', flush=True)  # best-effort — a failed push must never take down the monitor loop
         return False
+
+# ─── Alert acknowledge (siloed addition) ────────────────────────────────────
+# Diagnostics > Alerts lists active push alerts with an Ack button. An
+# acknowledged alert sends no more pushes until its condition has been clear
+# for ALERT_CLEAR_GRACE_S (so a reading hovering at a threshold can't undo the
+# ack); after that the next trip alerts again. Acks live in one file shared by
+# prod and dev, so one ack silences both servers' duplicate pushes.
+# Prod and dev can disagree (e.g. separate anchor_state.json files), so a
+# server only lifts an ack for an alert it raised itself, and only once no
+# server has re-raised it for ALERT_CLEAR_GRACE_S ('last' in the ack file).
+# An ack nobody has raised for ALERT_ORPHAN_ACK_S (both servers restarted
+# while it cleared) is lifted too, so it can't silence a later trip.
+ALERT_ACKS_FILE = '/home/mikemc/alert_acks.json'
+ALERT_CLEAR_GRACE_S = 300
+ALERT_ORPHAN_ACK_S = 3600
+_alerts_lock = threading.Lock()
+_alerts_active = {}    # key -> {'title', 'message', 'since', 'last'}
+_alerts_clearing = {}  # key -> first time the condition was seen clear
+
+def _alert_acks_load():
+    try:
+        with open(ALERT_ACKS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+def _alert_acks_save(acks):
+    tmp = ALERT_ACKS_FILE + f'.{os.getpid()}.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(acks, f)
+    os.replace(tmp, ALERT_ACKS_FILE)
+
+def alert_should_send(key, title, message):
+    """Record the alert as active; False once it has been acknowledged."""
+    now = time.time()
+    with _alerts_lock:
+        _alerts_clearing.pop(key, None)
+        a = _alerts_active.setdefault(key, {'since': now})
+        a.update(title=title, message=message, last=now)
+        acks = _alert_acks_load()
+        if key not in acks:
+            return True
+        acks[key]['last'] = now  # still tripped somewhere: no server may lift this ack yet
+        _alert_acks_save(acks)
+        return False
+
+def alert_clear(key):
+    now = time.time()
+    with _alerts_lock:
+        raised_here = _alerts_active.pop(key, None) is not None or key in _alerts_clearing
+        if raised_here:
+            _alerts_clearing.setdefault(key, now)
+        acks = _alert_acks_load()
+        if key not in acks:
+            return
+        last = acks[key].get('last') or acks[key].get('at') or 0
+        if raised_here:
+            lift = now - _alerts_clearing[key] >= ALERT_CLEAR_GRACE_S and now - last >= ALERT_CLEAR_GRACE_S
+        else:
+            lift = now - last >= ALERT_ORPHAN_ACK_S
+        if lift:
+            del acks[key]
+            _alert_acks_save(acks)
+
+@app.route('/api/alerts')
+def alerts_list():
+    with _alerts_lock:
+        acks = _alert_acks_load()
+        out = [dict(a, key=k, acked_at=acks.get(k, {}).get('at')) for k, a in _alerts_active.items()]
+        # acked alerts this server hasn't re-raised (e.g. since a restart) still show, so they can be un-acked
+        out += [{'key': k, 'title': v.get('title', k), 'message': v.get('message', ''), 'since': v.get('since'),
+                 'last': None, 'acked_at': v.get('at')} for k, v in acks.items() if k not in _alerts_active]
+    return jsonify({'alerts': sorted(out, key=lambda a: a.get('since') or 0)})
+
+@app.route('/api/alerts/<key>/ack', methods=['POST'])
+def alerts_ack(key):
+    with _alerts_lock:
+        a = _alerts_active.get(key)
+        if a is None:
+            return jsonify({'error': 'no such active alert'}), 404
+        acks = _alert_acks_load()
+        acks[key] = {'at': time.time(), 'title': a['title'], 'message': a['message'], 'since': a['since']}
+        _alert_acks_save(acks)
+    return jsonify({'ok': True})
+
+@app.route('/api/alerts/<key>/unack', methods=['POST'])
+def alerts_unack(key):
+    with _alerts_lock:
+        acks = _alert_acks_load()
+        if acks.pop(key, None) is not None:
+            _alert_acks_save(acks)
+    return jsonify({'ok': True})
+# ─── end Alert acknowledge siloed addition ──────────────────────────────────
+
+# ─── Phone ack via ntfy action button (siloed addition) ─────────────────────
+# Keyed pushes carry an "Acknowledge" button. Tapping it makes the ntfy app
+# POST "ack <key> <token>" to the side topic <NTFY_TOPIC>-ack (the phone never
+# has to reach the dashboard, so Cloudflare Access isn't in the way);
+# alert_ntfy_ack_loop() listens there and records the ack exactly like the
+# Diagnostics / banner Ack. token = HMAC of the key with a secret that stays on
+# the Pi, so someone who only guesses the side topic can't ack anything.
+import hmac, hashlib
+ALERT_ACK_SECRET_FILE = '/home/mikemc/.alert_ack_secret'
+
+def _alert_ack_secret():
+    try:
+        fd = os.open(ALERT_ACK_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(os.urandom(32).hex())
+    except FileExistsError:
+        pass
+    with open(ALERT_ACK_SECRET_FILE) as f:
+        return f.read().strip().encode()
+
+def _alert_ack_token(key):
+    return hmac.new(_alert_ack_secret(), key.encode(), hashlib.sha256).hexdigest()[:16]
+
+def alert_ntfy_actions(alert_key, topic):
+    if not alert_key:
+        return {}
+    return {'Actions': f'http, Acknowledge, https://ntfy.sh/{topic}-ack, method=POST, '
+                       f'body=ack {alert_key} {_alert_ack_token(alert_key)}, clear=true'}
+
+def _alert_ntfy_ack(text):
+    parts = text.split()
+    if len(parts) != 3 or parts[0] != 'ack' or not hmac.compare_digest(_alert_ack_token(parts[1]), parts[2]):
+        print(f'alert ntfy ack: ignored {text[:60]!r}', flush=True)
+        return
+    key = parts[1]
+    with _alerts_lock:
+        acks = _alert_acks_load()
+        if key in acks:
+            return  # already acked (the other server got there first)
+        a = _alerts_active.get(key, {})
+        acks[key] = {'at': time.time(), 'title': a.get('title', key), 'message': a.get('message', ''),
+                     'since': a.get('since'), 'via': 'phone'}
+        _alert_acks_save(acks)
+    print(f'alert ntfy ack: {key} acknowledged from phone', flush=True)
+
+def alert_ntfy_ack_loop():
+    since = None
+    while True:
+        topic = get_secrets().get('NTFY_TOPIC')
+        if not topic:
+            time.sleep(300)
+            continue
+        try:
+            url = f'https://ntfy.sh/{topic}-ack/json' + (f'?since={since}' if since else '')
+            with requests.get(url, stream=True, timeout=(10, 120)) as r:  # ntfy keepalives every ~45 s
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    m = json.loads(line)
+                    if m.get('event') == 'message':
+                        since = m.get('id')
+                        _alert_ntfy_ack(m.get('message', ''))
+        except Exception as e:
+            print(f'alert_ntfy_ack_loop: {e}', flush=True)
+            time.sleep(30)
+# ─── end Phone ack siloed addition ──────────────────────────────────────────
 
 def set_alarm_gpio(active):
     if not GPIO_AVAILABLE:
@@ -1678,29 +1924,32 @@ def anchor_monitor_loop():
                 if now - _anchor_monitor['drag_notified_at'] > ANCHOR_NOTIFY_REPEAT_S:
                     dist_ft = dist_m / M_PER_FT
                     radius_ft = state['radius_m'] / M_PER_FT
-                    send_ntfy('Anchor dragging', f"⚓ Exit Strategy is {dist_ft:.0f} ft from the anchor — outside its {radius_ft:.0f} ft swing radius.", tags='anchor,warning')
+                    send_ntfy('Anchor dragging', f"⚓ Exit Strategy is {dist_ft:.0f} ft from the anchor — outside its {radius_ft:.0f} ft swing radius.", tags='anchor,warning', alert_key='anchor_drag')
                     _anchor_monitor['drag_notified_at'] = now
             else:
                 _anchor_monitor['drag_notified_at'] = 0
+                alert_clear('anchor_drag')
 
             if shallow:
                 if now - _anchor_monitor['depth_notified_at'] > ANCHOR_NOTIFY_REPEAT_S:
                     depth_ft = depth_m / M_PER_FT
                     depth_alarm_ft = depth_alarm_m / M_PER_FT
-                    send_ntfy('Shallow water', f'🌊 Depth is {depth_ft:.1f} ft, below the {depth_alarm_ft:.1f} ft alarm threshold.', tags='ocean,warning')
+                    send_ntfy('Shallow water', f'🌊 Depth is {depth_ft:.1f} ft, below the {depth_alarm_ft:.1f} ft alarm threshold.', tags='ocean,warning', alert_key='anchor_depth')
                     _anchor_monitor['depth_notified_at'] = now
             else:
                 _anchor_monitor['depth_notified_at'] = 0
+                alert_clear('anchor_depth')
 
             if gps_lost:
                 if now - _anchor_monitor['gps_notified_at'] > ANCHOR_NOTIFY_REPEAT_S:
                     if gps_age_s is None:
-                        send_ntfy('GPS signal lost', '📡 No GPS fix has been received — anchor watch cannot verify position.', tags='satellite,warning')
+                        send_ntfy('GPS signal lost', '📡 No GPS fix has been received — anchor watch cannot verify position.', tags='satellite,warning', alert_key='anchor_gps')
                     else:
-                        send_ntfy('GPS signal lost', f'📡 Last GPS fix was {gps_age_s:.0f}s ago — anchor watch cannot verify position.', tags='satellite,warning')
+                        send_ntfy('GPS signal lost', f'📡 Last GPS fix was {gps_age_s:.0f}s ago — anchor watch cannot verify position.', tags='satellite,warning', alert_key='anchor_gps')
                     _anchor_monitor['gps_notified_at'] = now
             else:
                 _anchor_monitor['gps_notified_at'] = 0
+                alert_clear('anchor_gps')
 
             set_alarm_gpio(dragging or shallow or gps_lost)
         except Exception:
@@ -1759,10 +2008,12 @@ _tank_battery_monitor = {
 def _check_low_tank(key, value, threshold, title, label, emoji):
     tripped = value is not None and value < threshold
     if tripped and time.time() - _tank_battery_monitor[key] > TANK_BATTERY_NOTIFY_REPEAT_S:
-        send_ntfy(title, f'{emoji} {label} is at {value:.0f}% -- below the {threshold:.0f}% alarm threshold.', tags='warning')
+        send_ntfy(title, f'{emoji} {label} is at {value:.0f}% -- below the {threshold:.0f}% alarm threshold.', tags='warning',
+                  alert_key=key.replace('_notified_at', ''))
         _tank_battery_monitor[key] = time.time()
     elif not tripped:
         _tank_battery_monitor[key] = 0
+        alert_clear(key.replace('_notified_at', ''))
 
 def tank_battery_monitor_loop():
     while True:
@@ -1787,14 +2038,17 @@ def tank_battery_monitor_loop():
                     if level == 'alarm':
                         send_ntfy('Battery critically low',
                                   f'🔋 House battery SOC is {soc:.0f}% -- below the {BATTERY_SOC_ALARM_PCT:.0f}% alarm threshold.',
-                                  tags='warning')
+                                  tags='warning', alert_key='house_soc_alarm')
                     else:
                         send_ntfy('Battery low',
                                   f'🔋 House battery SOC is {soc:.0f}% -- below the {BATTERY_SOC_WARNING_PCT:.0f}% warning threshold.',
-                                  priority='high', tags='warning')
+                                  priority='high', tags='warning', alert_key='house_soc_warning')
                     _tank_battery_monitor['soc_notified_at'] = now
+                if level != 'alarm':
+                    alert_clear('house_soc_alarm')
                 if level == 'normal':
                     _tank_battery_monitor['soc_notified_at'] = 0
+                    alert_clear('house_soc_warning')
                 _tank_battery_monitor['soc_level'] = level
 
             with mqtt_lock:
@@ -1810,10 +2064,11 @@ def tank_battery_monitor_loop():
             black = tank_pct('black')
             black_full = black is not None and black >= BLACK_TANK_ALARM_PCT
             if black_full and now - _tank_battery_monitor['black_notified_at'] > TANK_BATTERY_NOTIFY_REPEAT_S:
-                send_ntfy('Black water tank full', f'🚽 Black water tank is at {black:.0f}% -- consider a pump-out.', tags='warning')
+                send_ntfy('Black water tank full', f'🚽 Black water tank is at {black:.0f}% -- consider a pump-out.', tags='warning', alert_key='black')
                 _tank_battery_monitor['black_notified_at'] = now
             elif not black_full:
                 _tank_battery_monitor['black_notified_at'] = 0
+                alert_clear('black')
         except Exception:
             pass  # never let one bad reading kill the monitor thread
 
@@ -2599,6 +2854,159 @@ def ocharts_features():
     return jsonify(data)
 # ─── end O-Charts siloed addition ──────────────────────────────────────────
 
+# ─── Satellite base layer with on-disk tile cache (siloed addition) ────────
+# Chart tab "Satellite" source. Tiles come from Esri World Imagery once, are
+# kept under chart_data/satellite_cache, and are served from disk from then on
+# (also when offline). The cache is shared by dev and prod and capped at
+# SAT_CACHE_MAX_BYTES; when it grows past that, the least recently viewed
+# tiles are deleted. To back out: delete this block and the frontend block.
+SAT_CACHE_DIR = '/home/mikemc/dashboard-dev/chart_data/satellite_cache'
+SAT_CACHE_MAX_BYTES = 5 * 1024**3
+SAT_UPSTREAM = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+_sat_session = requests.Session()
+_sat_session.headers['User-Agent'] = 'ExitStrategy-dashboard/1.0'
+_sat_new_tiles = 0
+_sat_prune_lock = threading.Lock()
+
+def _sat_prune():
+    if not _sat_prune_lock.acquire(blocking=False):
+        return
+    try:
+        files = []
+        for root, _dirs, names in os.walk(SAT_CACHE_DIR):
+            for n in names:
+                p = os.path.join(root, n)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                files.append((st.st_mtime, st.st_size, p))
+        total = sum(f[1] for f in files)
+        if total <= SAT_CACHE_MAX_BYTES:
+            return
+        files.sort()  # oldest mtime (least recently viewed) first
+        for _mt, size, p in files:
+            if total <= SAT_CACHE_MAX_BYTES * 0.8:
+                break
+            try:
+                os.remove(p)
+                total -= size
+            except OSError:
+                pass
+    finally:
+        _sat_prune_lock.release()
+
+@app.route('/api/charts/satellite/tiles/<int:z>/<int:x>/<int:y>.jpg')
+def satellite_tile(z, x, y):
+    global _sat_new_tiles
+    if not (0 <= z <= 19 and 0 <= x < 2**z and 0 <= y < 2**z):
+        return '', 404
+    path = os.path.join(SAT_CACHE_DIR, str(z), str(x), f'{y}.jpg')
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+        if time.time() - os.path.getmtime(path) > 86400:
+            os.utime(path)  # mark as recently viewed so pruning keeps it
+    except OSError:
+        try:
+            r = _sat_session.get(SAT_UPSTREAM.format(z=z, x=x, y=y), timeout=10)
+        except requests.RequestException:
+            return '', 503, {'Cache-Control': 'no-store'}  # offline and not cached
+        if r.status_code != 200 or not r.headers.get('Content-Type', '').startswith('image/'):
+            return '', 404, {'Cache-Control': 'no-store'}
+        data = r.content
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f'{path}.{os.getpid()}.{threading.get_ident()}.tmp'
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            os.replace(tmp, path)
+            _sat_new_tiles += 1
+            if _sat_new_tiles % 500 == 0:
+                threading.Thread(target=_sat_prune, daemon=True).start()
+        except OSError:
+            pass
+    resp = Response(data, mimetype='image/jpeg')
+    resp.headers['Cache-Control'] = 'public, max-age=2592000'  # browser keeps it 30 days too
+    return resp
+# ─── end Satellite siloed addition ─────────────────────────────────────────
+
+# ─── Street map tiles with on-disk cache (siloed addition) ─────────────────
+# OpenStreetMap tiles for the square nav-station Chart page, fetched once and
+# then served from chart_data/streets_cache (also offline), same scheme as the
+# satellite cache above (2 GB cap, least recently viewed pruned first).
+# OSM's tile policy asks for an identifying User-Agent and allows caching.
+STREETS_CACHE_DIR = '/home/mikemc/dashboard-dev/chart_data/streets_cache'
+STREETS_CACHE_MAX_BYTES = 2 * 1024**3
+STREETS_UPSTREAM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+_streets_session = requests.Session()
+_streets_session.headers['User-Agent'] = 'ExitStrategy-boat-dashboard/1.0 (private, single user)'
+_streets_new_tiles = 0
+_streets_prune_lock = threading.Lock()
+
+def _streets_prune():
+    if not _streets_prune_lock.acquire(blocking=False):
+        return
+    try:
+        files = []
+        for root, _dirs, names in os.walk(STREETS_CACHE_DIR):
+            for n in names:
+                p = os.path.join(root, n)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                files.append((st.st_mtime, st.st_size, p))
+        total = sum(f[1] for f in files)
+        if total <= STREETS_CACHE_MAX_BYTES:
+            return
+        files.sort()
+        for _mt, size, p in files:
+            if total <= STREETS_CACHE_MAX_BYTES * 0.8:
+                break
+            try:
+                os.remove(p)
+                total -= size
+            except OSError:
+                pass
+    finally:
+        _streets_prune_lock.release()
+
+@app.route('/api/charts/streets/tiles/<int:z>/<int:x>/<int:y>.png')
+def streets_tile(z, x, y):
+    global _streets_new_tiles
+    if not (0 <= z <= 19 and 0 <= x < 2**z and 0 <= y < 2**z):
+        return '', 404
+    path = os.path.join(STREETS_CACHE_DIR, str(z), str(x), f'{y}.png')
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+        if time.time() - os.path.getmtime(path) > 86400:
+            os.utime(path)
+    except OSError:
+        try:
+            r = _streets_session.get(STREETS_UPSTREAM.format(z=z, x=x, y=y), timeout=10)
+        except requests.RequestException:
+            return '', 503, {'Cache-Control': 'no-store'}
+        if r.status_code != 200 or not r.headers.get('Content-Type', '').startswith('image/'):
+            return '', 404, {'Cache-Control': 'no-store'}
+        data = r.content
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f'{path}.{os.getpid()}.{threading.get_ident()}.tmp'
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            os.replace(tmp, path)
+            _streets_new_tiles += 1
+            if _streets_new_tiles % 500 == 0:
+                threading.Thread(target=_streets_prune, daemon=True).start()
+        except OSError:
+            pass
+    resp = Response(data, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=604800'
+    return resp
+# ─── end Street map tiles siloed addition ──────────────────────────────────
+
 # ─── Merged NOAA + O-Charts base (siloed addition) ─────────────────────────
 # One base layer for the Chart tab: NOAA NCDS drawn on top of O-Charts. NCDS
 # tiles are transparent outside NOAA coverage (e.g. BVI), so wherever NOAA has
@@ -3176,6 +3584,7 @@ def crit_battery_monitor_loop():
                 tripped = alarm is not None or (soc is not None and soc <= crit)
                 if not tripped:
                     _crit_battery_notified_at[key] = 0
+                    alert_clear(f'crit_{key}')
                     continue
                 if now - _crit_battery_notified_at[key] <= TANK_BATTERY_NOTIFY_REPEAT_S:
                     continue
@@ -3184,7 +3593,7 @@ def crit_battery_monitor_loop():
                     msg = f'🔋 {label}: {alarm}' + (f' ({soc:.0f}% SOC).' if soc is not None else '.')
                 else:
                     msg = f'🔋 {label} is at {soc:.0f}% -- at or below the {crit:.0f}% critical threshold.'
-                send_ntfy(f'{prefix}{label} critically low', msg, tags='warning')
+                send_ntfy(f'{prefix}{label} critically low', msg, tags='warning', alert_key=f'crit_{key}')
                 _crit_battery_notified_at[key] = now
         except Exception as e:
             print(f'crit_battery_monitor_loop: {e}', flush=True)  # never let one bad reading kill the thread
@@ -4985,6 +5394,72 @@ def plexlive_guide(grid):
     return jsonify({'programs': out[:16]})
 # ─── end Plex Live TV siloed addition ────────────────────────────────────────
 
+# ─── Admin tools in Diagnostics (siloed addition, 2026-10-10) ────────────────
+# Diagnostics > Console / Database embed Shell In A Box (https://127.0.0.1:4200,
+# localhost-only, self-signed) and phpMyAdmin (http://127.0.0.1:8081) through
+# these routes, so they work on the boat without internet and stay same-origin
+# (night mode applies). They are only as protected as the dashboard itself:
+# Cloudflare Access away from the boat; on the boat network, the tools' own
+# Linux / database logins. Both tools use relative URLs, so a path prefix works;
+# redirects are rewritten, and phpMyAdmin's X-Frame-Options DENY becomes
+# SAMEORIGIN so it can sit in the dashboard's frame.
+# To back out: delete this block and the matching Diagnostics blocks in index.html.
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+ADMIN_TOOLS = {
+    'console': {'base': 'https://127.0.0.1:4200', 'verify': False},
+    'db':      {'base': 'http://127.0.0.1:8081',  'verify': True},
+}
+_ADMIN_HOP = {'connection', 'keep-alive', 'transfer-encoding', 'content-encoding', 'content-length',
+              'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'upgrade'}
+_ADMIN_FWD = ('Content-Type', 'Cookie', 'User-Agent', 'Accept', 'Accept-Language',
+              'X-Requested-With', 'Cache-Control', 'Pragma', 'If-None-Match', 'If-Modified-Since')
+
+@app.route('/api/tools/<tool>/', defaults={'sub': ''}, methods=['GET', 'POST', 'HEAD'])
+@app.route('/api/tools/<tool>/<path:sub>', methods=['GET', 'POST', 'HEAD'])
+def admin_tool_proxy(tool, sub):
+    cfg = ADMIN_TOOLS.get(tool)
+    if not cfg or '..' in sub.split('/'):
+        return '', 404
+    prefix = f'/api/tools/{tool}/'
+    url = f"{cfg['base']}/{sub}"
+    if request.query_string:
+        url += '?' + request.query_string.decode('latin-1')
+    hdrs = {k: request.headers[k] for k in _ADMIN_FWD if k in request.headers}
+    hdrs['X-Forwarded-Proto'] = request.headers.get('X-Forwarded-Proto', request.scheme)
+    try:
+        up = requests.request(request.method, url, headers=hdrs, data=request.get_data(),
+                              allow_redirects=False, verify=cfg['verify'], stream=True, timeout=(5, 120))
+    except requests.RequestException:
+        return Response(f'{tool} is not reachable on this Pi', status=502, mimetype='text/plain')
+    out = []
+    for k, v in up.raw.headers.items():
+        lk = k.lower()
+        if lk in _ADMIN_HOP:
+            continue
+        if lk == 'x-frame-options':
+            v = 'SAMEORIGIN'
+        elif lk == 'location':
+            v = re.sub(r'^https?://[^/]+/', prefix, v)          # absolute to the tool itself
+            if v.startswith('/') and not v.startswith(prefix):  # root-relative
+                v = prefix + v.lstrip('/')
+        out.append((k, v))
+    if tool == 'console' and sub == '' and 'text/html' in (up.headers.get('Content-Type') or ''):
+        # Shell In A Box's start page forces https: ("var hasSSL = true;") and
+        # redirects itself; follow the dashboard's own scheme instead.
+        body = up.content.decode('utf-8', 'replace').replace(
+            'var hasSSL = true;', "var hasSSL = (document.location.protocol == 'https:');")
+        up.close()
+        return Response(body, status=up.status_code, headers=out)
+    def gen():
+        try:
+            for chunk in up.iter_content(64 * 1024):
+                yield chunk
+        finally:
+            up.close()
+    return Response(gen(), status=up.status_code, headers=out)
+# ─── end Admin tools siloed addition ─────────────────────────────────────────
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok'})
@@ -5002,6 +5477,7 @@ if __name__ == '__main__':
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
         threading.Thread(target=crit_battery_monitor_loop, daemon=True).start()  # 12V/diesel/thruster critical push (siloed)
+        threading.Thread(target=alert_ntfy_ack_loop, daemon=True).start()        # phone Acknowledge button (siloed)
         threading.Thread(target=router_autorejoin_loop, daemon=True).start()     # boat router repeater auto-rejoin (siloed)
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
         electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
