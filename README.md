@@ -35,6 +35,8 @@ Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc
 
 ## Dev/test tools
 
+> **Archived 2026-10-29** (Pi moving aboard): the `*_simulator.py` scripts and `victron-simulator.service` now live in `archive/simulators/`, and the Diagnostics → Simulators tab is hidden. Run them from there (`cd archive/simulators`) if needed; the commands below otherwise still apply.
+
 - **`gps_simulator.py`** — simulates a boat swinging at anchor (optionally dragging) on `boat/nav/gps/*`, `boat/nav/heading`, `boat/nav/depth`. Unblocks anchor watch / AIS / weather dev without real GPS hardware.
   ```
   python3 gps_simulator.py --swing-radius 25

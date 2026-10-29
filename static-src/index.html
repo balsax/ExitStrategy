@@ -2451,7 +2451,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <button class="diag-subtab-btn" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
-      <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')">Simulators</button>
+      <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')" style="display:none">Simulators</button><!-- hidden 2026-10-29 for the move aboard: scripts archived in archive/simulators/; remove style to bring back -->
       <!-- siloed Admin tools: Console (Shell In A Box) + Database (phpMyAdmin) -->
       <button class="diag-subtab-btn" id="diag-sub-console-btn" onclick="showDiagSub('console')">Console</button>
       <button class="diag-subtab-btn" id="diag-sub-db-btn" onclick="showDiagSub('db')">Database</button>
