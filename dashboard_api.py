@@ -1446,7 +1446,19 @@ def sample_net_rates():
         return None, None
     return round((rx - prev_rx) / dt / 1024.0, 2), round((tx - prev_tx) / dt / 1024.0, 2)
 
-DISK_DEVICE = 'sda'  # matches df -h's `/` mount (/dev/sda2) on this Pi
+def _root_disk_name():
+    # Whole disk holding `/` (e.g. 'sdb' for /dev/sdb2). Looked up at startup
+    # because USB drive letters can swap between boots.
+    try:
+        st = os.stat('/')
+        dev = os.path.realpath('/sys/dev/block/%d:%d' % (os.major(st.st_dev), os.minor(st.st_dev)))
+        if os.path.exists(os.path.join(dev, 'partition')):
+            dev = os.path.dirname(dev)
+        return os.path.basename(dev)
+    except OSError:
+        return 'sda'
+
+DISK_DEVICE = _root_disk_name()
 _prev_disk_sectors = None  # (read, write, timestamp) from the last sample, for the KB/s delta below
 
 def sample_disk_io_kbps():
