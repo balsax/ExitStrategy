@@ -89,6 +89,26 @@ def record_camera(cam_id, cam, cfg):
             '-hls_segment_filename', os.path.join(cam_live, 'seg%06d.ts'),
             os.path.join(cam_live, 'index.m3u8'),
         ]
+        if cam.get('live_audio'):
+            # Third output: the camera's microphone as an audio-only rolling HLS
+            # feed (~32 kbps) for the Webcams tab's Listen button. Re-encoded,
+            # not copied: the camera's audio timestamps jitter, and copied they
+            # made hls.js reset playback every second or two.
+            # Only for cameras marked "live_audio": true in cameras.json -- an
+            # output with no audio stream would make the whole ffmpeg (and so the
+            # recording) fail. Audio can cut anywhere, so 1 s segments: lower lag.
+            cam_audio = os.path.join(cam_live, 'audio')
+            os.makedirs(cam_audio, exist_ok=True)
+            cmd += [
+                '-map', '0:a', '-c:a', 'aac', '-b:a', '32k', '-ar', '16000', '-ac', '1', '-vn',
+                # fMP4 segments: hls.js hands them to the browser as they are;
+                # MPEG-TS audio-only had to be converted and kept resetting
+                '-f', 'hls', '-hls_time', '1', '-hls_list_size', '8', '-hls_segment_type', 'fmp4',
+                '-hls_fmp4_init_filename', 'init.mp4',
+                '-hls_flags', 'delete_segments+omit_endlist+temp_file',
+                '-hls_segment_filename', os.path.join(cam_audio, 'aseg%06d.m4s'),
+                os.path.join(cam_audio, 'index.m3u8'),
+            ]
     env = dict(os.environ, TZ='UTC')    # strftime file names in UTC (no DST gaps/repeats)
     backoff = 5
     while not stop_event.is_set():

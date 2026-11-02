@@ -162,6 +162,60 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 /* Tablet white-flash fix (siloed, 2026-10-05): give the root a dark background too,
    so any frame where the page has nothing painted shows dark instead of white. */
 html{background:#0a0e1a}
+/* PTZ controls (Reolink, 2026-11-01): press and hold to move */
+.ptz-overlay{position:absolute;left:12px;top:12px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:8px;opacity:.85;transition:opacity .2s;cursor:default}
+.ptz-overlay:hover,.ptz-overlay:focus-within{opacity:1}
+@media (hover:none){.ptz-overlay{opacity:.75}}
+.ptz-pad{display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,42px);gap:5px}
+.ptz-overlay .wc-btn{background:rgba(10,14,26,.35);border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.9);backdrop-filter:blur(2px)}
+.ptz-overlay .wc-btn:hover{background:rgba(10,14,26,.6);border-color:rgba(255,255,255,.5)}
+.ptz-pad .wc-btn{padding:0;width:42px;height:42px;font-size:17px;border-radius:50%;touch-action:none;user-select:none;-webkit-user-select:none}
+.ptz-opts{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;font-size:12px;color:rgba(255,255,255,.9);background:rgba(10,14,26,.6);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:8px 10px;text-shadow:0 1px 2px #000}
+.ptz-opts > *{justify-content:center}
+.ptz-lights{align-items:stretch;align-self:stretch}
+.ptz-opts select{background:rgba(10,14,26,.6);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:3px 6px;color-scheme:dark}
+.ptz-err{font-size:12px;color:#ffb347;min-height:1em}
+.ptz-opts .ptz-light{padding:4px 8px;font-size:12px;border-radius:6px;white-space:nowrap}
+.ptz-overlay .wc-btn.ptz-light.ptz-on{color:#ffd54a;border-color:#ffd54a;background:rgba(60,48,10,.7)}
+.ptz-err:empty{display:none}
+/* One camera: heading row and the camera's title bar fold into the Live/Playback row (2026-11-01) */
+#page-webcams.one-cam > .section{display:none}
+.ptz-row{display:flex;align-items:flex-end;gap:10px}
+.ptz-top{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.ptz-top:empty{display:none}
+.ptz-opts .wc-modes-ov{display:flex;gap:6px}
+.ptz-opts .wc-modes-ov .wc-btn{padding:4px 9px;font-size:12px;border-radius:6px}
+#webcam-grid .ptz-opts #wc-mode-live{display:none}   /* the overlay only shows in Live, so Live would do nothing here */
+.ptz-opts .ptz-pad{align-self:center;margin:4px 0}
+.ptz-lights{display:flex;flex-direction:column;gap:6px}
+.ptz-two{display:flex;gap:6px}
+.ptz-two .wc-btn{flex:1;padding:4px 8px;font-size:12px;border-radius:6px;white-space:nowrap}
+.ptz-overlay .wc-btn.ptz-listen.ptz-on{color:#3db87a;border-color:#3db87a;background:rgba(14,48,32,.7)}
+.ptz-overlay .wc-btn.ptz-irbtn.ptz-on{color:#c9a0ff;border-color:#c9a0ff;background:rgba(40,24,64,.7)}
+.ptz-top #webcam-hint{display:none}
+#page-webcams.one-cam #wc-cam-info{display:none}   /* no name / IP / status / size label with one camera */
+.ptz-top #wc-cam-info{margin-left:0;text-shadow:0 1px 3px #000;background:rgba(10,14,26,.35);padding:3px 8px;border-radius:6px}
+#page-webcams.one-cam > .wc-modes{display:none}
+#page-webcams.one-cam #wc-cam-btns{display:none}   /* the "Boat" camera picker */
+#ptz-modes-pb #wc-mode-playback,#ptz-modes-pb #wc-hd{display:none}
+.wc-video-wrap{touch-action:none;user-select:none;-webkit-user-select:none}
+.wc-video-wrap.wz-zoomed{cursor:grab}
+.wc-video-wrap .wc-btn.ptz-on{color:#3db87a;border-color:#3db87a}
+.ptz-zoom{display:flex;align-items:center;gap:4px}
+.ptz-zoom .wc-btn{padding:2px 8px;font-size:13px;border-radius:6px;min-width:28px}
+.webcam-grid.fill .webcam-frame{overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.webcam-grid.fill .webcam-frame img{-webkit-user-drag:none}
+.webcam-grid.fill .webcam-frame{cursor:grab}
+.webcam-grid.fill .webcam-frame.dragging{cursor:grabbing}
+#page-webcams.one-cam .wc-modes{margin:12px 0 8px}
+.webcam-grid.fill .webcam-head{display:none}
+#wc-cam-info{display:flex;align-items:baseline;gap:10px;margin-left:8px;font-size:13px;color:#e0e6f0;min-width:0;white-space:nowrap;overflow:hidden}
+#wc-cam-info .webcam-status{font-size:11px}
+#wc-cam-info #webcam-hint{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.06em;margin-left:8px}
+/* whole picture, centred */
+.webcam-grid.fill .webcam-frame img,.webcam-grid.fill .webcam-frame video{object-fit:contain;object-position:center}
+.ptz-overlay .wc-btn.ptz-on{color:#4a9fd4;border-color:#4a9fd4;background:rgba(18,32,58,.75)}
+#webcam-grid .webcam-frame{margin-inline:auto}   /* a height-capped frame shrinks in width; keep it centred */
 /* ─── end Webcams CSS ─── */
 .good{color:#3db87a}.warn{color:#e8a030}.info{color:#4a9fd4}.purple{color:#a78bfa}.error{color:#e05050}
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:.5px solid #1a2438;font-size:13px}
@@ -1071,7 +1125,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   <button class="navbtn" id="nav-engine" onclick="showPage('engine')"><span>🔧</span>Engine</button>
   <button class="navbtn" id="nav-reference" onclick="showPage('reference')"><span>📖</span>Reference</button>
   <button class="navbtn" id="nav-media" onclick="showPage('media')"><span>🎵</span>Media</button><!-- siloed Media (Boat Radio) addition -->
-  <button class="navbtn" id="nav-webcams" onclick="showPage('webcams')"><span>📷</span>Webcams</button><!-- siloed Webcams addition -->
+  <button class="navbtn" id="nav-webcams" onclick="showPage('webcams')"><span>📷</span>Camera</button><!-- siloed Webcams addition -->
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
 </div>
 
@@ -2400,19 +2454,26 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
 <!-- ══════════════════ Webcams page — siloed addition ══════════════════ -->
 <script>var _webcamBootHash = location.hash;  // showPage() rewrites the hash during boot; capture it first</script>
 <div class="page" id="page-webcams">
-  <div class="section"><span>Webcams</span><span id="webcam-hint">Tap a camera to enlarge</span></div>
+  <div class="section"><span>Camera</span><span id="webcam-hint">Tap a camera to enlarge</span></div>
   <div class="wc-modes">
     <button class="wc-btn active" id="wc-mode-live" onclick="webcamSetMode('live')">Live</button>
     <button class="wc-btn" id="wc-mode-playback" onclick="webcamSetMode('playback')">Playback (24 h)</button>
     <span class="wc-spacer"></span>
-    <button class="wc-btn" id="wc-hd" onclick="webcamToggleHD()" title="Full resolution video uses about 4 Mbps per camera; low data shows a 640x480 picture every second">Full res</button>
+    <button class="wc-btn" id="wc-hd" onclick="webcamToggleHD()" title="Full resolution video uses about 4 Mbps per camera; low data shows a 640x360 picture every second">Full res</button>
   </div>
   <div class="webcam-grid" id="webcam-grid"></div>
   <!-- Playback (siloed Webcams recording addition) -->
   <div id="wc-playback" style="display:none">
     <div class="wc-bar" id="wc-cam-btns"></div>
     <div class="wc-video-wrap" id="wc-video-wrap">
-      <video id="wc-video" controls playsinline muted></video>
+      <video id="wc-video" playsinline muted></video>
+      <div class="ptz-overlay wc-pb-overlay" id="wc-pb-overlay" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()" style="display:none">
+        <div class="ptz-opts">
+          <div class="wc-modes-ov" id="ptz-modes-pb"></div>
+          <span class="ptz-two"><button class="wc-btn" id="wc-pb-sound" onclick="wcPbSound()" title="Recording sound on/off">🔇 Sound off</button></span>
+          <span class="ptz-zoom">Zoom <button class="wc-btn" title="Zoom out" onclick="wzStep('pb', 1/1.5)">−</button><button class="wc-btn ptz-zoom-val" id="wz-val-pb" title="Reset zoom" onclick="wzReset('pb')">1×</button><button class="wc-btn" title="Zoom in" onclick="wzStep('pb', 1.5)">+</button></span>
+        </div>
+      </div>
       <div class="webcam-msg" id="wc-video-msg">Pick a time on the timeline below.</div>
     </div>
     <div class="wc-bar">
@@ -10851,6 +10912,368 @@ if (_mediaBootHash === '#media') showPage('media');
 // never piles up requests. showPage() is wrapped, not edited; delete this
 // block, the CSS block, the nav button and #page-webcams to remove the feature.
 const WEBCAM_INTERVAL_MS = 1000;
+
+// ─── PTZ (Reolink, 2026-11-01) ───
+// Nudge controls (the E1 Outdoor SE has no optical zoom): each tap moves one
+// step. The server does move -> wait -> stop in a single request, so the step
+// size doesn't depend on the connection and the camera can't be left turning.
+const PTZ_STEPS = {small: {speed: 20, ms: 250}, medium: {speed: 32, ms: 400}, large: {speed: 48, ms: 700}};
+// While steering, the 1-per-second snapshots (or the few-seconds-behind Full res
+// video) make the camera feel slow, so snapshots are fetched back to back
+// (~3-5/s, each ~0.2 s) during a move and for a short tail after Stop -- longer in
+// Full res, until the video has caught up -- and shown over the video meanwhile.
+const PTZ_FAST_TAIL_MS = 1500, PTZ_FAST_TAIL_HD_MS = 4500, PTZ_FAST_GAP_MS = 40;
+let ptzFastUntil = 0, ptzFastCam = null;
+
+function ptzFastLoop() {
+  const c = ptzFastCam;
+  const vid = c && document.getElementById('webcam-vid-' + c.id);
+  if (!c || Date.now() > ptzFastUntil || currentPage !== 'webcams') {
+    if (vid) vid.style.visibility = '';
+    ptzFastCam = null;
+    return;
+  }
+  if (vid) vid.style.visibility = 'hidden';   // show the fresh snapshots instead of the lagging video
+  const img = new Image();
+  const next = () => setTimeout(ptzFastLoop, PTZ_FAST_GAP_MS);
+  img.onload = () => {
+    const el = document.getElementById('webcam-img-' + c.id);
+    if (el) el.src = img.src;
+    c.lastOk = Date.now();
+    next();
+  };
+  img.onerror = next;
+  img.src = '/api/webcams/' + c.id + '/snapshot?t=' + Date.now();
+}
+
+function ptzFastStart(id) {
+  const c = webcams && webcams.find(x => x.id === id);
+  if (!c) return;
+  ptzFastUntil = Infinity;
+  if (!ptzFastCam) { ptzFastCam = c; ptzFastLoop(); }
+}
+const PTZ_DIRS = [['', ''], ['Up', '▲'], ['', ''], ['Left', '◀'], ['', ''], ['Right', '▶'], ['', ''], ['Down', '▼'], ['', '']];
+
+function ptzBarHtml(id) {
+  const pad = PTZ_DIRS.map(([op, label]) => op
+    ? `<button class="wc-btn" title="Nudge ${op.toLowerCase()}" onclick="ptzNudge('${id}','${op}', this)">${label}</button>`
+    : '<span></span>').join('');
+  return `<div class="ptz-overlay" id="ptz-bar-${id}" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()">
+     <div class="ptz-top" id="ptz-top-${id}"></div>
+      <div class="ptz-opts">
+        <div class="wc-modes-ov" id="ptz-modes-${id}"></div>
+        <div class="ptz-lights">
+          <span class="ptz-two">
+            <button class="wc-btn ptz-light" id="ptz-light-${id}" onclick="webcamLightToggle('${id}')" title="Spotlight -- switches itself off after 10 minutes">💡 Light</button>
+            <button class="wc-btn ptz-irbtn" id="ptz-ir-${id}" onclick="webcamIrToggle('${id}')" title="Infrared night vision. Normally automatic; tapping overrides it on/off for 10 minutes">🌙 IR</button>
+          </span>
+          <span class="ptz-two">
+            <button class="wc-btn ptz-listen" id="ptz-listen-${id}" onclick="webcamListenToggle('${id}')" title="Listen to the camera's microphone (runs a couple of seconds behind)">🔊 Listen</button>
+          </span>
+        </div>
+        <div class="ptz-pad">${pad}</div>
+        <span class="ptz-zoom">Zoom <button class="wc-btn" title="Zoom out" onclick="wzStep('${id}', 1/1.5)">−</button><button class="wc-btn ptz-zoom-val" id="wz-val-${id}" title="Reset zoom" onclick="wzReset('${id}')">1×</button><button class="wc-btn" title="Zoom in" onclick="wzStep('${id}', 1.5)">+</button></span>
+        <label id="ptz-presets-wrap-${id}" style="display:none">Go to <select id="ptz-presets-${id}" onchange="ptzGoPreset('${id}', this)"></select></label>
+        <span class="ptz-err" id="ptz-err-${id}"></span>
+      </div>
+    </div>`;
+}
+
+async function ptzSend(id, body) {
+  const err = document.getElementById('ptz-err-' + id);
+  try {
+    const res = await fetch('/api/webcams/' + id + '/ptz', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const d = await res.json().catch(() => ({}));
+    if (err) err.textContent = res.ok ? '' : (d.error || 'PTZ failed');
+  } catch (e) {
+    if (err) err.textContent = 'PTZ failed: no connection';
+  }
+}
+
+async function ptzNudge(id, op, btn) {
+  const step = PTZ_STEPS.medium;   // fixed step size (the Step picker was removed)
+  btn.classList.add('ptz-on');
+  ptzFastStart(id);
+  await ptzSend(id, {op, speed: step.speed, nudge_ms: step.ms});
+  btn.classList.remove('ptz-on');
+  ptzFastUntil = Date.now() + (webcamHD ? PTZ_FAST_TAIL_HD_MS : PTZ_FAST_TAIL_MS);
+}
+
+// ─── Single camera: controls in the overlay + digital zoom (2026-11-01) ───
+// Live: the Live / Playback / Full res buttons and the camera info move into the
+// overlay above the pan/tilt pad, so the picture can start right under the nav.
+// Playback hides the overlay, so they go back to the top row there.
+function webcamPlaceModeButtons() {
+  const page = document.getElementById('page-webcams');
+  if (!page.classList.contains('one-cam') || !webcams) return;
+  const top = document.getElementById('ptz-top-' + webcams[0].id);
+  const modes = page.querySelector('.wc-modes');
+  const btns = ['wc-mode-live', 'wc-mode-playback', 'wc-hd'].map(i => document.getElementById(i));
+  const info = document.getElementById('wc-cam-info');
+  const live = webcamMode === 'live';
+  page.classList.toggle('live', live);
+  if (live && top) {
+    if (info) top.prepend(info);
+    document.getElementById('ptz-modes-' + webcams[0].id).append(...btns);
+  } else {
+    document.getElementById('ptz-modes-pb').append(...btns);
+  }
+  document.getElementById('wc-pb-overlay').style.display = live ? 'none' : '';
+  webcamFit();
+}
+
+// Digital zoom: the camera has no optical zoom, so this scales the picture in
+// the browser (recordings are untouched). Wheel zooms at the cursor, drag pans
+// while zoomed, two-finger pinch on touch screens, and −/1×/+ in the overlay.
+// Sharpest in Full res (4K); the low-data view is only 640x360.
+const WZ_MAX = 6;
+const wz = {};   // id -> {z, tx, ty}
+let wzDragged = false;
+
+const wzReg = {};   // key -> {frame, els, edge}: a camera id for Live, 'pb' for Playback
+function wzEls(id) { return wzReg[id].els; }
+function wzFrame(id) { return wzReg[id].frame; }
+function wzApply(id) {
+  const st = wz[id], fr = wzFrame(id);
+  const W = fr.offsetWidth, H = fr.offsetHeight;
+  st.z = Math.min(WZ_MAX, Math.max(1, st.z));
+  // Clamp to the camera picture itself, not the whole frame: it's letterboxed
+  // (object-fit contain, centred), so the frame has empty space beside it.
+  // Where the scaled picture is bigger than the frame it must keep covering it;
+  // where it's smaller it stays centred -- so a drag past
+  // the picture's real edge goes straight to wzEdgePush instead of into the void.
+  const els = wzEls(id);
+  const vid = els.find(e => e && e.tagName === 'VIDEO' && e.videoWidth && (els.length === 1 || e.style.display === 'block'));
+  const img = els.find(e => e && e.tagName === 'IMG' && e.naturalWidth);
+  const ar = vid ? vid.videoWidth / vid.videoHeight : img ? img.naturalWidth / img.naturalHeight : 16 / 9;
+  const cw = Math.min(W, H * ar), ch = Math.min(H, W / ar);
+  const ox = (W - cw) / 2, oy = (H - ch) / 2;   // picture's place inside the unzoomed frame
+  const z = st.z;
+  st.tx = z * cw >= W ? Math.min(-z * ox, Math.max(W - z * (ox + cw), st.tx)) : W / 2 - z * (ox + cw / 2);
+  st.ty = z * ch >= H ? Math.min(-z * oy, Math.max(H - z * (oy + ch), st.ty)) : H / 2 - z * (oy + ch / 2);
+  wzEls(id).forEach(el => { if (el) { el.style.transformOrigin = '0 0'; el.style.transform = st.z > 1 ? `translate(${st.tx}px,${st.ty}px) scale(${st.z})` : ''; } });
+  fr.classList.toggle('wz-zoomed', st.z > 1);
+  const v = document.getElementById('wz-val-' + id);
+  if (v) v.textContent = (st.z < 1.05 ? 1 : st.z.toFixed(1)) + '×';
+}
+// point (client coords) -> frame's own pixels (the tab is CSS-zoomed by --ui)
+function wzLocal(id, cx, cy) {
+  const fr = wzFrame(id), r = fr.getBoundingClientRect(), k = fr.offsetWidth / r.width;
+  return [(cx - r.left) * k, (cy - r.top) * k, k];
+}
+function wzZoomAt(id, factor, px, py) {
+  const st = wz[id], nz = Math.min(WZ_MAX, Math.max(1, st.z * factor));
+  st.tx = px - (px - st.tx) * nz / st.z;
+  st.ty = py - (py - st.ty) * nz / st.z;
+  st.z = nz;
+  wzApply(id);
+}
+function wzStep(id, factor) {
+  const fr = wzFrame(id);
+  wzZoomAt(id, factor, fr.offsetWidth / 2, fr.offsetHeight / 2);
+}
+function wzReset(id) { wz[id] = {z: 1, tx: 0, ty: 0}; wzApply(id); }
+
+// Dragging past the edge of the (zoomed) picture moves the real camera: the
+// overshoot is collected per axis and every WZ_EDGE_PX of it sends one nudge
+// in that direction (selected Step size), one at a time. Dragging the picture
+// right means "show me more on the left", so overshoot to the right = pan Left;
+// at 1x the picture is always at its edges, so any drag steers the camera.
+const WZ_EDGE_PX = 60;
+const wzEdge = {x: 0, y: 0, busy: false};
+function wzEdgePush(id, ox, oy) {
+  wzEdge.x += ox; wzEdge.y += oy;
+  if (wzEdge.busy) return;
+  const ax = Math.abs(wzEdge.x), ay = Math.abs(wzEdge.y);
+  if (Math.max(ax, ay) < WZ_EDGE_PX) return;
+  const op = ax >= ay ? (wzEdge.x > 0 ? 'Left' : 'Right') : (wzEdge.y > 0 ? 'Up' : 'Down');
+  wzEdge.x = wzEdge.y = 0;
+  wzEdge.busy = true;
+  const btn = document.querySelector(`#ptz-bar-${id} .ptz-pad button[title="Nudge ${op.toLowerCase()}"]`);
+  ptzNudge(id, op, btn).finally(() => { wzEdge.busy = false; wzEdge.x = wzEdge.y = 0; });
+}
+
+// Live: wzInit(camId) uses the camera card's frame, its <img> + <video>, and
+// pushes the real camera at the edges. Playback: wzInit('pb', wrap, [video], false).
+function wzInit(id, frame, els, edge = true) {
+  if (!frame) { const img = document.getElementById('webcam-img-' + id); frame = img.parentElement; els = [img, document.getElementById('webcam-vid-' + id)]; }
+  wzReg[id] = {frame, els, edge};
+  wz[id] = {z: 1, tx: 0, ty: 0};
+  const fr = wzFrame(id);
+  // the browser's own image drag-and-drop would cancel our pointer drag after the first move
+  wzEls(id).forEach(el => { if (el) el.draggable = false; });
+  fr.addEventListener('dragstart', e => e.preventDefault());
+  fr.addEventListener('wheel', e => {
+    e.preventDefault();
+    const [px, py] = wzLocal(id, e.clientX, e.clientY);
+    wzZoomAt(id, Math.exp(-e.deltaY * 0.0015), px, py);
+  }, {passive: false});
+  const pts = new Map();   // pointerId -> [x, y]
+  let pinch0 = null, moved = 0;
+  fr.addEventListener('pointerdown', e => {
+    pts.set(e.pointerId, [e.clientX, e.clientY]);
+    fr.setPointerCapture(e.pointerId);
+    moved = 0;
+    wzEdge.x = wzEdge.y = 0;
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      pinch0 = {d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: wz[id].z};
+    }
+  });
+  fr.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId), cur = [e.clientX, e.clientY];
+    pts.set(e.pointerId, cur);
+    const [, , k] = wzLocal(id, 0, 0);
+    if (pts.size === 2 && pinch0) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      const [px, py] = wzLocal(id, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+      wzZoomAt(id, (pinch0.z * d / pinch0.d) / wz[id].z, px, py);
+      moved += 10;
+    } else if (pts.size === 1) {
+      const st = wz[id], dx = (cur[0] - prev[0]) * k, dy = (cur[1] - prev[1]) * k;
+      const want = [st.tx + dx, st.ty + dy];
+      st.tx = want[0]; st.ty = want[1];
+      wzApply(id);   // clamps at the picture's edges
+      if (wzReg[id].edge) wzEdgePush(id, want[0] - st.tx, want[1] - st.ty);   // what the clamp swallowed = pushing past the edge
+      moved += Math.abs(cur[0] - prev[0]) + Math.abs(cur[1] - prev[1]);
+      fr.classList.add('dragging');
+    }
+  });
+  const end = e => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) pinch0 = null;
+    if (!pts.size) { fr.classList.remove('dragging'); if (moved > 4) wzDragged = true; }
+  };
+  fr.addEventListener('pointerup', end);
+  fr.addEventListener('pointercancel', end);
+  addEventListener('resize', () => wzApply(id));
+}
+
+// ─── Spotlight button (2026-11-01) ───
+// The server switches the light off after 10 minutes; the button shows the
+// countdown and re-reads the camera every 15 s while the tab is open, so it
+// also reflects the light being switched by the Reolink app or the auto-off.
+let webcamLight = {};   // id -> {on, offAt}
+function webcamLightShow(id) {
+  const b = document.getElementById('ptz-light-' + id), L = webcamLight[id];
+  if (!b || !L) return;
+  b.classList.toggle('ptz-on', !!L.on);
+  b.textContent = '💡 Light';   // highlighted while on; no countdown shown (it still switches off after 10 min)
+}
+async function webcamLightFetch(id, body) {
+  const err = document.getElementById('ptz-err-' + id);
+  try {
+    const res = await fetch('/api/webcams/' + id + '/light', body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'light failed');
+    webcamLight[id] = {on: d.on, offAt: d.off_in_s != null ? Date.now() + d.off_in_s * 1000 : null};
+    if (err && body) err.textContent = '';
+  } catch (e) {
+    if (err && body) err.textContent = String(e.message || e);
+  }
+  webcamLightShow(id);
+}
+// IR: automatic normally. The button is highlighted whenever the IR is lit
+// (on Auto the server tells from the picture being black-and-white); a tap
+// overrides it the other way, and the server returns it to Auto after 10 min.
+let webcamIr = {};   // id -> {mode, on, autoAt}
+function webcamIrShow(id) {
+  const b = document.getElementById('ptz-ir-' + id), I = webcamIr[id];
+  if (!b || !I) return;
+  b.classList.toggle('ptz-on', !!I.on);
+  b.textContent = '🌙 IR';   // highlighted while lit; no timer shown (an override still returns to Auto after 10 min)
+}
+async function webcamIrFetch(id, body) {
+  const err = document.getElementById('ptz-err-' + id);
+  try {
+    const res = await fetch('/api/webcams/' + id + '/ir', body ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {});
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'IR failed');
+    webcamIr[id] = {mode: d.mode, on: d.on, autoAt: d.auto_in_s != null ? Date.now() + d.auto_in_s * 1000 : null};
+    if (err && body) err.textContent = '';
+  } catch (e) {
+    if (err && body) err.textContent = String(e.message || e);
+  }
+  webcamIrShow(id);
+}
+function webcamIrToggle(id) {
+  const I = webcamIr[id];
+  webcamIrFetch(id, {mode: I && I.on ? 'off' : 'on'});
+}
+
+// Listen: plays the recorder's audio-only live feed (camera microphone) with
+// hls.js in a hidden <audio>. Stops when leaving the Webcams tab.
+const webcamAudio = {};   // id -> {el, hls}
+async function webcamListenToggle(id) {
+  const btn = document.getElementById('ptz-listen-' + id), err = document.getElementById('ptz-err-' + id);
+  if (webcamAudio[id]) return webcamListenStop(id);
+  const el = new Audio(), url = '/api/webcams/' + id + '/live/audio/index.m3u8';
+  const a = webcamAudio[id] = {el, hls: null};
+  btn.classList.add('ptz-on'); btn.textContent = '🔊 Listening';
+  try {
+    await webcamLoadHls();
+    if (webcamAudio[id] !== a) return;   // stopped while loading
+    if (window.Hls && Hls.isSupported()) {
+      a.hls = new Hls({liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5, maxLiveSyncPlaybackRate: 1.5});
+      a.hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) { if (err) err.textContent = 'No audio from the camera'; webcamListenStop(id); } });
+      // autoplay instead of play(): hls.js (re)loads the element while it sets
+      // up, which cancels an explicit play() -- autoplay starts once data is in
+      el.autoplay = true;
+      a.hls.loadSource(url);
+      a.hls.attachMedia(el);
+    } else {
+      el.src = url;   // Safari plays HLS natively
+      await el.play();
+    }
+    if (err) err.textContent = '';
+  } catch (e) {
+    if (err) err.textContent = 'Audio failed: ' + (e.message || e);
+    webcamListenStop(id);
+  }
+}
+function webcamListenStop(id) {
+  const a = webcamAudio[id];
+  delete webcamAudio[id];
+  if (a) { if (a.hls) a.hls.destroy(); a.el.pause(); a.el.removeAttribute('src'); }
+  const btn = document.getElementById('ptz-listen-' + id);
+  if (btn) { btn.classList.remove('ptz-on'); btn.textContent = '🔊 Listen'; }
+}
+
+function webcamLightToggle(id) {
+  webcamLightFetch(id, {on: !(webcamLight[id] && webcamLight[id].on)});
+}
+let webcamLightTicks = 0;
+setInterval(() => {
+  if (currentPage !== 'webcams') Object.keys(webcamAudio).forEach(webcamListenStop);   // left the tab: stop listening
+  if (currentPage !== 'webcams' || document.hidden || !webcams) return;
+  const refresh = ++webcamLightTicks % 15 === 0;
+  webcams.filter(c => c.ptz).forEach(c => {
+    if (refresh) { webcamLightFetch(c.id); webcamIrFetch(c.id); }
+    else { webcamLightShow(c.id); webcamIrShow(c.id); }
+  });
+}, 1000);
+
+async function ptzLoadPresets(id) {
+  webcamLightFetch(id);
+  webcamIrFetch(id);
+  try {
+    const d = await (await fetch('/api/webcams/' + id + '/ptz/presets')).json();
+    const sel = document.getElementById('ptz-presets-' + id);
+    if (!sel || !d.presets || !d.presets.length) return;
+    sel.innerHTML = '<option value="">—</option>' + d.presets.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    document.getElementById('ptz-presets-wrap-' + id).style.display = '';
+  } catch (e) { /* no presets: leave the picker hidden */ }
+}
+
+function ptzGoPreset(id, sel) {
+  if (sel.value === '') return;
+  ptzSend(id, {preset: +sel.value});
+  ptzFastStart(id);
+  ptzFastUntil = Date.now() + 6000;   // presets travel on their own; watch for a few seconds
+  sel.value = '';
+}
 const WEBCAM_STALE_MS = 10000;
 let webcams = null;        // [{id, name, host, lastOk, busy}]
 let webcamTimer = null;
@@ -10872,9 +11295,25 @@ async function webcamsInit() {
         <img id="webcam-img-${c.id}" alt="${c.name}">
         <video id="webcam-vid-${c.id}" muted playsinline autoplay></video>
         <div class="webcam-msg" id="webcam-msg-${c.id}">Connecting…</div>
+        ${c.ptz ? ptzBarHtml(c.id) : ''}
       </div>
     </div>`).join('');
-  webcams.forEach(c => { c.lastOk = 0; c.busy = false; });
+  // One camera: always the enlarged layout, filling the panel to the window bottom
+  if (webcams.length === 1) {
+    grid.classList.add('single', 'fill');
+    document.getElementById('webcam-card-' + webcams[0].id).classList.add('focus');
+    const head = grid.querySelector('.webcam-head'), modes = document.querySelector('#page-webcams .wc-modes');
+    const info = document.createElement('span');
+    info.id = 'wc-cam-info';
+    info.append(...head.children, document.getElementById('webcam-hint'));   // ids stay, so the status keeps updating
+    modes.insertBefore(info, modes.querySelector('.wc-spacer'));
+    document.getElementById('page-webcams').classList.add('one-cam');
+    document.getElementById('webcam-hint').textContent = '';
+    wzInit(webcams[0].id);
+    wzInit('pb', document.getElementById('wc-video-wrap'), [document.getElementById('wc-video')], false);
+    webcamPlaceModeButtons();
+  }
+  webcams.forEach(c => { c.lastOk = 0; c.busy = false; if (c.ptz) ptzLoadPresets(c.id); });
 }
 
 function webcamFetch(c) {
@@ -10908,7 +11347,7 @@ function webcamTick() {
       st.textContent = 'no signal · last ' + new Date(c.lastOk).toLocaleTimeString();
       st.classList.add('stale');
     } else {
-      st.textContent = 'live · ' + (webcamHD && c.vidOk ? '2560×1440' : '640×480');
+      st.textContent = 'live · ' + (webcamHD && c.vidOk ? (c.hd_label || 'full res') : '640×360');
       st.classList.remove('stale');
     }
   });
@@ -10916,12 +11355,14 @@ function webcamTick() {
 
 function webcamToggleFocus(id) {
   const grid = document.getElementById('webcam-grid');
+  if (wzDragged) { wzDragged = false; return; }   // that was a pan/pinch, not a tap
+  if (grid.classList.contains('fill')) return;   // single camera: fixed full-size view, tapping does nothing
   const card = document.getElementById('webcam-card-' + id);
   const focused = grid.classList.contains('single');
   grid.querySelectorAll('.webcam-card').forEach(el => el.classList.remove('focus'));
   grid.classList.toggle('single', !focused);
   if (!focused) card.classList.add('focus');
-  document.getElementById('webcam-hint').textContent = focused ? 'Tap a camera to enlarge' : 'Tap to show both cameras';
+  document.getElementById('webcam-hint').textContent = focused ? 'Tap a camera to enlarge' : 'Tap to shrink';
   webcamFit();
 }
 
@@ -10978,7 +11419,8 @@ showPage = function(page) {
 // continuous video. Times on screen are this device's local time.
 let webcamMode = 'live';
 const wc = { cam: '1', segs: [], seg: null, speed: 1, refresh: null, pendingSeek: null };
-const WC_SPEEDS = [1, 2, 4, 8];
+const WC_SPEEDS = [1, 2, 4, 8, 10, 16];   // 16x = Chrome/Edge's playbackRate limit
+function wcApplySpeed(v) { v.playbackRate = wc.speed; }
 const WC_DAY = 24 * 3600;
 
 function webcamSetMode(mode) {
@@ -10987,6 +11429,9 @@ function webcamSetMode(mode) {
   document.getElementById('wc-mode-playback').classList.toggle('active', mode === 'playback');
   document.getElementById('webcam-grid').style.display = mode === 'live' ? '' : 'none';
   document.getElementById('webcam-hint').style.visibility = mode === 'live' ? '' : 'hidden';
+  const camInfo = document.getElementById('wc-cam-info');
+  if (camInfo) camInfo.style.visibility = mode === 'live' ? '' : 'hidden';
+  webcamPlaceModeButtons();
   document.getElementById('wc-playback').style.display = mode === 'playback' ? '' : 'none';
   if (mode === 'playback') wcStartPlayback(); else { wcStopPlayback(); webcamTick(); }
   webcamLiveSync();
@@ -11089,7 +11534,7 @@ function wcSeek(t, keepPaused) {
   const v = document.getElementById('wc-video');
   const offset = t - seg.start;
   msg.style.display = 'none';
-  const play = () => { v.playbackRate = wc.speed; if (!keepPaused) v.play().catch(() => {}); wcUpdateHead(); };
+  const play = () => { wcApplySpeed(v); if (!keepPaused) v.play().catch(() => {}); wcUpdateHead(); };
   if (wc.seg && wc.seg.file === seg.file && v.readyState >= 1 && offset < v.duration) {
     wc.seg = seg; v.currentTime = offset; play(); return;
   }
@@ -11123,9 +11568,15 @@ function wcTogglePlay() {
   if (!wc.seg) return wcGoLatest();
   if (v.paused) v.play().catch(() => {}); else v.pause();
 }
+function wcPbSound() {
+  const v = document.getElementById('wc-video'), b = document.getElementById('wc-pb-sound');
+  v.muted = !v.muted;
+  b.textContent = v.muted ? '🔇 Sound off' : '🔊 Sound on';
+  b.classList.toggle('ptz-on', !v.muted);
+}
 function wcSetSpeed(x) {
   wc.speed = x;
-  document.getElementById('wc-video').playbackRate = x;
+  wcApplySpeed(document.getElementById('wc-video'));
   document.querySelectorAll('#wc-speeds .wc-btn').forEach((b, i) => b.classList.toggle('active', WC_SPEEDS[i] === x));
 }
 function wcGoLatest() {

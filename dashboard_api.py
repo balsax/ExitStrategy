@@ -4718,19 +4718,73 @@ def router_autorejoin_toggle():
 # ─── end boat router siloed addition ────────────────────────────────────────
 
 # ─── Webcams siloed addition ────────────────────────────────────────────────
-# Two Dahua-style IP cameras on the boat LAN. Their /cgi-bin/snapshot.cgi
-# returns a 640x480 JPEG with no login, so the Webcams tab just polls this
-# proxy (works through the Cloudflare tunnel too, since the browser never
-# talks to the cameras directly). Delete this block plus the "Webcams" blocks
-# in static-src/index.html to remove the feature.
+# The boat's Reolink E1 Outdoor SE PoE (pan/tilt). Snapshots and PTZ go
+# through the camera's HTTP API (/cgi-bin/api.cgi, needs HTTP enabled in the
+# camera's Network > Advanced > Server settings), logging in with
+# REOLINK_USER / REOLINK_PASS from secrets.env, so the browser never sees the
+# camera or its password; works through the Cloudflare tunnel too. Recording
+# and the full-res live view come from webcam_recorder.py (RTSP). Delete this
+# block plus the "Webcams" blocks in static-src/index.html to remove the feature.
+# (Replaced the two home Dahua cameras, 192.168.200.200/.201, 2026-11-01.)
 WEBCAMS = {
-    '1': {'name': 'Front Yard', 'host': '192.168.200.200'},
-    '2': {'name': 'Backyard',   'host': '192.168.200.201'},
+    '1': {'name': 'Boat', 'host': '192.168.10.201', 'ptz': True, 'hd_label': '3840×2160'},
 }
+REOLINK_PTZ_OPS = {'Left', 'Right', 'Up', 'Down', 'LeftUp', 'LeftDown', 'RightUp', 'RightDown',
+                   'ZoomInc', 'ZoomDec', 'Stop'}
+
+# Token login (password in the JSON body, like the camera's own web page):
+# user/password as URL parameters fail on this firmware when the password has
+# characters such as "!". The token is reused until shortly before its lease
+# ends. The camera locks out after 10 bad logins, and the snapshot view polls
+# every second, so after a failed login we don't try again for 5 minutes.
+REOLINK_LOGIN_BACKOFF_S = 300
+_reolink_auth = {}   # host -> {'token', 'expires', 'failed_at'}
+_reolink_lock = threading.Lock()
+
+def _reolink_token(cam, renew=False):
+    host = cam['host']
+    with _reolink_lock:
+        a = _reolink_auth.setdefault(host, {'token': None, 'expires': 0, 'failed_at': 0})
+        now = time.time()
+        if not renew and a['token'] and now < a['expires']:
+            return a['token']
+        if now - a['failed_at'] < REOLINK_LOGIN_BACKOFF_S:
+            raise RuntimeError('login failed recently; check REOLINK_USER / REOLINK_PASS (retrying in a few minutes)')
+        s = get_secrets()
+        r = requests.post(f"http://{host}/cgi-bin/api.cgi", params={'cmd': 'Login'}, timeout=5,
+                          json=[{'cmd': 'Login', 'action': 0, 'param': {'User': {
+                              'Version': '0', 'userName': s.get('REOLINK_USER', 'admin'), 'password': s.get('REOLINK_PASS', '')}}}])
+        r.raise_for_status()
+        body = r.json()[0]
+        if body.get('code') != 0:
+            a.update(token=None, failed_at=now)
+            raise RuntimeError('camera login failed: ' + body.get('error', {}).get('detail', '?'))
+        tok = body['value']['Token']
+        a.update(token=tok['name'], expires=now + int(tok.get('leaseTime', 3600)) - 60, failed_at=0)
+        return a['token']
+
+def _reolink_api(cam, cmd, param=None, timeout=5, raw=False, **query):
+    url = f"http://{cam['host']}/cgi-bin/api.cgi"
+    for attempt in (0, 1):
+        params = {'cmd': cmd, 'token': _reolink_token(cam, renew=attempt == 1), **query}
+        if raw:
+            r = requests.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            if r.headers.get('Content-Type', '').startswith('image/') or attempt:
+                return r
+            continue   # a JSON error instead of a picture: token expired, log in again
+        r = requests.post(url, params=params, json=[{'cmd': cmd, 'action': 0, 'param': param or {}}], timeout=timeout)
+        r.raise_for_status()
+        body = r.json()[0]
+        if body.get('code') == 0:
+            return body.get('value', {})
+        if body.get('error', {}).get('rspCode') != -6 or attempt:   # -6 = "please login first"
+            raise RuntimeError(body.get('error', {}).get('detail', 'camera refused the command'))
 
 @app.route('/api/webcams')
 def webcams_list():
-    return jsonify([{'id': k, 'name': v['name'], 'host': v['host']} for k, v in WEBCAMS.items()])
+    return jsonify([{'id': k, 'name': v['name'], 'host': v['host'], 'ptz': v.get('ptz', False),
+                     'hd_label': v.get('hd_label', '')} for k, v in WEBCAMS.items()])
 
 @app.route('/api/webcams/<cam_id>/snapshot')
 def webcam_snapshot(cam_id):
@@ -4738,12 +4792,210 @@ def webcam_snapshot(cam_id):
     if not cam:
         return jsonify({'error': 'unknown camera'}), 404
     try:
-        r = requests.get(f"http://{cam['host']}/cgi-bin/snapshot.cgi", timeout=5)
-        r.raise_for_status()
-    except requests.RequestException as e:
+        # 640x360 keeps the 1-per-second low-data view small over Starlink
+        r = _reolink_api(cam, 'Snap', raw=True, channel=0, rs=uuid.uuid4().hex[:12], width=640, height=360)
+        if not r.headers.get('Content-Type', '').startswith('image/'):
+            raise RuntimeError(r.text[:200])
+    except (requests.RequestException, RuntimeError) as e:
         return jsonify({'error': f"{cam['name']} unreachable: {e}"}), 502
-    return Response(r.content, mimetype=r.headers.get('Content-Type', 'image/jpeg'),
-                    headers={'Cache-Control': 'no-store'})
+    return Response(r.content, mimetype=r.headers['Content-Type'], headers={'Cache-Control': 'no-store'})
+
+@app.route('/api/webcams/<cam_id>/ptz', methods=['POST'])
+def webcam_ptz(cam_id):
+    # {"op": "Left", "speed": 32} starts moving until {"op": "Stop"};
+    # {"preset": 1} goes to a preset saved in the Reolink app.
+    cam = WEBCAMS.get(cam_id)
+    if not cam or not cam.get('ptz'):
+        return jsonify({'error': 'unknown camera'}), 404
+    d = request.get_json(silent=True) or {}
+    if 'nudge_ms' in d and d.get('op') in REOLINK_PTZ_OPS - {'Stop'}:
+        # One step: move, wait, stop -- all here, so a slow or dropped
+        # connection can't stretch the step or leave the camera turning.
+        ms = max(50, min(1500, int(d['nudge_ms'])))
+        try:
+            _reolink_api(cam, 'PtzCtrl', {'channel': 0, 'op': d['op'], 'speed': max(1, min(64, int(d.get('speed', 32))))})
+            time.sleep(ms / 1000)
+        except (requests.RequestException, RuntimeError, ValueError) as e:
+            return jsonify({'error': f"{cam['name']}: {e}"}), 502
+        finally:
+            try:
+                _reolink_api(cam, 'PtzCtrl', {'channel': 0, 'op': 'Stop'})
+            except (requests.RequestException, RuntimeError):
+                pass
+        return jsonify({'status': 'ok'})
+    if 'preset' in d:
+        param = {'channel': 0, 'op': 'ToPos', 'id': int(d['preset']), 'speed': 32}
+    elif d.get('op') in REOLINK_PTZ_OPS:
+        param = {'channel': 0, 'op': d['op'], 'speed': max(1, min(64, int(d.get('speed', 32))))}
+    else:
+        return jsonify({'error': 'bad op'}), 400
+    try:
+        _reolink_api(cam, 'PtzCtrl', param)
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return jsonify({'error': f"{cam['name']}: {e}"}), 502
+    return jsonify({'status': 'ok'})
+
+# Spotlight (white LED). Switched on from the dashboard it always goes off
+# again after WEBCAM_LIGHT_AUTO_OFF_S, timed here on the server so a closed tab
+# or dropped connection can't leave it burning (at anchor a bright white light
+# bothers neighbours / can be mistaken for a vessel light). Reolink's own smart
+# mode (on at night when it sees a person/vehicle/animal) is left as configured.
+WEBCAM_LIGHT_AUTO_OFF_S = 600
+_webcam_light_timers = {}   # cam_id -> (threading.Timer, off_at epoch)
+
+def _webcam_light_set(cam, on):
+    _reolink_api(cam, 'SetWhiteLed', {'WhiteLed': {'channel': 0, 'state': 1 if on else 0}})
+
+def _webcam_light_auto_off(cam_id):
+    _webcam_light_timers.pop(cam_id, None)
+    try:
+        _webcam_light_set(WEBCAMS[cam_id], False)
+    except (requests.RequestException, RuntimeError):
+        pass
+
+# At startup: light off, and Reolink's automatic mode off (mode 0; the user
+# doesn't want it switching itself on), since a restart loses the auto-off
+# timer above. Retries for ~5 min because after a power cut the camera may
+# boot after the Pi. (With the dev reloader this runs twice; harmless.)
+def _webcam_light_startup_off():
+    pending = [cid for cid, c in WEBCAMS.items() if c.get('ptz')]
+    for _ in range(10):
+        for cid in list(pending):
+            try:
+                _reolink_api(WEBCAMS[cid], 'SetWhiteLed', {'WhiteLed': {'channel': 0, 'state': 0, 'mode': 0}})
+                pending.remove(cid)
+            except (requests.RequestException, RuntimeError, ValueError):
+                pass
+        if not pending:
+            return
+        time.sleep(30)
+
+threading.Thread(target=_webcam_light_startup_off, daemon=True).start()
+
+@app.route('/api/webcams/<cam_id>/light', methods=['GET', 'POST'])
+def webcam_light(cam_id):
+    cam = WEBCAMS.get(cam_id)
+    if not cam or not cam.get('ptz'):
+        return jsonify({'error': 'unknown camera'}), 404
+    try:
+        if request.method == 'POST':
+            on = bool((request.get_json(silent=True) or {}).get('on'))
+            old = _webcam_light_timers.pop(cam_id, None)
+            if old:
+                old[0].cancel()
+            _webcam_light_set(cam, on)
+            if on:
+                t = threading.Timer(WEBCAM_LIGHT_AUTO_OFF_S, _webcam_light_auto_off, args=(cam_id,))
+                t.daemon = True
+                t.start()
+                _webcam_light_timers[cam_id] = (t, time.time() + WEBCAM_LIGHT_AUTO_OFF_S)
+            state = on   # the camera reports the new state only a second or two later
+        else:
+            state = _reolink_api(cam, 'GetWhiteLed', {'channel': 0}).get('WhiteLed', {}).get('state') == 1
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return jsonify({'error': f"{cam['name']}: {e}"}), 502
+    timer = _webcam_light_timers.get(cam_id)
+    return jsonify({'on': state, 'off_in_s': max(0, round(timer[1] - time.time())) if state and timer else None})
+
+# Infrared night vision: normally Auto (the camera switches it by darkness).
+# Forcing it On or Off from the dashboard is an override that goes back to
+# Auto after WEBCAM_IR_OVERRIDE_S, timed here like the light; dashboard
+# startup also puts it back to Auto. (The camera's range only lists Auto/Off,
+# but "On" is accepted and works.)
+WEBCAM_IR_OVERRIDE_S = 600
+WEBCAM_IR_STATES = {'auto': 'Auto', 'on': 'On', 'off': 'Off'}
+_webcam_ir_timers = {}   # cam_id -> (threading.Timer, back_to_auto_at epoch)
+
+def _webcam_ir_set(cam, state):
+    _reolink_api(cam, 'SetIrLights', {'IrLights': {'channel': 0, 'state': state}})
+
+def _webcam_ir_auto(cam_id):
+    _webcam_ir_timers.pop(cam_id, None)
+    try:
+        _webcam_ir_set(WEBCAMS[cam_id], 'Auto')
+    except (requests.RequestException, RuntimeError):
+        pass
+
+def _webcam_ir_startup_auto():
+    pending = [cid for cid, c in WEBCAMS.items() if c.get('ptz')]
+    for _ in range(10):
+        for cid in list(pending):
+            try:
+                _webcam_ir_set(WEBCAMS[cid], 'Auto')
+                pending.remove(cid)
+            except (requests.RequestException, RuntimeError, ValueError):
+                pass
+        if not pending:
+            return
+        time.sleep(30)
+
+threading.Thread(target=_webcam_ir_startup_auto, daemon=True).start()
+
+# The camera only reports "Auto", not whether the IR is lit right now. It is
+# lit when the camera is in night mode, and night mode is black-and-white, so
+# on Auto we look at a small snapshot: no colour = night = IR on. (Cached a few
+# seconds; the page polls every 15 s.)
+_webcam_bw_cache = {}   # cam_id -> (epoch, is_black_and_white)
+
+def _webcam_is_bw(cam_id):
+    t, bw = _webcam_bw_cache.get(cam_id, (0, None))
+    if time.time() - t < 8:
+        return bw
+    r = _reolink_api(WEBCAMS[cam_id], 'Snap', raw=True, channel=0, rs=uuid.uuid4().hex[:12], width=160, height=90)
+    img = Image.open(io.BytesIO(r.content)).convert('RGB')
+    px = list(img.getdata())
+    colour = sum(abs(r_ - g) + abs(g - b) for r_, g, b in px) / len(px)
+    bw = colour < 3
+    _webcam_bw_cache[cam_id] = (time.time(), bw)
+    return bw
+
+@app.route('/api/webcams/<cam_id>/ir', methods=['GET', 'POST'])
+def webcam_ir(cam_id):
+    cam = WEBCAMS.get(cam_id)
+    if not cam or not cam.get('ptz'):
+        return jsonify({'error': 'unknown camera'}), 404
+    try:
+        if request.method == 'POST':
+            mode = str((request.get_json(silent=True) or {}).get('mode', '')).lower()
+            if mode not in WEBCAM_IR_STATES:
+                return jsonify({'error': 'mode must be auto, on or off'}), 400
+            old = _webcam_ir_timers.pop(cam_id, None)
+            if old:
+                old[0].cancel()
+            _webcam_ir_set(cam, WEBCAM_IR_STATES[mode])
+            if mode != 'auto':
+                t = threading.Timer(WEBCAM_IR_OVERRIDE_S, _webcam_ir_auto, args=(cam_id,))
+                t.daemon = True
+                t.start()
+                _webcam_ir_timers[cam_id] = (t, time.time() + WEBCAM_IR_OVERRIDE_S)
+        else:
+            state = _reolink_api(cam, 'GetIrLights', {'channel': 0}).get('IrLights', {}).get('state', 'Auto')
+            mode = state.lower() if state.lower() in WEBCAM_IR_STATES else 'auto'
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return jsonify({'error': f"{cam['name']}: {e}"}), 502
+    timer = _webcam_ir_timers.get(cam_id)
+    if mode == 'auto':
+        try:
+            lit = _webcam_is_bw(cam_id)
+        except (requests.RequestException, RuntimeError, OSError):
+            lit = None
+    else:
+        lit = mode == 'on'
+    return jsonify({'mode': mode, 'on': lit,
+                    'auto_in_s': max(0, round(timer[1] - time.time())) if mode != 'auto' and timer else None})
+
+@app.route('/api/webcams/<cam_id>/ptz/presets')
+def webcam_ptz_presets(cam_id):
+    cam = WEBCAMS.get(cam_id)
+    if not cam or not cam.get('ptz'):
+        return jsonify({'error': 'unknown camera'}), 404
+    try:
+        v = _reolink_api(cam, 'GetPtzPreset', {'channel': 0})
+    except (requests.RequestException, RuntimeError, ValueError) as e:
+        return jsonify({'error': f"{cam['name']}: {e}", 'presets': []}), 502
+    presets = [{'id': p['id'], 'name': p.get('name') or f"Preset {p['id']}"}
+               for p in v.get('PtzPreset', []) if p.get('enable')]
+    return jsonify({'presets': presets})
 
 # Playback of webcam_recorder.py's rolling 24 h recordings. It writes 5-minute
 # MP4s named by UTC start time to <recordings_dir>/<cam id>/; the recordings
@@ -4807,6 +5059,24 @@ def webcam_live_file(cam_id, name):
     playlist = name.endswith('.m3u8')
     resp = send_from_directory(os.path.join(live_dir, cam_id), name,
                                mimetype='application/vnd.apple.mpegurl' if playlist else 'video/mp2t')
+    resp.headers['Cache-Control'] = 'no-store' if playlist else 'max-age=60'
+    return resp
+WEBCAM_AUDIO_NAME = re.compile(r'^(index\.m3u8|init\.mp4|aseg\d+\.m4s)$')
+
+@app.route('/api/webcams/<cam_id>/live/audio/<name>')
+def webcam_live_audio_file(cam_id, name):
+    # Audio-only live feed (camera microphone) written by webcam_recorder.py
+    # for cameras with "live_audio": true -- the Webcams tab's Listen button.
+    if cam_id not in WEBCAMS or not WEBCAM_AUDIO_NAME.match(name):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        with open(os.path.expanduser('~/.config/webcams/cameras.json')) as f:
+            live_dir = json.load(f)['live_dir']
+    except (OSError, ValueError, KeyError):
+        return jsonify({'error': 'live feed not configured'}), 404
+    playlist = name.endswith('.m3u8')
+    resp = send_from_directory(os.path.join(live_dir, cam_id, 'audio'), name,
+                               mimetype='application/vnd.apple.mpegurl' if playlist else 'audio/mp4')
     resp.headers['Cache-Control'] = 'no-store' if playlist else 'max-age=60'
     return resp
 # ─── end Webcams siloed addition ────────────────────────────────────────────
