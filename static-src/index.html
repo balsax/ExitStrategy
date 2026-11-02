@@ -228,6 +228,9 @@ html{background:#0a0e1a}
 .navbtn{background:#0f1628;border:.5px solid #1e2d4a;color:#6b82a0;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:border-color .2s,color .2s,background .2s}
 .navbtn:hover{border-color:#2a3a5a;color:#a0b0c0}
 .navbtn.active{border-color:#4a9fd4;color:#4a9fd4;background:#0d1f38}
+/* Windows' emoji font draws 📷 and 📡 low in the tab buttons; lift just those (html.os-win is set below) */
+html.os-win #nav-webcams>span{position:relative;top:-2px}
+html.os-win #nav-mqtt>span{position:relative;top:-1px}
 .page{display:none}
 .page.active{display:block}
 .subnav{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;border-bottom:.5px solid #1e2d4a;padding-bottom:.75rem}
@@ -1127,6 +1130,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   <button class="navbtn" id="nav-media" onclick="showPage('media')"><span>🎵</span>Media</button><!-- siloed Media (Boat Radio) addition -->
   <button class="navbtn" id="nav-webcams" onclick="showPage('webcams')"><span>📷</span>Camera</button><!-- siloed Webcams addition -->
   <button class="navbtn" id="nav-mqtt" onclick="showPage('mqtt')"><span>📡</span>Diagnostics</button>
+  <script>if (/Win/.test(navigator.userAgent)) document.documentElement.classList.add('os-win');</script>
 </div>
 
 <!-- ══════════════════════════════ Overview page ══════════════════════════════ -->
@@ -11419,8 +11423,15 @@ showPage = function(page) {
 // continuous video. Times on screen are this device's local time.
 let webcamMode = 'live';
 const wc = { cam: '1', segs: [], seg: null, speed: 1, refresh: null, pendingSeek: null };
-const WC_SPEEDS = [1, 2, 4, 8, 10, 16];   // 16x = Chrome/Edge's playbackRate limit
-function wcApplySpeed(v) { v.playbackRate = wc.speed; }
+const WC_SPEEDS = [1, 2, 4, 8, 10, 16];
+// From 8x up the browser can't fetch and decode every 4K frame (16x = ~130 Mbps
+// and 400 frames/s; it just froze), so those speeds step from keyframe to
+// keyframe at the same pace instead, with the video element paused (wcStep*).
+const WC_STEP_MIN = 8;
+function wcStepping() { return wc.speed >= WC_STEP_MIN; }
+function wcApplySpeed(v) { v.playbackRate = wcStepping() ? 1 : wc.speed; }
+function wcStart(v) { if (wcStepping()) wcStepStart(); else { wcStepStop(); v.play().catch(() => {}); } }
+function wcPlaying(v) { return wc.stepRun || !v.paused; }
 const WC_DAY = 24 * 3600;
 
 function webcamSetMode(mode) {
@@ -11454,6 +11465,7 @@ async function wcStartPlayback() {
 function wcStopPlayback() {
   const v = document.getElementById('wc-video');
   if (v) v.pause();
+  wcStepStop();
   if (wc.refresh) { clearInterval(wc.refresh); wc.refresh = null; }
 }
 
@@ -11521,7 +11533,7 @@ function wcUpdateHead() {
   head.style.display = t ? 'block' : 'none';
   if (t) head.style.left = wcPct(t) + '%';
   document.getElementById('wc-clock').textContent = t ? wcFmt(t, true) : '--';
-  document.getElementById('wc-play').textContent = v.paused ? 'Play' : 'Pause';
+  document.getElementById('wc-play').textContent = wcPlaying(v) ? 'Pause' : 'Play';
 }
 
 // Play from wall-clock time t (seconds). Jumps forward to the next recording
@@ -11532,12 +11544,16 @@ function wcSeek(t, keepPaused) {
   if (!seg) { msg.textContent = 'No recording after ' + wcFmt(t) + '.'; msg.style.display = ''; return; }
   if (t < seg.start) t = seg.start;
   const v = document.getElementById('wc-video');
-  const offset = t - seg.start;
+  let offset = t - seg.start;
   msg.style.display = 'none';
-  const play = () => { wcApplySpeed(v); if (!keepPaused) v.play().catch(() => {}); wcUpdateHead(); };
+  const play = () => { wcApplySpeed(v); if (!keepPaused) wcStart(v); wcUpdateHead(); };
   if (wc.seg && wc.seg.file === seg.file && v.readyState >= 1 && offset < v.duration) {
     wc.seg = seg; v.currentTime = offset; play(); return;
   }
+  // The file being recorded has no index yet, so the browser can only reach a
+  // point in it by reading everything before it (a 4K minute is ~60 MB); it
+  // just sits on "Loading…". Play it from its start instead.
+  if (seg.recording) offset = 0;
   wc.seg = seg;
   // cache-buster: the newest file is still growing, so always fetch it fresh
   v.src = '/api/webcams/' + wc.cam + '/recordings/' + seg.file + '?v=' + Math.round(seg.end);
@@ -11562,11 +11578,11 @@ async function wcNext() {
   if (i >= 0 && i + 1 < wc.segs.length) wcSeek(wc.segs[i + 1].start);
 }
 
-function wcStep(d) { const t = wcNow(); if (t) wcSeek(Math.max(wcRange()[0], t + d), document.getElementById('wc-video').paused); }
+function wcStep(d) { const t = wcNow(); if (t) wcSeek(Math.max(wcRange()[0], t + d), !wcPlaying(document.getElementById('wc-video'))); }
 function wcTogglePlay() {
   const v = document.getElementById('wc-video');
   if (!wc.seg) return wcGoLatest();
-  if (v.paused) v.play().catch(() => {}); else v.pause();
+  if (wcPlaying(v)) { wcStepStop(); v.pause(); wcUpdateHead(); } else wcStart(v);
 }
 function wcPbSound() {
   const v = document.getElementById('wc-video'), b = document.getElementById('wc-pb-sound');
@@ -11575,12 +11591,63 @@ function wcPbSound() {
   b.classList.toggle('ptz-on', !v.muted);
 }
 function wcSetSpeed(x) {
+  const v = document.getElementById('wc-video'), playing = wcPlaying(v);
   wc.speed = x;
-  wcApplySpeed(document.getElementById('wc-video'));
+  wcApplySpeed(v);
+  if (playing) { v.pause(); wcStart(v); }
   document.querySelectorAll('#wc-speeds .wc-btn').forEach((b, i) => b.classList.toggle('active', WC_SPEEDS[i] === x));
 }
+// Step mode: every ~150 ms move the picture on by (time since the last step x
+// speed), snapped to the file's next keyframe so the browser decodes one frame
+// per step. A slow step just makes the next jump bigger, so the pace holds.
+// The file still being recorded has no keyframe list; it seeks by time.
+const wcKf = {};   // file -> keyframe times (s); a promise while loading
+function wcKeyframes(file) {
+  if (!wcKf[file]) wcKf[file] = fetch('/api/webcams/' + wc.cam + '/recordings/' + file + '/keyframes')
+    .then(r => r.json()).then(d => (wcKf[file] = d.keyframes || [])).catch(() => (wcKf[file] = []));
+  return Array.isArray(wcKf[file]) ? wcKf[file] : null;
+}
+function wcStepStart() {
+  const v = document.getElementById('wc-video');
+  v.pause();
+  wc.stepRun = true; wc.stepLast = performance.now();
+  if (!wc.stepTimer) wc.stepTimer = setInterval(wcStepTick, 150);
+  wcUpdateHead();
+}
+function wcStepStop() {
+  wc.stepRun = false;
+  if (wc.stepTimer) { clearInterval(wc.stepTimer); wc.stepTimer = null; }
+}
+async function wcStepTick() {
+  const v = document.getElementById('wc-video');
+  if (!wc.stepRun || wc.stepBusy || !wc.seg || v.seeking || v.readyState < 1) return;
+  if (!v.paused) v.pause();
+  const seg = wc.seg, kf = seg.recording ? [] : wcKeyframes(seg.file);
+  if (!kf) return;                                   // keyframe list still loading
+  const now = performance.now();
+  const target = v.currentTime + Math.min(60, (now - wc.stepLast) / 1000 * wc.speed);
+  const end = Math.min(v.duration || Infinity, seg.end - seg.start);
+  let to = target;
+  if (kf.length) {
+    const due = kf.filter(k => k > v.currentTime + 0.01 && k <= target);
+    if (due.length) to = due[due.length - 1];        // the latest keyframe that's due
+    else if (target < end || kf.some(k => k > v.currentTime + 0.01)) return;   // next one not due yet
+    else to = end;
+  }
+  if (to >= end - 0.05) {                            // reached the end of this file: next file
+    wc.stepBusy = true;
+    try { await wcNext(); } finally { wc.stepBusy = false; }
+    if (wc.seg === seg) { wcStepStop(); wcUpdateHead(); }   // caught up (wcNext showed why)
+    else wc.stepLast = performance.now();
+    return;
+  }
+  wc.stepLast = now - Math.max(0, target - to) / wc.speed * 1000;   // keep the remainder for the next step
+  v.currentTime = to;
+}
+
 function wcGoLatest() {
-  const last = wc.segs[wc.segs.length - 1];
+  // the last minute of the newest finished file (the one being recorded can't seek; see wcSeek)
+  const done = wc.segs.filter(g => !g.recording), last = done[done.length - 1] || wc.segs[wc.segs.length - 1];
   if (last) wcSeek(Math.max(last.start, last.end - 60));
 }
 function wcJumpToInput() {
@@ -11612,7 +11679,7 @@ addEventListener('resize', wcFitVideo);
   v.addEventListener('ended', wcNext);
   // 1440p seeks decode from the previous keyframe (up to 4 s back); say so while that happens
   const msg = document.getElementById('wc-video-msg');
-  const loading = () => { if (wc.seg) { msg.textContent = 'Loading…'; msg.style.display = ''; } };
+  const loading = () => { if (wc.seg && !wc.stepRun) { msg.textContent = 'Loading…'; msg.style.display = ''; } };   // not on every fast-playback step
   v.addEventListener('seeking', loading);
   v.addEventListener('waiting', loading);
   ['seeked', 'playing', 'canplay'].forEach(ev => v.addEventListener(ev, () => {

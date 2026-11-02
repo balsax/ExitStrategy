@@ -5040,8 +5040,95 @@ def webcam_recording_file(cam_id, name):
     # conditional=True gives Range support, which the video player needs to seek
     resp = send_from_directory(os.path.join(_webcam_recordings_dir(), cam_id), name,
                                mimetype='video/mp4', conditional=True)
-    resp.headers['Cache-Control'] = 'no-cache'
+    # no-store, not no-cache: Cloudflare caches .mp4 by extension and, on a
+    # cache miss, ignores the player's Range header and pulls the whole 300 MB
+    # file from the boat first -- remote playback sat on "Loading…" for minutes.
+    # Uncacheable, the Range requests go straight through (206) and seek fast.
+    resp.headers['Cache-Control'] = 'no-store, private'
     return resp
+
+# Keyframe times (seconds) of a finished recording, for fast playback (8x and
+# up): the player steps from keyframe to keyframe instead of decoding every 4K
+# frame, which no browser keeps up with at 16x. Read from the MP4 index
+# (moov: stts = frame durations, stss = keyframe numbers) at the front of the
+# finished file -- a few hundred KB, no decoding. The file still being recorded
+# has no index yet; it returns [] and the player just seeks by time.
+_webcam_kf_cache = {}
+
+def _mp4_keyframe_times(path):
+    def boxes(buf, off, end):
+        while off + 8 <= end:
+            size, typ = struct.unpack('>I4s', buf[off:off + 8])
+            head = 8
+            if size == 1:
+                size, head = struct.unpack('>Q', buf[off + 8:off + 16])[0], 16
+            if size < head:
+                return
+            yield typ, off + head, off + size
+            off += size
+    with open(path, 'rb') as f:
+        moov = None
+        off = 0
+        while moov is None:
+            f.seek(off)
+            h = f.read(16)
+            if len(h) < 8:
+                return []
+            size, typ = struct.unpack('>I4s', h[:8])
+            if size == 1:
+                size = struct.unpack('>Q', h[8:16])[0]
+            if typ == b'moov':
+                f.seek(off)
+                moov = f.read(size)
+            elif typ == b'mdat' or size < 8:
+                return []          # index at the end or missing (file still being written)
+            off += size
+    for t, s, e in boxes(moov, 8, len(moov)):
+        if t != b'trak':
+            continue
+        kids = {}
+        def collect(b, o, en):
+            for tt, ss, ee in boxes(b, o, en):
+                kids[tt] = (ss, ee)
+                if tt in (b'mdia', b'minf', b'stbl'):
+                    collect(b, ss, ee)
+        collect(moov, s, e)
+        if b'vmhd' not in kids or b'stss' not in kids or b'stts' not in kids:
+            continue               # not the video track
+        ms = kids[b'mdhd'][0]
+        timescale = struct.unpack('>I', moov[ms + (20 if moov[ms] == 1 else 12):][:4])[0]
+        ss = kids[b'stts'][0]
+        n = struct.unpack('>I', moov[ss + 4:ss + 8])[0]
+        starts, t_acc = [], 0      # start time of every frame
+        for i in range(n):
+            count, delta = struct.unpack('>II', moov[ss + 8 + 8 * i:ss + 16 + 8 * i])
+            for _ in range(count):
+                starts.append(t_acc)
+                t_acc += delta
+        ks = kids[b'stss'][0]
+        n = struct.unpack('>I', moov[ks + 4:ks + 8])[0]
+        nums = struct.unpack('>%dI' % n, moov[ks + 8:ks + 8 + 4 * n])
+        return [round(starts[k - 1] / timescale, 3) for k in nums if 0 < k <= len(starts)]
+    return []
+
+@app.route('/api/webcams/<cam_id>/recordings/<name>/keyframes')
+def webcam_recording_keyframes(cam_id, name):
+    if cam_id not in WEBCAMS or not WEBCAM_REC_NAME.match(name):
+        return jsonify({'error': 'not found'}), 404
+    path = os.path.join(_webcam_recordings_dir(), cam_id, name)
+    try:
+        key = (path, os.stat(path).st_mtime)
+    except FileNotFoundError:
+        return jsonify({'error': 'not found'}), 404
+    if key not in _webcam_kf_cache:
+        try:
+            times = _mp4_keyframe_times(path)
+        except (OSError, ValueError, IndexError, struct.error):
+            times = []
+        if len(_webcam_kf_cache) > 50:
+            _webcam_kf_cache.clear()
+        _webcam_kf_cache[key] = times
+    return jsonify({'keyframes': _webcam_kf_cache[key]})
 
 # Full-resolution Live view: the recorder also keeps a short rolling HLS
 # playlist per camera in RAM (live_dir in its config); serve it as-is.
