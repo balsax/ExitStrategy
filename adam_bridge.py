@@ -11,7 +11,7 @@ them; this polls the module over Modbus/TCP (input registers 0-7, raw
   boat/adam/<name>/mv            shunt voltage, mV
   boat/adam/<name>/current       A, for channels with a shunt rating
 
-The Electrical tab uses alternator (ch0) and orion_house (ch1).
+The Electrical tab uses alternator (ch0) and orion_house (ch4).
 
 Channel names and shunt ratings are in CHANNELS below. If a shunt is wired
 backwards (charging reads negative), flip its sign there rather than the wires.
@@ -44,14 +44,24 @@ TOPIC_PREFIX = "boat/adam"
 # channel -> (topic name, shunt amps, shunt mV, sign); amps None = publish mV only
 CHANNELS = {
     0: ('alternator', 200, 75, 1),
-    1: ('orion_house', 50, 75, 1),    # Orion 48|12 house output, negative lead
-    2: ('ch2', 50, 75, 1),
-    3: ('ch3', 50, 75, 1),
-    4: ('ch4', 50, 75, 1),
-    5: ('ch5', None, None, 1),
+    1: ('ch1', None, None, 1),        # not connected yet (mV only); 50A/75mV shunt planned
+    2: ('ch2', None, None, 1),        # not connected yet (mV only); 50A/75mV shunt planned
+    3: ('ch3', None, None, 1),        # not connected yet (mV only); 50A/75mV shunt planned
+    4: ('orion_house', 50, 75, 1),    # Orion 48|12 output to the house batteries, ground side
+    5: ('orion_thruster', 50, 75, 1), # Orion output to the thruster/diesel batteries, ground side
     6: ('ch6', None, None, 1),
     7: ('ch7', None, None, 1),
 }
+
+# Zero correction: the module reads ~1 mV off zero with no current through a
+# shunt (about 2.6 A on the 200 A alternator shunt). ZERO_MV[ch] is that resting
+# reading, measured with no current flowing, and is subtracted before the amps
+# conversion; anything left within DEADBAND_MV of zero reads 0 A. The published
+# mv stays the raw reading, so the offset can be re-measured from it later.
+# ch0 measured 2026-11-08, engine off: 0.96 mV (sd 0.09). ch4/ch5 not yet
+# measured (each Orion was running) -- measure with that Orion off.
+ZERO_MV = {0: 0.96}
+DEADBAND_MV = 0.3
 
 
 def get_secrets():
@@ -110,7 +120,10 @@ def readings(raw_regs):
         mv = sign * to_mv(raw)
         r = {'mv': round(mv, 2)}
         if amps:
-            r['current'] = round(mv * amps / shunt_mv, 1)
+            net = mv - ZERO_MV.get(ch, 0.0)
+            if abs(net) < DEADBAND_MV:
+                net = 0.0
+            r['current'] = round(net * amps / shunt_mv, 1) + 0.0  # + 0.0 turns -0.0 into 0.0
         out[name] = r
     return out
 

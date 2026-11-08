@@ -3493,8 +3493,10 @@ async function adamAlternatorOverride(d) {
     else if (d.engine_running === undefined) d.engine_running = 0;  // no simulator: the shunt is all we know
     d.engine_alternator_measured = 1;
   }
-  // ch1: Orion 48|12 house output (the Orion's Bluetooth broadcast has no current)
+  // ch4: Orion 48|12 house output (the Orion's Bluetooth broadcast has no current)
   if (typeof a.orion_house_current === 'number') d.orion_house_output_current = a.orion_house_current;
+  // ch5: Orion output to the thruster/diesel batteries (total, before the Cyrix split)
+  if (typeof a.orion_thruster_current === 'number') d.orion_thruster_output_current = a.orion_thruster_current;
   const label = measured ? 'Output (measured)' : 'Output (estimated)';
   NODE_DEFS.alternator.liveFields.forEach(f => { if (f.key === 'engine_alternator_current') f.label = label; });
   NODE_DEFS.alternator.chartSeries.forEach(c => { if (c.code === 'engine_alternator_current') c.label = measured ? 'Output' : 'Output (est.)'; });
@@ -3868,10 +3870,12 @@ const FLOW_LINKS = [
     ['Voltage', fmtN(d.orion_thruster_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_thruster_state]] })],
   ['nd-or2', 'nd-bt', d => ({ title: 'Orion → Bow Thruster battery', rows: [
     ['Voltage', fmtN(d.orion_thruster_output_voltage, 'V', 2)],
+    ['Orion output (total)', d.orion_thruster_output_current !== undefined ? fmtN(d.orion_thruster_output_current, 'A') : null], // ADAM-6017 ch5 (siloed)
     ['Current', !d.engine_running && (d.shunt_thruster_current || 0) > 0 ? '≈ ' + fmtN(d.shunt_thruster_current, 'A') : NR],
     ['State', d.orion_thruster_state], ['Off reason', d.orion_thruster_off_reason !== 'None' ? d.orion_thruster_off_reason : null]] })],
   ['nd-or2', 'nd-12s', d => ({ title: 'Orion → 12V Diesel (via Cyrix)', rows: [
     ['Voltage', fmtN(d.orion_thruster_output_voltage, 'V', 2)],
+    ['Orion output (total)', d.orion_thruster_output_current !== undefined ? fmtN(d.orion_thruster_output_current, 'A') : null], // ADAM-6017 ch5 (siloed)
     ['Current', !d.engine_running && (d.shunt_diesel_current || 0) > 0 ? '≈ ' + fmtN(d.shunt_diesel_current, 'A') : NR],
     ['State', d.orion_thruster_state]] })],
   ['nd-alt', 'nd-12s', d => ({ title: 'Alternator → 12V Diesel', rows: [
@@ -3989,7 +3993,8 @@ const ORION_BLE_FIELDS = n => [
 ];
 NODE_DEFS.orion1.liveFields = ORION_BLE_FIELDS('orion_house');
 NODE_DEFS.orion2.liveFields = ORION_BLE_FIELDS('orion_thruster');
-NODE_DEFS.orion1.liveFields.splice(4, 0, { key: 'orion_house_output_current', label: 'Output Current', unit: 'A', color: '#3db87a' }); // ADAM-6017 ch1 (siloed)
+NODE_DEFS.orion1.liveFields.splice(4, 0, { key: 'orion_house_output_current', label: 'Output Current', unit: 'A', color: '#3db87a' }); // ADAM-6017 ch4 (siloed)
+NODE_DEFS.orion2.liveFields.splice(4, 0, { key: 'orion_thruster_output_current', label: 'Output Current', unit: 'A', color: '#3db87a' }); // ADAM-6017 ch5 (siloed)
 
 // Real state if the bridge has reported this Orion, else the caller's fallback guess.
 function orionBleActive(name, fallback) {
@@ -4003,6 +4008,32 @@ function renderOrionBle() {
     setText(id, d[`${n}_state`] !== undefined ? d[`${n}_state`] : '48→12V');
   });
 }
+
+// ─── ADAM-6017 Orion currents on the diagram — siloed addition ──────────────
+// The Orions' Bluetooth broadcast has no current; the ADAM shunts do (ch4 house,
+// ch5 thruster/diesel, set in adamAlternatorOverride). When a shunt reading is
+// fresh: the node label gets " · <A>", and while Bluetooth is silent the Orion
+// counts as running above ORION_SHUNT_ACTIVE_A (idle below it) instead of the
+// caller's guess. Bluetooth state still wins when it's reporting.
+// To back out: delete this block.
+const ORION_SHUNT_ACTIVE_A = 1;
+const _orionBleActiveNoShunt = orionBleActive;
+orionBleActive = function (name, fallback) {
+  const a = victronSimData[`${name}_output_current`];
+  if (victronSimData[`${name}_state_code`] === undefined && typeof a === 'number') return a > ORION_SHUNT_ACTIVE_A;
+  return _orionBleActiveNoShunt(name, fallback);
+};
+const _renderOrionBleNoShunt = renderOrionBle;
+renderOrionBle = function () {
+  _renderOrionBleNoShunt();
+  [['orion_house', 'v-or1'], ['orion_thruster', 'v-or2']].forEach(([n, id]) => {
+    const a = victronSimData[`${n}_output_current`];
+    if (typeof a !== 'number') return;
+    const st = victronSimData[`${n}_state`];
+    setText(id, `${st !== undefined ? st : '48→12V'} · ${a.toFixed(1)} A`);
+  });
+};
+// ─── end ADAM-6017 Orion currents siloed addition ───────────────────────────
 
 // ─── Battery symbols + device LEDs ───
 // Vertical bar-graph battery: fill height = SOC, color by level, SOC number
@@ -4105,7 +4136,7 @@ const ELEC_HISTORY = {
   mppt2:      [['mppt_bimini_bat_current', 'Charge Current', 'A', '#3db87a'], ['mppt_bimini_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bimini_bat_voltage', 'Battery Voltage', 'V', '#e8a030']],
   orionAlt:   [['orion_alt_output_power', 'Output Power', 'W', '#3db87a'], ['orion_alt_output_current', 'Output Current', 'A', '#3db87a'], ['orion_alt_input_voltage', 'Input Voltage', 'V', '#facc15']],
   orion1:     [['orion_house_output_current', 'Output Current', 'A', '#2dd4bf'], ['orion_house_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_house_input_voltage', 'Input Voltage', 'V', '#e8a030']],
-  orion2:     [['orion_thruster_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_thruster_input_voltage', 'Input Voltage', 'V', '#e8a030']],
+  orion2:     [['orion_thruster_output_current', 'Output Current', 'A', '#2dd4bf'], ['orion_thruster_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_thruster_input_voltage', 'Input Voltage', 'V', '#e8a030']],
   alternator: [['engine_alternator_current', 'Output (est.)', 'A', '#facc15'], ['engine_running', 'Engine Running', '', '#6b82a0']],
   load12s:    [['load_12s_w', 'Load Power', 'W', '#c084fc']],
   loadbt:     [['load_bt_w', 'Load Power', 'W', '#c084fc']],

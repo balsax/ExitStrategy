@@ -117,10 +117,11 @@ def _energy_balance(snap, vrm):
 # adam_bridge.py publishes the real alternator current (boat/adam/alternator/
 # current); while fresh it replaces the simulator's engine_alternator_current,
 # same rule as fetchVictronSim() in the page. An alternator putting out more
-# than ADAM_ALT_RUNNING_A also means the engine is running. ch1 (Orion house
-# output) is recorded as orion_house_output_current.
+# than ADAM_ALT_RUNNING_A also means the engine is running. ch4 (Orion house
+# output; ch1 before 2026-11-08) is recorded as orion_house_output_current.
 ADAM_KEYS = {'boat/adam/alternator/current': 'engine_alternator_current',
-             'boat/adam/orion_house/current': 'orion_house_output_current'}
+             'boat/adam/orion_house/current': 'orion_house_output_current',
+             'boat/adam/orion_thruster/current': 'orion_thruster_output_current'}  # ch5
 ADAM_ALT_RUNNING_A = 5.0
 
 def _adam_override(snap, mqtt_state, mqtt_lock):
