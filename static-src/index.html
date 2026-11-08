@@ -3476,6 +3476,31 @@ Object.assign(NODE_DEFS, {
   },
 });
 
+// ─── ADAM-6017 shunts — siloed addition ─────────────────────────────────────
+// adam_bridge.py publishes the real alternator current (ch0, 200A/75mV shunt);
+// /api/adam only returns fresh values, so when the module or bridge is down
+// this does nothing and the simulator's estimate shows as before. An
+// alternator putting out more than ADAM_ALT_RUNNING_A also means the engine is
+// running (same rule as electrical_history.py).
+const ADAM_ALT_RUNNING_A = 5;
+async function adamAlternatorOverride(d) {
+  let a = {};
+  try { a = await (await fetch('/api/adam')).json(); } catch (e) { /* bridge not running */ }
+  const measured = typeof a.alternator_current === 'number';
+  if (measured) {
+    d.engine_alternator_current = a.alternator_current;
+    if (a.alternator_current > ADAM_ALT_RUNNING_A) d.engine_running = 1;
+    else if (d.engine_running === undefined) d.engine_running = 0;  // no simulator: the shunt is all we know
+    d.engine_alternator_measured = 1;
+  }
+  // ch1: Orion 48|12 house output (the Orion's Bluetooth broadcast has no current)
+  if (typeof a.orion_house_current === 'number') d.orion_house_output_current = a.orion_house_current;
+  const label = measured ? 'Output (measured)' : 'Output (estimated)';
+  NODE_DEFS.alternator.liveFields.forEach(f => { if (f.key === 'engine_alternator_current') f.label = label; });
+  NODE_DEFS.alternator.chartSeries.forEach(c => { if (c.code === 'engine_alternator_current') c.label = measured ? 'Output' : 'Output (est.)'; });
+}
+// ─── end ADAM-6017 shunts siloed addition ───────────────────────────────────
+
 let victronSimData = {};
 let victronSimFlowSig = '';
 
@@ -3487,6 +3512,7 @@ async function fetchVictronSim() {
   try {
     Object.assign(d, await (await fetch('/api/victron/ble')).json()); // real Orions over Bluetooth
   } catch (e) { /* bridge not running */ }
+  await adamAlternatorOverride(d); // real alternator current from the ADAM-6017 (siloed)
   // '--' means "not applicable" (e.g. time-to-go while charging) -- show as blank
   for (const k of Object.keys(d)) if (d[k] === '--') delete d[k];
   if (d.engine_running !== undefined) d.engine_state = d.engine_running ? 'Running' : 'Off';
@@ -3546,7 +3572,7 @@ function renderVictronSim() {
   const src = [];
   if (f.solar) src.push(`Arch ${Math.round(d.mppt_pv_power)}W`);
   if (f.solar2) src.push(`Bimini ${Math.round(d.mppt_bimini_pv_power)}W`);
-  if (f.alt) src.push(`Alternator ~${Math.round(d.engine_alternator_current)}A`);
+  if (f.alt) src.push(`Alternator ${d.engine_alternator_measured ? '' : '~'}${Math.round(d.engine_alternator_current)}A`);
   if (f.orion) src.push(`Orion 12|48 ${d.orion_alt_output_current.toFixed(1)}A → 48V`);
   if (d.engine_running && f.thrCharge) src.push('Thruster charging from diesel (Cyrix)');
   else if (!d.engine_running && orionBleActive('orion_thruster', false)) src.push('Orion 48→12 → Thruster + Diesel');
@@ -3836,7 +3862,7 @@ const FLOW_LINKS = [
   ['nd-48v', 'nd-or1', d => ({ title: '48V Bank → Orion (house)', rows: [
     ['Voltage', fmtN(d.orion_house_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_house_state]] })],
   ['nd-or1', 'nd-12h', d => ({ title: 'Orion → 12V House', rows: [
-    ['Voltage', fmtN(d.orion_house_output_voltage, 'V', 2)], ['Current', NR],
+    ['Voltage', fmtN(d.orion_house_output_voltage, 'V', 2)], ['Current', d.orion_house_output_current !== undefined ? fmtN(d.orion_house_output_current, 'A') : NR],
     ['Battery current', fmtSigned(d.i_12v, 'A')], ['State', d.orion_house_state]] })],
   ['nd-48v', 'nd-or2', d => ({ title: '48V Bank → Orion (thruster)', rows: [
     ['Voltage', fmtN(d.orion_thruster_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_thruster_state]] })],
@@ -3850,7 +3876,7 @@ const FLOW_LINKS = [
     ['State', d.orion_thruster_state]] })],
   ['nd-alt', 'nd-12s', d => ({ title: 'Alternator → 12V Diesel', rows: [
     ['Engine', d.engine_state], ['Voltage', fmtN(d.shunt_diesel_voltage, 'V', 2)],
-    ['Alternator output', d.engine_alternator_current !== undefined ? '≈ ' + fmtN(d.engine_alternator_current, 'A') : null],
+    ['Alternator output', d.engine_alternator_current !== undefined ? (d.engine_alternator_measured ? '' : '≈ ') + fmtN(d.engine_alternator_current, 'A') : null],
     ['Into battery', fmtSigned(d.shunt_diesel_current, 'A')]] })],
   ['nd-alt', 'nd-or3', d => {
     const vin = d.orion_alt_input_voltage, pin = (d.orion_alt_output_power || 0) / 0.88;
@@ -3963,6 +3989,7 @@ const ORION_BLE_FIELDS = n => [
 ];
 NODE_DEFS.orion1.liveFields = ORION_BLE_FIELDS('orion_house');
 NODE_DEFS.orion2.liveFields = ORION_BLE_FIELDS('orion_thruster');
+NODE_DEFS.orion1.liveFields.splice(4, 0, { key: 'orion_house_output_current', label: 'Output Current', unit: 'A', color: '#3db87a' }); // ADAM-6017 ch1 (siloed)
 
 // Real state if the bridge has reported this Orion, else the caller's fallback guess.
 function orionBleActive(name, fallback) {
@@ -4077,7 +4104,7 @@ const ELEC_HISTORY = {
   solar2:     [['mppt_bimini_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bimini_pv_voltage', 'PV Voltage', 'V', '#4a9fd4']],
   mppt2:      [['mppt_bimini_bat_current', 'Charge Current', 'A', '#3db87a'], ['mppt_bimini_pv_power', 'PV Power', 'W', '#facc15'], ['mppt_bimini_bat_voltage', 'Battery Voltage', 'V', '#e8a030']],
   orionAlt:   [['orion_alt_output_power', 'Output Power', 'W', '#3db87a'], ['orion_alt_output_current', 'Output Current', 'A', '#3db87a'], ['orion_alt_input_voltage', 'Input Voltage', 'V', '#facc15']],
-  orion1:     [['orion_house_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_house_input_voltage', 'Input Voltage', 'V', '#e8a030']],
+  orion1:     [['orion_house_output_current', 'Output Current', 'A', '#2dd4bf'], ['orion_house_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_house_input_voltage', 'Input Voltage', 'V', '#e8a030']],
   orion2:     [['orion_thruster_output_voltage', 'Output Voltage', 'V', '#3db87a'], ['orion_thruster_input_voltage', 'Input Voltage', 'V', '#e8a030']],
   alternator: [['engine_alternator_current', 'Output (est.)', 'A', '#facc15'], ['engine_running', 'Engine Running', '', '#6b82a0']],
   load12s:    [['load_12s_w', 'Load Power', 'W', '#c084fc']],

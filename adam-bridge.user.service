@@ -1,0 +1,15 @@
+[Unit]
+Description=ADAM-6017 shunt currents (Modbus/TCP) -> MQTT
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mikemc/dashboard-dev
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/mikemc/dashboard-dev/adam_bridge.py
+Restart=always
+RestartSec=15
+Nice=5
+
+[Install]
+WantedBy=default.target

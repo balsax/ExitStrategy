@@ -113,6 +113,33 @@ def _energy_balance(snap, vrm):
     return out
 
 
+# ─── ADAM-6017 shunts siloed addition ───────────────────────────────────────
+# adam_bridge.py publishes the real alternator current (boat/adam/alternator/
+# current); while fresh it replaces the simulator's engine_alternator_current,
+# same rule as fetchVictronSim() in the page. An alternator putting out more
+# than ADAM_ALT_RUNNING_A also means the engine is running. ch1 (Orion house
+# output) is recorded as orion_house_output_current.
+ADAM_KEYS = {'boat/adam/alternator/current': 'engine_alternator_current',
+             'boat/adam/orion_house/current': 'orion_house_output_current'}
+ADAM_ALT_RUNNING_A = 5.0
+
+def _adam_override(snap, mqtt_state, mqtt_lock):
+    with mqtt_lock:
+        entries = {t: dict(mqtt_state['topics'].get(t) or {}) for t in ADAM_KEYS}
+    fresh = {}
+    for topic, entry in entries.items():
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < time.time() - STALE_S:
+                continue
+            fresh[ADAM_KEYS[topic]] = float(entry['value'])
+        except (KeyError, ValueError, TypeError):
+            continue
+    snap.update(fresh)
+    if fresh.get('engine_alternator_current', 0) > ADAM_ALT_RUNNING_A:
+        snap['engine_running'] = 1.0
+# ─── end ADAM-6017 shunts siloed addition ───────────────────────────────────
+
+
 def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
     _init()
     last_rollup = 0
@@ -121,6 +148,7 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
         try:
             now = int(time.time())
             snap = _snapshot(mqtt_state, mqtt_lock)
+            _adam_override(snap, mqtt_state, mqtt_lock)  # ADAM-6017 shunts (siloed)
             if vrm_fn:  # Energy balance needs the real VRM side (48V bank, shore, AC loads, 12V house)
                 try:
                     snap.update(_energy_balance(snap, vrm_fn() or {}))

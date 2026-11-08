@@ -5197,6 +5197,33 @@ def victron_ble():
     return jsonify(out)
 # ─── end Victron Bluetooth siloed addition ──────────────────────────────────
 
+# ─── ADAM-6017 shunts siloed addition ───────────────────────────────────────
+# adam_bridge.py polls the ADAM-6017 (192.168.10.250) every 2 s and publishes
+# boat/adam/<name>/mv|current. Served flat as <name>_<field>, e.g.
+# alternator_current. The Electrical tab uses alternator_current in place of
+# the simulator's estimate while it's fresh.
+ADAM_PREFIX = 'boat/adam/'
+ADAM_STALE_S = 15
+
+@app.route('/api/adam')
+def adam_shunts():
+    cutoff = datetime.now(timezone.utc).timestamp() - ADAM_STALE_S
+    out = {}
+    with mqtt_lock:
+        items = [(t, v) for t, v in mqtt_state['topics'].items() if t.startswith(ADAM_PREFIX)]
+    for topic, entry in items:
+        key = topic[len(ADAM_PREFIX):].replace('/', '_')
+        if key == 'status':
+            continue
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
+                continue
+            out[key] = float(entry['value'])
+        except (KeyError, ValueError):
+            continue
+    return jsonify(out)
+# ─── end ADAM-6017 shunts siloed addition ───────────────────────────────────
+
 # ─── Electrical history siloed addition ─────────────────────────────────────
 # History for the Electrical tab devices VRM doesn't have (simulated shunts /
 # MPPTs / alternator, Bluetooth Orions, derived DC loads), recorded by
