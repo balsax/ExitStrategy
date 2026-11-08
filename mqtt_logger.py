@@ -311,7 +311,13 @@ class Database:
         return self._log_enabled.get(topic_id, False)
 
     # ── Update last_value on topic ─────────────────────────────────────────────
+    LAST_VALUE_MAX = 64  # mqtt_topics.last_value is varchar(64)
+
     def update_topic_last(self, topic_id, value, commit=True):
+        # A few CAN diagnostic values are far longer (PGN 129540's satellite
+        # list is ~1300 chars) and failed with "Data too long"; keep the start.
+        if isinstance(value, str) and len(value) > self.LAST_VALUE_MAX:
+            value = value[:self.LAST_VALUE_MAX]
         return self.execute("""
             UPDATE mqtt_topics
             SET last_value = %s, last_update = %s
