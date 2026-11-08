@@ -287,7 +287,10 @@ def handle_unmapped(client, pgn, fields):
 
 
 def sanitize_field_name(field_name):
-    return str(field_name).lower().replace(" ", "_").replace("/", "_")
+    # '#' and '+' are MQTT wildcards; a field like "# of ..." in a publish topic
+    # raised ValueError and killed the bridge (2026-11-08 10:30).
+    return (str(field_name).lower().replace(" ", "_").replace("/", "_")
+            .replace("#", "num").replace("+", "plus"))
 
 
 # Feeds the dashboard's CAN Bus diagnostics tab -- every decoded PGN gets a
@@ -439,8 +442,19 @@ def main():
     client.connect(MQTT_BROKER, MQTT_PORT, keepalive=30)
     client.loop_start()
 
+    # One bad message must not take the bridge down: on 2026-11-08 an uncaught
+    # ValueError killed this stage while candump/analyzer kept running, so the
+    # service looked "active" for hours while publishing nothing. Log and skip
+    # (first 20 errors, then every 1000th).
+    errors = 0
     for line in sys.stdin:
-        handle_line(client, line)
+        try:
+            handle_line(client, line)
+        except Exception as e:
+            errors += 1
+            if errors <= 20 or errors % 1000 == 0:
+                print(f"n2k_mqtt_bridge: skipped a message ({errors} so far): {type(e).__name__}: {e} | {line.strip()[:200]}",
+                      file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

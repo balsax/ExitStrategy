@@ -140,6 +140,22 @@ def _adam_override(snap, mqtt_state, mqtt_lock):
         snap['engine_running'] = 1.0
 # ─── end ADAM-6017 shunts siloed addition ───────────────────────────────────
 
+# ─── 12V house load from shunts — siloed addition ───────────────────────────
+# The Orion feeds both the 12V house battery and the house loads, so with the
+# ADAM ch4 shunt (Orion output) and the house SmartShunt (battery current, VRM
+# i_12v, + = charging): loads = Orion output - battery current. Only when the
+# simulator's house load isn't there (same rule as computeDcLoads in the page).
+def _house_load_from_shunts(snap, vrm):
+    num = lambda v: isinstance(v, (int, float))
+    orion, i_bat, v_bat = snap.get('orion_house_output_current'), vrm.get('i_12v'), vrm.get('v_12v')
+    if 'house_load_power' in snap or not (num(orion) and num(i_bat)):
+        return
+    amps = max(0.0, orion - i_bat)
+    snap['load_12h_a'] = round(amps, 2)
+    if num(v_bat):
+        snap['load_12h_w'] = round(amps * v_bat, 1)
+# ─── end 12V house load siloed addition ─────────────────────────────────────
+
 
 def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
     _init()
@@ -152,7 +168,9 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
             _adam_override(snap, mqtt_state, mqtt_lock)  # ADAM-6017 shunts (siloed)
             if vrm_fn:  # Energy balance needs the real VRM side (48V bank, shore, AC loads, 12V house)
                 try:
-                    snap.update(_energy_balance(snap, vrm_fn() or {}))
+                    vrm = vrm_fn() or {}
+                    _house_load_from_shunts(snap, vrm)  # 12V house load from shunts (siloed)
+                    snap.update(_energy_balance(snap, vrm))
                 except Exception as e:
                     print(f'electrical_history: energy balance skipped ({e})')
             with closing(_connect()) as conn, conn:  # closing: "with conn" only commits; Python 3.12 leaves the file open until GC

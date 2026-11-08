@@ -79,7 +79,7 @@ IGNORE_PREFIXES = (
 # deliberately NOT listed here or is re-allowed in NAV_KEEP_LOGGING.
 # Set NAV_IS_SIMULATED = False once the CAN HAT is wired into the real N2K
 # backbone to resume logging real position/depth/heading history.
-NAV_IS_SIMULATED = True
+NAV_IS_SIMULATED = False  # real N2K live on can0 since 2026-11-08
 NAV_NO_READINGS_PREFIXES = (
     "boat/nav/destination/",
     "boat/nav/autopilot/",
@@ -370,8 +370,20 @@ reading_gate      = StreamGate(READING_MIN_INTERVAL_S, READING_HEARTBEAT_S)
 topic_touch_gate  = StreamGate(TOUCH_INTERVAL_S, TOUCH_INTERVAL_S)
 device_touch_gate = StreamGate(TOUCH_INTERVAL_S, TOUCH_INTERVAL_S)
 
+# CAN bus diagnostics (n2k_mqtt_bridge.py publish_canbus_diag + raw per-PGN
+# fields): ~650 topics, ~90% of all rows once the real bus came up (5 -> 67
+# rows/s on 2026-11-08), some values longer than mqtt_readings.value allows.
+# The Diagnostics tab reads them live over MQTT only, so like NAV_* above they
+# stay registered (last_value/last_seen) but their readings aren't stored.
+DIAG_NO_READINGS_PREFIXES = (
+    "boat/canbus/",
+    "boat/nav/pgn/",
+)
+
 def readings_excluded(topic):
-    """True if this topic's readings should not be written to mqtt_readings (see NAV_* above)."""
+    """True if this topic's readings should not be written to mqtt_readings (see NAV_* / DIAG_* above)."""
+    if topic.startswith(DIAG_NO_READINGS_PREFIXES):
+        return True
     return (NAV_IS_SIMULATED
             and topic.startswith(NAV_NO_READINGS_PREFIXES)
             and topic not in NAV_KEEP_LOGGING)

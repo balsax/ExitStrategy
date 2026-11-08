@@ -10,7 +10,7 @@ This repo is the **dev copy**. Production runs from `/home/mikemc/dashboard_api.
 - **Frontend** (`static-src/index.html`) — everything (HTML/CSS/JS) in one file, served directly by Flask via `send_from_directory`. No build step, no bundler.
 - **MQTT** (Mosquitto, `localhost:1883`) — the real-time bus. Real hardware and the dev simulators both publish to the same topic namespace, so the frontend never needs to know which it's talking to.
 - **MariaDB** (`boat_monitoring` db) — a separate, pre-existing logging pipeline (`mqtt_logger.py`, this repo, symlinked from `~/python/mqtt_logger.py` where its systemd service expects it) subscribes to everything under `boat/#`/`N/#` and logs time-series readings. The dashboard only *reads* from it for trend charts; it never writes here directly, and `mqtt_logger.py` explicitly ignores `boat/ais/*` (synthetic simulator MMSIs would otherwise register as permanent fake "devices").
-- **NMEA2000 → MQTT bridge** (`n2k_mqtt_bridge.py`) — decodes canboat's `analyzer -json` output off the CAN bus into the same `boat/nav/*` / `boat/ais/*` topics the simulators use. Not yet deployed as a service — blocked on the CAN HAT being physically wired into the boat's N2K backbone.
+- **NMEA2000 → MQTT bridge** (`n2k_mqtt_bridge.py`) — decodes canboat's `analyzer -json` output off the CAN bus into the same `boat/nav/*` / `boat/ais/*` topics the simulators use. Runs as `n2k-mqtt-bridge.service` from `~/n2k_mqtt_bridge.py`, a symlink to this repo's file, so edits here go live on the next service restart.
 
 ## Running it
 
@@ -107,7 +107,7 @@ Both publish to the exact same topics the real hardware (NMEA2000 GPS/depth, AIS
 |---|---|
 | Watermaker, smart relay, engine fan controller | **Real**, live on MQTT |
 | BME680 (cabin sensor), Victron VRM | **Real** |
-| GPS, depth, heading, AIS | **Simulated** — CAN bus has zero physical traffic; `n2k_mqtt_bridge.py`'s nav PGN mapping (position/COG/SOG/heading) is verified against simulated canboat JSON via `garmin_1243_simulator.py`, but not yet deployed against the real bus, pending the CAN HAT being wired into the N2K backbone |
+| GPS, depth, speed through water, AIS | **Real** since 2026-11-08 — the CAN HAT (`can0`) is on the N2K backbone; `n2k-mqtt-bridge.service` publishes `boat/nav/*` / `boat/ais/*`, and `mqtt_logger.py` stores nav readings (`NAV_IS_SIMULATED = False`). Heading: not seen on the bus yet. Sea temperature from the depth/speed unit reads 8 °C (suspect sensor) |
 | Engine telemetry (RPM, oil, coolant, alternator, fuel) | Not wired — PGN mapping exists in `n2k_mqtt_bridge.py`, unverified against real hardware |
 | Wind transducer | Not wired — Weather tab's live "Wind" card is a placeholder; the Windy map is an independent forecast source, not this instrument |
 

@@ -3863,8 +3863,8 @@ const FLOW_LINKS = [
     ['Power', powerOf(d.mppt_bimini_bat_voltage, d.mppt_bimini_bat_current)], ['State', d.mppt_bimini_state]] })],
   ['nd-48v', 'nd-or1', d => ({ title: '48V Bank → Orion (house)', rows: [
     ['Voltage', fmtN(d.orion_house_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_house_state]] })],
-  ['nd-or1', 'nd-12h', d => ({ title: 'Orion → 12V House', rows: [
-    ['Voltage', fmtN(d.orion_house_output_voltage, 'V', 2)], ['Current', d.orion_house_output_current !== undefined ? fmtN(d.orion_house_output_current, 'A') : NR],
+  ['nd-or1', 'nd-12h', d => ({ title: 'Orion → 12V House', rows: [ // Voltage falls back to the 12V house SmartShunt (v_12v) when the Orion's Bluetooth is silent
+    ['Voltage', fmtN(d.orion_house_output_voltage ?? d.v_12v, 'V', 2)], ['Current', d.orion_house_output_current !== undefined ? fmtN(d.orion_house_output_current, 'A') : NR],
     ['Battery current', fmtSigned(d.i_12v, 'A')], ['State', d.orion_house_state]] })],
   ['nd-48v', 'nd-or2', d => ({ title: '48V Bank → Orion (thruster)', rows: [
     ['Voltage', fmtN(d.orion_thruster_input_voltage ?? d.voltage, 'V', 2)], ['Current', NR], ['State', d.orion_thruster_state]] })],
@@ -4107,6 +4107,25 @@ function dc48Load(d) {
   const orions = (FLOW_WATTS['nd-48v|nd-or1'](d) || 0) + (FLOW_WATTS['nd-48v|nd-or2'](d) || 0);
   return { w: Math.max(0, into - d.voltage * d.current - orions), calc: true };
 }
+// ─── 12V house load from shunts — siloed addition ───────────────────────────
+// The Orion feeds both the 12V house battery and the house loads, so with the
+// ADAM ch4 shunt (Orion output) and the house SmartShunt (i_12v, + = charging):
+// loads = Orion output - battery current. Only when the simulator's house load
+// isn't there. Same rule in electrical_history.py. To back out: delete this block.
+const _computeDcLoadsNoShunt = computeDcLoads;
+computeDcLoads = function () {
+  _computeDcLoadsNoShunt();
+  const d = victronData, orion = d.orion_house_output_current;
+  if (typeof d.house_load_current === 'number' || typeof orion !== 'number' || typeof d.i_12v !== 'number') return;
+  const a = Math.max(0, orion - d.i_12v);
+  d.load_12h_a = Math.round(a * 10) / 10;
+  if (typeof d.v_12v === 'number') {
+    const w = a * d.v_12v;
+    d.load_12h_w = Math.round(w);
+    setText('v-ld12h', w >= 1000 ? `${(w / 1000).toFixed(1)}kW` : `${Math.round(w)}W`);
+  } else { delete d.load_12h_w; setText('v-ld12h', `${a.toFixed(1)}A`); }
+};
+// ─── end 12V house load siloed addition ─────────────────────────────────────
 function dcLoadActive(k) { return (victronData[`load_${k}_a`] || 0) > 0.5; }
 const DC_LOAD_FIELDS = k => [
   { key: `load_${k}_w`, label: 'Load Power',   unit: 'W', color: '#c084fc' },
