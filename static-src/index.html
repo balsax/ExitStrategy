@@ -1055,6 +1055,14 @@ html.night-mode :-webkit-full-screen{filter:url(#night-red)}
 /* Native checkboxes/radios are white boxes (light colour-scheme) -> full-bright red. Dark ones in night mode. */
 html.night-mode input[type=checkbox],html.night-mode input[type=radio]{color-scheme:dark}
 html.night-mode .htitle h1{color:#8a96a8}   /* was the brightest text in the header */
+/* Scrollbars (2026-11-08, user: "the scroll bar is blue"): the page's own scrollbar is
+   drawn outside <html>'s filter, so it kept its blue-grey (#2a3a5a, #4a9fd4 hover).
+   Dark red instead; scrollbars inside the page get filtered too and just end up dimmer.
+   Chrome 121+ and Firefox use scrollbar-color; older Chromium uses ::-webkit-scrollbar. */
+html.night-mode,html.night-mode *{scrollbar-color:#4a1212 #000}
+html.night-mode *{scrollbar-color:#4a1212 transparent}
+html.night-mode ::-webkit-scrollbar-thumb{background:#4a1212}
+html.night-mode ::-webkit-scrollbar-thumb:hover{background:#7a1c1c}
 /* Firefox ignores url() SVG filters on <html> (any page, verified), so there the
    filter goes on each top-level block instead. Kept off any element that
    contains a position:fixed pop-up (a filter would make it the pop-up's
@@ -1106,6 +1114,8 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <div class="live"><div class="dot"></div><span id="clock">--:--</span></div>
       <button class="night-toggle-btn" id="night-toggle-btn" onclick="toggleNightMode()" title="Night mode (red display)">🌙<span class="night-label"> Night</span></button>
     </div>
+    <!-- Full screen button (siloed addition, 2026-11-08) -->
+    <button class="hdr-fs-btn" id="hdr-fs-btn" onclick="toggleBrowserFullscreen()" title="Full screen" aria-label="Full screen" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path id="hdr-fs-path" d="M4 9V4h5v2H6v3H4zm11-5h5v5h-2V6h-3V4zM4 15h2v3h3v2H4v-5zm14 3v-3h2v5h-5v-2h3z"/></svg></button>
   </div>
 </div>
 
@@ -12996,6 +13006,52 @@ addEventListener('message', e => {
   if (f && e.source === f.contentWindow && e.data && e.data.type === 'boatradio-night-query') sendNightToMedia();
 });
 // ─── end Night mode toggle siloed addition ───────────────────────────────────
+
+// ─── Full screen button (siloed addition, 2026-11-08) ─────────────────────────
+// Header button that puts the whole dashboard in browser full screen (no tabs
+// or address bar) on any tab; Esc or the button again leaves. Separate from the
+// Chart tab's own "Full Screen" (which only enlarges the map inside the page).
+// Hidden where the browser can't do it (iPhone Safari) or when the dashboard is
+// already running as the installed full-screen app.
+// To back out: delete this block, its CSS block and the #hdr-fs-btn button.
+(function () {
+  const css = document.createElement('style');
+  css.textContent = `
+    .hdr-fs-btn{display:flex;align-items:center;justify-content:center;width:40px;align-self:stretch;margin-left:8px;padding:0;
+      color:#c9d4e0;background:#0d1f38;border:.5px solid #1e3a5a;border-radius:6px;cursor:pointer}
+    .hdr-fs-btn[hidden]{display:none}
+    .hdr-fs-btn:hover{border-color:#4a9fd4;color:#4a9fd4}
+    .hdr-fs-btn svg{width:22px;height:22px;fill:currentColor}
+    @media (max-width:600px){.hdr-fs-btn{width:26px;margin-left:4px}.hdr-fs-btn svg{width:16px;height:16px}
+      /* the extra button tipped phones (400-430px) into a wrapped 2-line header: let the title side shrink instead */
+      .header-left{min-width:0;flex:1 1 0}}
+  `;
+  document.head.appendChild(css);
+  const ENTER = 'M4 9V4h5v2H6v3H4zm11-5h5v5h-2V6h-3V4zM4 15h2v3h3v2H4v-5zm14 3v-3h2v5h-5v-2h3z';
+  const EXIT = 'M9 4v5H4V7h3V4h2zm6 0h2v3h3v2h-5V4zM4 15h5v5H7v-3H4v-2zm11 0h5v2h-3v3h-2v-5z';
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const supported = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  const installed = matchMedia('(display-mode: fullscreen)').matches && !fsEl();
+  const btn = document.getElementById('hdr-fs-btn');
+  if (!btn || !supported || installed) return;
+  btn.hidden = false;
+  function sync() {
+    const on = !!fsEl();
+    document.getElementById('hdr-fs-path').setAttribute('d', on ? EXIT : ENTER);
+    btn.title = on ? 'Exit full screen' : 'Full screen';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  window.toggleBrowserFullscreen = function () {
+    const el = document.documentElement;
+    const p = fsEl() ? (document.exitFullscreen || document.webkitExitFullscreen).call(document)
+                     : (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    if (p && p.catch) p.catch(e => console.warn('Full screen:', e));
+  };
+  document.addEventListener('fullscreenchange', sync);
+  document.addEventListener('webkitfullscreenchange', sync);
+  sync();
+})();
+// ─── end Full screen button siloed addition ───────────────────────────────────
 
 // ─── Chart base-map picker (top-left of the map, 2026-10-07) ─────────────────
 // Wraps the existing #chart-base-source / #chart-base-theme radios (moved into
