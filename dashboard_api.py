@@ -381,6 +381,7 @@ def get_vrm_data():
     # 20 Ah, and 'tTTG'/'bAC' never appear -- so derive both from SOC + current.
     # time_to_go is minutes: to 100% while charging, to 0% while discharging.
     BANK48_AH = 200
+    result['bank48_ah'] = BANK48_AH   # for the Energy balance time remaining
     result.pop('time_to_go', None)
     result.pop('consumed_ah', None)
     soc48, cur48 = result.get('soc'), result.get('current')
@@ -404,6 +405,7 @@ def get_vrm_data():
                 cap12 = float(r.get('rawValue'))
             except (TypeError, ValueError):
                 pass
+    result['cap_12v'] = cap12         # for the Energy balance time remaining
     soc12, cur12 = result.get('soc_12v'), result.get('i_12v')
     result.pop('ttg_mode_12v', None)
     if isinstance(soc12, float) and isinstance(cur12, float) and abs(cur12) >= 0.5:

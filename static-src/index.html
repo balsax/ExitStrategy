@@ -837,6 +837,9 @@ svg.fsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .nb.ebal{width:176px;padding:8px 10px;gap:4px;background:#0c1426;border-color:#2c3e5c;align-items:stretch}
 .ebal .eb-title{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b82a0;text-align:center}
 .ebal .eb-net{font-size:18px;font-weight:600;text-align:center;color:#8fa3bd}
+/* Energy balance time remaining (siloed addition 2026-11-08) */
+.ebal .eb-ttg{font-size:11px;text-align:center;color:#8fa3bd;margin-top:-2px}
+.ebal .eb-ttg:empty{display:none}
 .ebal .eb-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#1a2438}
 /* centre tick: green past it = gaining, red past it = draining */
 .ebal .eb-barwrap{position:relative}
@@ -1452,6 +1455,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <div class="nb ebal">
         <div class="eb-title">Energy balance</div>
         <div class="eb-net" id="eb-net">--</div>
+        <div class="eb-ttg" id="eb-ttg"></div>
         <div class="eb-barwrap"><div class="eb-bar"><div class="eb-in" id="eb-in-bar"></div><div class="eb-out" id="eb-out-bar"></div></div><span class="eb-mid"></span></div>
         <div class="eb-rows"><span class="eb-lin">In <b id="eb-in">--</b></span><span class="eb-lout">Out <b id="eb-out">--</b></span></div>
       </div>
@@ -4147,6 +4151,7 @@ Object.assign(NODE_DEFS, {
   energy:  { icon: '⚖️', title: 'Energy balance (whole system)', chartSeries: [], liveFields: [
     { key: 'energy_state',    label: 'State',                   unit: '',  color: '#e0e6f0', isText: true },
     { key: 'energy_net_w',    label: 'Net into batteries',      unit: 'W', color: '#3db87a' },
+    { key: 'energy_ttg_min',  label: 'Time to Go',              unit: '',  color: '#6b82a0', labelFn: d => ttgLabel({ ttg_mode: d.energy_ttg_mode }), fmt: fmtDuration },
     { key: 'energy_in_w',     label: 'In (solar, shore, alt.)', unit: 'W', color: '#3db87a' },
     { key: 'energy_out_w',    label: 'Out (all loads)',         unit: 'W', color: '#e06a66' },
     { key: 'energy_losses_w', label: 'Losses / unmetered',      unit: 'W', color: '#6b82a0' } ] },
@@ -4212,9 +4217,37 @@ function computeEnergyBalance() {
   document.getElementById('eb-out-bar').style.width = (100 - share) + '%';
 }
 
+// ─── Energy balance time remaining (siloed addition 2026-11-08) ───────────
+// Whole-system time at the current net rate: energy stored in (or missing
+// from) the 48V bank and the 12V house bank, divided by the Energy balance net
+// watts. Banks without a known SOC/capacity (diesel, thruster) aren't counted.
+// To back out: delete this block, its call in renderBatterySymbols, the
+// eb-ttg div/CSS and the energy_ttg_min pop-up row.
+function computeEnergyTimeRemaining() {
+  const d = victronData, num = v => typeof v === 'number' && !isNaN(v);
+  const banks = [[d.soc, d.voltage, d.bank48_ah], [d.soc_12v, d.v_12v, d.cap_12v]]
+    .filter(([soc, v, ah]) => num(soc) && num(v) && num(ah) && ah > 0);
+  const net = d.energy_net_w;
+  let mode, min;
+  if (banks.length && num(net) && Math.abs(net) > 20) {
+    mode = net > 0 ? 'charge' : 'discharge';
+    const wh = banks.reduce((a, [soc, v, ah]) => a + (mode === 'charge' ? 100 - soc : soc) / 100 * ah * v, 0);
+    min = Math.round(wh / Math.abs(net) * 60);
+  }
+  d.energy_ttg_mode = mode;
+  d.energy_ttg_min = min;
+  const el = document.getElementById('eb-ttg');
+  if (!el) return;
+  if (min === undefined) el.textContent = '';
+  else if (mode === 'charge') el.textContent = min < 1 ? 'Full' : `~${fmtDuration(min)} to full`;
+  else el.textContent = `~${fmtDuration(min)} remaining`;
+}
+// ─── end Energy balance time remaining ─────────────────────────────────────
+
 function renderBatterySymbols() {
   computeDcLoads();
   computeEnergyBalance();
+  computeEnergyTimeRemaining();
   const d = victronData;
   const set = (id, soc, cur) => {
     const el = document.getElementById(id);
