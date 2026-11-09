@@ -470,6 +470,24 @@ def get_vrm_data():
         if soc is not None: result['soc'] = soc
         if v is not None and i is not None: result['power'] = round(v * i, 1)
     # ─── end VRM battery monitors by instance ───────────────────────────────
+    # ─── 48V current sign guard (siloed addition 2026-11-08) ─────────────────
+    # VRM intermittently serves the BMS current (instance 512) with the wrong
+    # sign (seen 22:42 and 22:52: +17.9 A while the MultiPlus drew -18.8 A
+    # inverting, no shore, no solar), which flipped the bank and Energy balance
+    # to "charging". With the MultiPlus inverting and nothing else able to
+    # charge the 48V bank, a positive current can only be that glitch.
+    _i48, _mpi = result.get('current'), result.get('mp_dc_current')
+    _pv = sum(p for p in (result.get('mppt_pv_power'), result.get('mppt_bimini_pv_power')) if isinstance(p, (int, float)))
+    if (isinstance(_i48, (int, float)) and isinstance(_mpi, (int, float)) and _i48 > 0 and _mpi < -2
+            and not result.get('grid') and _pv < 20):
+        result['current'] = -_i48
+        if isinstance(result.get('voltage'), (int, float)):
+            result['power'] = round(result['voltage'] * -_i48, 1)
+        result['current_sign_fixed'] = True
+        if isinstance(result.get('soc'), (int, float)) and _i48 >= 0.5:   # redo the 48V time to go above
+            result['time_to_go'] = round(result['soc'] / 100 * BANK48_AH / _i48 * 60)
+            result['ttg_mode'] = 'discharge'
+    # ─── end 48V current sign guard ──────────────────────────────────────────
 
     # Stash raw records for diagnostics endpoint
     result['_raw_codes'] = [
