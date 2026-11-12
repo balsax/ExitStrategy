@@ -5983,6 +5983,103 @@ def admin_tool_proxy(tool, sub):
 def health():
     return jsonify({'status': 'ok'})
 
+# ─── Velair AC (siloed addition 2026-11-12) ─────────────────────────────────
+# Velair Compact i16VSD Smart. Its wall panel (ESP8266, MAC 8c:4f:00:4c:b7:c8)
+# has a local HTTP API, decoded from the Velair Android app: GET status, POST
+# commands, form-encoded, headers X-UID (MAC) + X-serial (empty: the panel was
+# never given one). No cloud involved. The panel stores whole degrees C only
+# (16-31); the dashboard shows F and steps one panel degree at a time.
+# To back out: delete this block and the marked "Velair AC" blocks in
+# static-src/index.html.
+AC_HOST = os.environ.get('VELAIR_HOST', '192.168.10.200')
+AC_UID = '8c:4f:00:4c:b7:c8'
+AC_SP_MIN_C, AC_SP_MAX_C = 16, 31
+AC_MODES = {0: 'heating', 1: 'cooling', 3: 'dehumidification', 4: 'fanonly', 5: 'auto'}
+AC_STATUS_TTL_S = 4
+_ac_cache = {'t': 0.0, 'data': None, 'lock': threading.Lock()}
+
+def _c_to_f(c):
+    return round(c * 9 / 5 + 32) if isinstance(c, (int, float)) else None
+
+def _ac_request(method, path, data=None):
+    r = requests.request(method, f'http://{AC_HOST}/api/v/1/{path}', data=data, timeout=5,
+                         headers={'X-UID': AC_UID, 'X-serial': ''})
+    r.raise_for_status()
+    j = r.json()
+    if not j.get('success'):
+        raise RuntimeError(j.get('error') or f'{path}: panel said no')
+    return j
+
+def _ac_status(force=False):
+    with _ac_cache['lock']:
+        if not force and _ac_cache['data'] and time.time() - _ac_cache['t'] < AC_STATUS_TTL_S:
+            return _ac_cache['data']
+        try:
+            r = _ac_request('GET', 'status').get('RESULT') or {}
+            sp, t = r.get('sp'), r.get('t')
+            # Register 0 (read via the panel's rs485/read) = room temp in 0.1 C
+            # (272 when status said 27); fall back to the whole-degree value.
+            try:
+                reg0 = requests.post(f'http://{AC_HOST}/api/v/1/rs485/read', data='{"address":0}', timeout=3,
+                                     headers={'X-UID': AC_UID, 'X-serial': '',
+                                              'Content-Type': 'application/x-www-form-urlencoded'}).json()
+                v0 = (reg0.get('RESULT') or {}).get('value') if reg0.get('success') else None
+                if isinstance(v0, int) and 0 < v0 < 600 and isinstance(t, (int, float)) and abs(v0 / 10 - t) <= 1.5:
+                    t = v0 / 10
+            except Exception:
+                pass
+            data = {
+                'available': True,
+                'power': r.get('ps') == 1,
+                'mode': AC_MODES.get(r.get('wm'), f"mode {r.get('wm')}"),
+                'setpoint_c': sp, 'setpoint_f': _c_to_f(sp),
+                'room_c': t, 'room_f': _c_to_f(t),
+                'fan': r.get('fs'),                     # 0 auto, 1-3
+                'swing': bool(r.get('fr')),
+                'night': r.get('nm') == 1,
+                'alarms': r.get('a') or [],
+                'hotel_mode': r.get('hotelMode') == 1,
+                'wifi_signal': r.get('wifi_signal'),
+                'sp_min_c': AC_SP_MIN_C, 'sp_max_c': AC_SP_MAX_C,
+            }
+        except Exception as e:
+            data = {'available': False, 'error': f'AC panel {AC_HOST}: {e}'}
+        _ac_cache.update(t=time.time(), data=data)
+        return data
+
+@app.route('/api/ac/status')
+def ac_status():
+    return jsonify(_ac_status())
+
+@app.route('/api/ac/command', methods=['POST'])
+def ac_command():
+    body = request.get_json(silent=True) or {}
+    action, value = body.get('action'), body.get('value')
+    try:
+        if action == 'power':
+            _ac_request('POST', 'power/on' if value else 'power/off')
+        elif action == 'mode':
+            if value not in AC_MODES.values():
+                return jsonify({'ok': False, 'error': f'unknown mode {value!r}'}), 400
+            _ac_request('POST', f'set/mode/{value}')
+        elif action == 'setpoint_c':
+            c = max(AC_SP_MIN_C, min(AC_SP_MAX_C, int(value)))
+            _ac_request('POST', 'set/setpoint', {'p_temp': c})
+        elif action == 'fan':
+            _ac_request('POST', 'set/fan', {'value': max(0, min(3, int(value)))})
+        elif action == 'swing':
+            _ac_request('POST', 'set/feature/rotation', {'value': 7 if value else 0})
+        elif action == 'night':
+            _ac_request('POST', 'set/feature/night', {'value': 1 if value else 0})
+        else:
+            return jsonify({'ok': False, 'error': f'unknown action {action!r}'}), 400
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'bad value'}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'AC panel: {e}'}), 502
+    return jsonify({'ok': True, 'status': _ac_status(force=True)})
+# ─── end Velair AC siloed addition ──────────────────────────────────────────
+
 if __name__ == '__main__':
     # DEBUG_MODE=True uses Flask's auto-reloader, which forks a child process —
     # WERKZEUG_RUN_MAIN is only set in that child, so gating on it avoids starting

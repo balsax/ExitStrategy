@@ -15,13 +15,16 @@
 <meta name="color-scheme" content="only light">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon-anchor.svg">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Libraries served from the Pi (2026-11-12) so the page works with no internet.
+     Copies of the npm releases (integrity checked): Chart.js 4.4.1, Leaflet 1.9.4,
+     leaflet-velocity 2.1.4. Was cdnjs / unpkg / jsdelivr. -->
+<script src="/assets/chartjs/chart-4.4.1.umd.min.js"></script>
+<link rel="stylesheet" href="/assets/leaflet/leaflet.css">
+<script src="/assets/leaflet/leaflet.js"></script>
 <!-- Chart tab's "Wind" overlay -- renders NOAA GFS wind data (see wind_grid.py
      + /api/wind/velocity in dashboard_api.py) as animated particles. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.css">
-<script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@2.1.4/dist/leaflet-velocity.min.js"></script>
+<link rel="stylesheet" href="/assets/leaflet-velocity/leaflet-velocity.min.css">
+<script src="/assets/leaflet-velocity/leaflet-velocity.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:1rem}
@@ -1254,6 +1257,55 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <button class="relay-toggle-btn state-unknown" id="relay1-btn" onclick="toggleRelay1()">--</button>
   </div>
 </div>
+
+<!-- ─── Velair AC card (siloed addition 2026-11-12) ─────────────────────── -->
+<style>
+.ac-card .ac-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ac-card .ac-room{font-size:30px;font-weight:500;line-height:1;color:#e0e6f0}
+.ac-card .ac-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px}
+.ac-card .ac-row-label{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;min-width:58px}
+.ac-card .ac-sp{font-size:22px;font-weight:600;color:#e0e6f0;min-width:72px;text-align:center}
+.ac-card .ac-step{min-width:44px;font-size:18px;font-weight:700;padding:4px 12px}
+.ac-card.ac-off .ac-ctl{opacity:.45}
+.ac-card .wc-btn:disabled{opacity:.4;cursor:default}
+.ac-card .ac-err{color:#e06a66}
+</style>
+<div class="section">Air Conditioning · Velair</div>
+<div class="card no-click ac-card ac-off" id="ac-card">
+  <div class="ac-top">
+    <div>
+      <div class="card-label">Room</div>
+      <div class="ac-room" id="ac-room">--<span class="card-unit">°F</span></div>
+      <div class="card-sub" id="ac-sub">Loading...</div>
+    </div>
+    <button class="relay-toggle-btn state-unknown" id="ac-power-btn" onclick="acCommand('power', !(acState && acState.power))">--</button>
+  </div>
+  <div class="ac-row ac-ctl">
+    <span class="ac-row-label">Set to</span>
+    <button class="wc-btn ac-step" onclick="acStep(-1)" aria-label="Lower">−</button>
+    <span class="ac-sp" id="ac-sp">--°F</span>
+    <button class="wc-btn ac-step" onclick="acStep(1)" aria-label="Higher">+</button>
+  </div>
+  <div class="ac-row ac-ctl" id="ac-modes">
+    <span class="ac-row-label">Mode</span>
+    <button class="wc-btn" data-mode="cooling" onclick="acCommand('mode','cooling')">Cool</button>
+    <button class="wc-btn" data-mode="heating" onclick="acCommand('mode','heating')">Heat</button>
+    <button class="wc-btn" data-mode="dehumidification" onclick="acCommand('mode','dehumidification')">Dry</button>
+    <button class="wc-btn" data-mode="fanonly" onclick="acCommand('mode','fanonly')">Fan</button>
+    <button class="wc-btn" data-mode="auto" onclick="acCommand('mode','auto')">Auto</button>
+  </div>
+  <div class="ac-row ac-ctl" id="ac-fans">
+    <span class="ac-row-label">Fan</span>
+    <button class="wc-btn" data-fan="0" onclick="acCommand('fan',0)">Auto</button>
+    <button class="wc-btn" data-fan="1" onclick="acCommand('fan',1)">1</button>
+    <button class="wc-btn" data-fan="2" onclick="acCommand('fan',2)">2</button>
+    <button class="wc-btn" data-fan="3" onclick="acCommand('fan',3)">3</button>
+    <span style="width:10px"></span>
+    <button class="wc-btn" id="ac-swing-btn" onclick="acCommand('swing', !(acState && acState.swing))">Swing</button>
+    <button class="wc-btn" id="ac-night-btn" onclick="acCommand('night', !(acState && acState.night))">Night</button>
+  </div>
+</div>
+<!-- ─── end Velair AC card ───────────────────────────────────────────────── -->
 
 </div> <!-- /page-overview -->
 
@@ -13002,6 +13054,75 @@ toggleRelay1 = function () {
 };
 fetchRelay1State();
 // ─── end Relay 1 offline status siloed addition ──────────────────────────────
+
+// ─── Velair AC card (siloed addition 2026-11-12) ─────────────────────────────
+// Overview > Air Conditioning. /api/ac/status (panel's local API via the
+// backend) every 10 s while the Overview is showing. The panel stores whole
+// degrees C (16-31); the card shows F and +/- moves one panel degree. Set-temp
+// presses are batched for 700 ms so several taps send one command.
+var acState = null, acBusy = false, acSpPending = null, acSpTimer = null;
+const AC_MODE_LABEL = { cooling: 'Cooling', heating: 'Heating', dehumidification: 'Drying', fanonly: 'Fan only', auto: 'Auto' };
+function acCtoF(c) { return Math.round(c * 9 / 5 + 32); }
+function acRender() {
+  const card = document.getElementById('ac-card');
+  if (!card) return;
+  const s = acState, btn = document.getElementById('ac-power-btn');
+  const ok = s && s.available;
+  card.classList.toggle('ac-off', !ok || !s.power);
+  card.querySelectorAll('.ac-ctl button').forEach(b => b.disabled = !ok || acBusy);
+  btn.disabled = !ok || acBusy;
+  if (!ok) {
+    btn.className = 'relay-toggle-btn state-unknown'; btn.textContent = '--';
+    document.getElementById('ac-sub').innerHTML = s ? '<span class="ac-err">Offline · ' + (s.error || 'no reply') + '</span>' : 'Loading...';
+    return;
+  }
+  btn.className = 'relay-toggle-btn ' + (s.power ? 'state-on' : 'state-off');
+  btn.textContent = s.power ? 'ON' : 'OFF';
+  document.getElementById('ac-room').innerHTML = (s.room_c != null ? acCtoF(s.room_c) : '--') + '<span class="card-unit">°F</span>';
+  const spC = acSpPending != null ? acSpPending : s.setpoint_c;
+  document.getElementById('ac-sp').textContent = spC != null ? acCtoF(spC) + '°F' : '--°F';
+  const fanTxt = s.fan ? 'fan ' + s.fan : 'fan auto';
+  let sub = s.power ? (AC_MODE_LABEL[s.mode] || s.mode) + (s.mode === 'fanonly' ? '' : ' to ' + acCtoF(s.setpoint_c) + '°F') + ' · ' + fanTxt : 'Off';
+  if (s.night) sub += ' · night';
+  if (s.alarms && s.alarms.length) sub += ' · <span class="ac-err">alarm ' + s.alarms.join(', ') + '</span>';
+  document.getElementById('ac-sub').innerHTML = sub;
+  card.querySelectorAll('#ac-modes [data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === s.mode));
+  card.querySelectorAll('#ac-fans [data-fan]').forEach(b => b.classList.toggle('active', +b.dataset.fan === s.fan));
+  document.getElementById('ac-swing-btn').classList.toggle('active', !!s.swing);
+  document.getElementById('ac-night-btn').classList.toggle('active', !!s.night);
+}
+async function acRefresh() {
+  if (acBusy || acSpTimer) return;
+  try { acState = await (await fetch('/api/ac/status')).json(); }
+  catch (e) { acState = { available: false, error: 'dashboard server not reachable' }; }
+  acRender();
+}
+async function acCommand(action, value) {
+  if (acBusy) return;
+  acBusy = true; acRender();
+  try {
+    const r = await fetch('/api/ac/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify({ action, value }) });
+    const j = await r.json();
+    if (j.ok) acState = j.status;
+    else document.getElementById('ac-sub').innerHTML = '<span class="ac-err">' + (j.error || 'command failed') + '</span>';
+  } catch (e) {
+    document.getElementById('ac-sub').innerHTML = '<span class="ac-err">Command failed: ' + e.message + '</span>';
+  }
+  acBusy = false; acSpPending = null; acRender();
+}
+function acStep(dir) {
+  if (!acState || !acState.available) return;
+  const lo = acState.sp_min_c || 16, hi = acState.sp_max_c || 31;
+  const cur = acSpPending != null ? acSpPending : acState.setpoint_c;
+  acSpPending = Math.max(lo, Math.min(hi, cur + dir));
+  acRender();
+  clearTimeout(acSpTimer);
+  acSpTimer = setTimeout(() => { acSpTimer = null; if (acSpPending !== acState.setpoint_c) acCommand('setpoint_c', acSpPending); else { acSpPending = null; acRender(); } }, 700);
+}
+acRefresh();
+setInterval(() => { if (currentPage === 'overview' && !document.hidden) acRefresh(); }, 10000);
+// ─── end Velair AC card siloed addition ──────────────────────────────────────
 
 // ─── Night mode toggle (siloed addition; see the Night mode block in <head>) ──
 function updateNightToggleBtn() {
