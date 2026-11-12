@@ -295,7 +295,110 @@ def parse_series(text):
                 continue
     return times, values
 
-def get_vrm_data():
+# ─── Cerbo local (siloed addition 2026-11-12) ───────────────────────────────
+# Read the Victron values straight from the Cerbo GX's MQTT on the boat LAN
+# (cerbo_local.py) and only fall back to the VRM cloud API when the Cerbo
+# hasn't been heard for 30 s. Produces the same keys get_vrm_data() returns
+# (plus the MultiPlus AC in/out V/A, which VRM's diagnostics never had).
+# VRM history graphs and the /api/victron/diagnostics code list stay on VRM.
+# To back out: delete this block, the 3 marked lines at the top of
+# get_vrm_data(), the force_cloud arg in victron_diagnostics(), and cerbo_local.py.
+import cerbo_local
+
+CERBO_BANK48_INSTANCE = 512      # fallback if system/0/ActiveBatteryService is missing
+CERBO_12V_INSTANCE = 279         # 12V house SmartShunt
+VEBUS_STATES = {0: 'Off', 1: 'Low Power', 2: 'Fault', 3: 'Bulk', 4: 'Absorption', 5: 'Float',
+                6: 'Storage', 7: 'Equalize', 8: 'Passthru', 9: 'Inverting', 10: 'Power assist',
+                11: 'Power supply', 244: 'Sustain', 252: 'External control'}
+
+def _cerbo_local_result():
+    v = cerbo_local.snapshot()
+    if v is None:
+        return None
+    def f(path, nd=2):
+        x = v.get(path)
+        return round(float(x), nd) if isinstance(x, (int, float)) else None
+    result = {}
+    def put(key, path, nd=2):
+        x = f(path, nd)
+        if x is not None:
+            result[key] = x
+    # 48V bank: the active battery service (the BMS)
+    try:
+        b48 = int(str(v.get('system/0/ActiveBatteryService', '')).rsplit('/', 1)[1])
+    except (IndexError, ValueError):
+        b48 = CERBO_BANK48_INSTANCE
+    b = f'battery/{b48}'
+    put('soc', f'{b}/Soc', 1); put('voltage', f'{b}/Dc/0/Voltage'); put('current', f'{b}/Dc/0/Current', 1)
+    put('temp', f'{b}/Dc/0/Temperature', 1); put('soh', f'{b}/Soh', 1)
+    put('cell_min', f'{b}/System/MinCellVoltage'); put('cell_max', f'{b}/System/MaxCellVoltage')
+    put('state', 'system/0/Dc/Battery/State', 0)          # 0 idle, 1 charging, 2 discharging (VRM 'bst')
+    if 'voltage' in result and 'current' in result:
+        result['power'] = round(result['voltage'] * result['current'], 1)
+    # 12V house SmartShunt
+    s12 = f'battery/{CERBO_12V_INSTANCE}'
+    put('v_12v', f'{s12}/Dc/0/Voltage'); put('i_12v', f'{s12}/Dc/0/Current', 1); put('soc_12v', f'{s12}/Soc', 1)
+    put('cah_12v', f'{s12}/ConsumedAmphours', 1); put('temp_12v', f'{s12}/Dc/0/Temperature', 1)
+    ttg = f(f'{s12}/TimeToGo', 0)                           # seconds; null while charging
+    if ttg is not None:
+        result['ttg_12v'] = round(ttg / 60)
+    # MultiPlus (VE.Bus)
+    vb = next((k.split('/')[1] for k in v if k.startswith('vebus/') and k.endswith('/State')), None)
+    if vb is not None:
+        m = f'vebus/{vb}'
+        put('mp_voltage_in', f'{m}/Ac/ActiveIn/L1/V', 1); put('mp_current_in', f'{m}/Ac/ActiveIn/L1/I')
+        put('mp_voltage_out', f'{m}/Ac/Out/L1/V', 1); put('mp_current_out', f'{m}/Ac/Out/L1/I')
+        put('mp_dc_voltage', f'{m}/Dc/0/Voltage'); put('mp_dc_current', f'{m}/Dc/0/Current', 1)
+        st = v.get(f'{m}/State')
+        if isinstance(st, (int, float)):
+            result['mp_state'] = VEBUS_STATES.get(int(st), f'State {int(st)}')
+        if v.get(f'{m}/Ac/ActiveIn/Connected') == 0:
+            result['grid'] = 0.0                            # shore unplugged / input open
+        else:
+            put('grid', f'{m}/Ac/ActiveIn/L1/P', 0)
+    put('ac_load', 'system/0/Ac/Consumption/L1/Power', 0)
+    if 'mp_dc_voltage' in result and 'mp_dc_current' in result:
+        result['mp_dc_power'] = round(result['mp_dc_voltage'] * result['mp_dc_current'], 1)
+    # Same derived values as the VRM path (see the 48V / 12V time-to-go blocks there)
+    BANK48_AH = 200
+    result['bank48_ah'] = BANK48_AH
+    soc48, cur48 = result.get('soc'), result.get('current')
+    if soc48 is not None:
+        result['consumed_ah'] = round(-(100 - soc48) / 100 * BANK48_AH, 1)
+        if cur48 is not None and abs(cur48) >= 0.5:
+            charging48 = cur48 > 0
+            ah_left = (100 - soc48 if charging48 else soc48) / 100 * BANK48_AH
+            result['time_to_go'] = round(ah_left / abs(cur48) * 60)
+            result['ttg_mode'] = 'charge' if charging48 else 'discharge'
+    cap12 = f(f'{s12}/Capacity', 1) or 150.0
+    result['cap_12v'] = cap12
+    soc12, cur12 = result.get('soc_12v'), result.get('i_12v')
+    if soc12 is not None and cur12 is not None and abs(cur12) >= 0.5:
+        if cur12 > 0:
+            result['ttg_12v'] = round((100 - soc12) / 100 * cap12 / cur12 * 60)
+            result['ttg_mode_12v'] = 'charge'
+        else:
+            if not result.get('ttg_12v'):
+                result['ttg_12v'] = round(soc12 / 100 * cap12 / -cur12 * 60)
+            result['ttg_mode_12v'] = 'discharge'
+    else:
+        result.pop('ttg_12v', None)
+    result['source'] = 'cerbo'
+    result['source_age_s'] = v.get('age_s')
+    return result
+
+@app.route('/api/victron/source')
+def victron_source():
+    """Where /api/victron is reading from right now (Cerbo LAN or VRM cloud)."""
+    st = cerbo_local.status()
+    st['in_use'] = cerbo_local.snapshot() is not None
+    return jsonify(st)
+# ─── end Cerbo local siloed addition ────────────────────────────────────────
+
+def get_vrm_data(force_cloud=False):
+    if not force_cloud:                                    # Cerbo local (siloed addition 2026-11-12)
+        _local = _cerbo_local_result()                     # Cerbo local
+        if _local is not None: return _local               # Cerbo local
     s = get_secrets()
     res = requests.get(
         f"https://vrmapi.victronenergy.com/v2/installations/{s['VRM_INSTALL_ID']}/diagnostics?count=500",
@@ -581,7 +684,7 @@ def victron():
 @app.route('/api/victron/diagnostics')
 def victron_diagnostics():
     """Returns all available VRM attribute codes — useful for discovery"""
-    data = get_vrm_data()
+    data = get_vrm_data(force_cloud=True)   # Cerbo local: this list is VRM's own codes
     return jsonify(data.get('_raw_codes', []))
 
 @app.route('/api/victron/history')
