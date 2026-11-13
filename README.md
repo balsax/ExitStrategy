@@ -18,13 +18,13 @@ This repo is the **dev copy**. Production runs from `/home/mikemc/dashboard_api.
 python3 dashboard_api.py   # binds 0.0.0.0:5003, debug=True (auto-reload)
 ```
 
-Secrets (MQTT/DB credentials, VRM/Influx tokens, ntfy topic) are read from `/etc/dashboard/secrets.env` — never hardcoded. See `get_secrets()` in `dashboard_api.py` for the expected key names.
+Secrets (MQTT/DB credentials, VRM token, ntfy topic) are read from `/etc/dashboard/secrets.env` — never hardcoded. See `get_secrets()` in `dashboard_api.py` for the expected key names.
 
 ## Pages
 
 | Tab | What it does | Data source |
 |---|---|---|
-| Overview | Cabin temp/humidity/pressure/air quality, system status, smart relay control | BME680 sensor, InfluxDB, `boat/power/relay1/*` |
+| Overview | Cabin temp/humidity/pressure/air quality, system status, smart relay control | BME680 sensor (MQTT `boat/env/bme680/*`), `boat/power/relay1/*` |
 | Electrical | Live power flow diagram (shore/solar/battery/loads, diesel + thruster shunts, Orion 12\|48, alternator) | Victron VRM; `victron_simulator.py` for not-yet-installed DC devices |
 | Watermaker | RO system gauges, start/stop/flush, manual device control, trend history | `boat/watermaker/*`, MariaDB |
 | Engine | Compartment temp/humidity, cooling fan control (mode/setpoints/timeout) in a modal, engine telemetry placeholders | `boat/engine/fan/*` (real), `boat/nav/engine/*` (not yet wired) |

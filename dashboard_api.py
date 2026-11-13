@@ -165,56 +165,6 @@ def start_mqtt_listener():
 
     threading.Thread(target=run, daemon=True).start()
 
-def query_influx(flux):
-    s = get_secrets()
-    res = requests.post(
-        f"{s['INFLUX_URL']}/api/v2/query?org={s['INFLUX_ORG']}",
-        headers={
-            'Authorization': f"Token {s['INFLUX_TOKEN']}",
-            'Content-Type': 'application/vnd.flux',
-            'Accept': 'application/csv'
-        },
-        data=flux
-    )
-    return res.text
-
-def parse_last(text):
-    header = None
-    for line in text.strip().split('\n'):
-        if line.startswith('#') or not line.strip():
-            continue
-        cols = line.split(',')
-        if '_value' in cols:
-            header = cols
-            continue
-        if header:
-            row = dict(zip(header, cols))
-            try:
-                return float(row['_value'])
-            except:
-                continue
-    return None
-
-def parse_series(text):
-    header = None
-    times = []
-    values = []
-    for line in text.strip().split('\n'):
-        if line.startswith('#') or not line.strip():
-            continue
-        cols = line.split(',')
-        if '_value' in cols:
-            header = cols
-            continue
-        if header:
-            row = dict(zip(header, cols))
-            try:
-                times.append(row['_time'])
-                values.append(float(row['_value']))
-            except:
-                continue
-    return times, values
-
 # ─── Cerbo local (siloed addition 2026-11-12) ───────────────────────────────
 # Read the Victron values straight from the Cerbo GX's MQTT on the boat LAN
 # (cerbo_local.py) and only fall back to the VRM cloud API when the Cerbo
@@ -522,91 +472,25 @@ def get_vrm_data(force_cloud=False):
 
 @app.route('/api/sensor')
 def sensor():
-    if BME_SOURCE == 'mqtt': return _bme_mqtt_sensor()  # BME680 via MQTT (siloed)
-    s = get_secrets()
-    data = {}
-    for field in ['temp_f', 'humidity', 'pressure', 'iaq', 'co2_ppm', 'voc_ppm']:
-        flux = f'''from(bucket:"{s['INFLUX_BUCKET']}")
-  |> range(start: -1h)
-  |> filter(fn: (r) => r._field == "{field}")
-  |> last()'''
-        val = parse_last(query_influx(flux))
-        if val is not None:
-            data[field] = round(val, 2)
+    return _bme_mqtt_sensor()
 
-    # Barometric TENDENCY -- the standard maritime definition is change over
-    # the last 3 hours, not just whether the current absolute reading sits
-    # above/below a fixed threshold. (The frontend used to derive "Rising/
-    # Falling" purely from d.pressure > 1013 / < 1009, which only ever
-    # describes high vs. low pressure, not which way it's moving -- a
-    # steady 1015 hPa reads "Rising · fair weather" forever under that
-    # logic, regardless of whether it's actually risen, fallen, or sat
-    # flat.) A 1-hour-wide window centered on -3h (rather than a single
-    # instant) tolerates a gap in readings landing exactly on the 3h mark.
-    if 'pressure' in data:
-        flux_3h = f'''from(bucket:"{s['INFLUX_BUCKET']}")
-  |> range(start: -3h30m, stop: -2h30m)
-  |> filter(fn: (r) => r._field == "pressure")
-  |> first()'''
-        past = parse_last(query_influx(flux_3h))
-        if past is not None:
-            delta = data['pressure'] - past
-            data['pressure_delta_3h'] = round(delta, 2)
-            data['pressure_trend'] = 'rising' if delta > 1.0 else 'falling' if delta < -1.0 else 'steady'
-
-    return jsonify(data)
-
-# ─── BME680 last-seen (siloed addition) ─────────────────────────────────────
-# /api/sensor only looks back 1h, so a sensor that has dropped off just shows
-# "--" forever. This reports when the BME680 last wrote anything (up to 30d
-# back) so the Overview/Weather cards can say "offline, last reading ...".
-# The board buffers readings while offline and uploads them late, so this
-# can move backwards-in-age (newer) after a reconnect -- that's expected.
-_bme_last_seen_cache = {'t': 0.0, 'data': None}
-BME_LAST_SEEN_TTL_S = 30
-
+# ─── BME680 last-seen ───────────────────────────────────────────────────────
+# /api/sensor only reports readings from the last hour, so a sensor that has
+# dropped off just shows "--". This says when the BME680 last reported so the
+# Overview/Weather cards can show "offline, last reading ...".
 @app.route('/api/sensor/last_seen')
 def sensor_last_seen():
-    if BME_SOURCE == 'mqtt': return _bme_mqtt_last_seen()  # BME680 via MQTT (siloed)
-    now = time.time()
-    if _bme_last_seen_cache['data'] is None or now - _bme_last_seen_cache['t'] > BME_LAST_SEEN_TTL_S:
-        s = get_secrets()
-        flux = f'''from(bucket:"{s['INFLUX_BUCKET']}")
-  |> range(start: -30d)
-  |> filter(fn: (r) => r._measurement == "bme680" and r._field == "temp_f")
-  |> last()
-  |> keep(columns: ["_time"])'''
-        last = None
-        try:
-            header = None
-            for line in query_influx(flux).strip().split('\n'):
-                cols = line.strip().split(',')
-                if '_time' in cols:
-                    header = cols
-                elif header and len(cols) == len(header):
-                    last = cols[header.index('_time')]
-        except Exception as e:
-            return jsonify({'last_seen': None, 'error': str(e)})
-        _bme_last_seen_cache['data'] = {'last_seen': last}
-        _bme_last_seen_cache['t'] = now
-    data = dict(_bme_last_seen_cache['data'])
-    if data['last_seen']:
-        ts = datetime.fromisoformat(data['last_seen'].replace('Z', '+00:00'))
-        data['age_s'] = round(now - ts.timestamp())
-    return jsonify(data)
-# ─── end BME680 last-seen siloed addition ───────────────────────────────────
+    return _bme_mqtt_last_seen()
+# ─── end BME680 last-seen ───────────────────────────────────────────────────
 
-# ─── BME680 via MQTT (siloed addition 2026-11-12) ──────────────────────────
-# The BME680 board now publishes to the Pi's mosquitto (boat/env/bme680/<field>,
-# firmware ~/bme680_mqtt) instead of InfluxDB Cloud. mqtt_logger.py stores those
-# topics in mqtt_readings like everything else, so the live values come from
-# mqtt_state and history from MariaDB. /api/sensor, /api/sensor/last_seen and
-# /api/trend each hand off to the functions below while BME_SOURCE == 'mqtt';
-# set it back to 'influx' (or delete this block and those three lines) to revert.
-BME_SOURCE = 'mqtt'
+# ─── BME680 via MQTT (2026-11-12; InfluxDB Cloud code removed 2026-11-13) ───
+# The BME680 board publishes to the Pi's mosquitto (boat/env/bme680/<field>,
+# firmware ~/bme680_mqtt). mqtt_logger.py stores those topics in mqtt_readings
+# like everything else, so live values come from mqtt_state and history from
+# MariaDB. Backs /api/sensor, /api/sensor/last_seen and /api/trend.
 BME_TOPIC = 'boat/env/bme680/'
 BME_FIELDS = ['temp_f', 'humidity', 'pressure', 'iaq', 'co2_ppm', 'voc_ppm']
-BME_LIVE_MAX_AGE_S = 3600   # same 1 h window the Influx query used
+BME_LIVE_MAX_AGE_S = 3600   # readings older than 1 h count as gone
 
 def _bme_mqtt_live():
     """{field: (value, aware datetime)} for boat/env/bme680/* currently in mqtt_state."""
@@ -684,7 +568,7 @@ def _bme_mqtt_trend(field, range_val):
     keys = sorted(series.keys())
     return jsonify({'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
                     'values': [round(series[k], 2) for k in keys]})
-# ─── end BME680 via MQTT siloed addition ────────────────────────────────────
+# ─── end BME680 via MQTT ────────────────────────────────────
 
 @app.route('/api/victron')
 def victron():
@@ -786,25 +670,7 @@ def victron_history():
 
 @app.route('/api/trend')
 def trend():
-    field = request.args.get('field', 'temp_f')
-    range_val = request.args.get('range', '1h')
-    if BME_SOURCE == 'mqtt': return _bme_mqtt_trend(field, range_val)  # BME680 via MQTT (siloed)
-    s = get_secrets()
-
-    window_map = {
-        '10m': '15s', '1h': '2m', '6h': '10m', '24h': '30m',
-        '7d': '3h', '30d': '12h'
-    }
-    window = window_map.get(range_val, '5m')
-
-    flux = f'''from(bucket:"{s['INFLUX_BUCKET']}")
-  |> range(start: -{range_val})
-  |> filter(fn: (r) => r._field == "{field}")
-  |> aggregateWindow(every: {window}, fn: mean, createEmpty: false)'''
-
-    text = query_influx(flux)
-    times, values = parse_series(text)
-    return jsonify({'times': times, 'values': values})
+    return _bme_mqtt_trend(request.args.get('field', 'temp_f'), request.args.get('range', '1h'))
 
 @app.route('/api/mqtt/topics')
 def mqtt_topics():

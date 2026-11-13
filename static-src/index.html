@@ -1154,24 +1154,24 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
 <!-- Environment -->
 <div class="section">Environment · BME680</div>
 <div class="grid">
-  <div class="card" onclick="openInfluxModal('temp_f','Temperature','°F','#4a9fd4')">
+  <div class="card" onclick="openSensorModal('temp_f','Temperature','°F','#4a9fd4')">
     <div class="card-label">Temperature</div>
     <div class="card-value info" id="temp">--<span class="card-unit">°F</span></div>
     <div class="card-sub" id="temp-sub">Loading...</div>
     <div class="bar-bg"><div class="bar-fill" id="temp-bar" style="width:0%;background:#4a9fd4"></div></div>
   </div>
-  <div class="card" onclick="openInfluxModal('humidity','Humidity','%','#3db87a')">
+  <div class="card" onclick="openSensorModal('humidity','Humidity','%','#3db87a')">
     <div class="card-label">Humidity</div>
     <div class="card-value good" id="humidity">--<span class="card-unit">%</span></div>
     <div class="card-sub">Relative humidity</div>
     <div class="bar-bg"><div class="bar-fill" id="humidity-bar" style="width:0%;background:#3db87a"></div></div>
   </div>
-  <div class="card" onclick="openInfluxModal('pressure','Pressure','hPa','#a78bfa')">
+  <div class="card" onclick="openSensorModal('pressure','Pressure','hPa','#a78bfa')">
     <div class="card-label">Pressure</div>
     <div class="card-value purple" id="pressure">--<span class="card-unit">hPa</span></div>
     <div class="card-sub" id="pressure-sub">Loading...</div>
   </div>
-  <div class="card" onclick="openInfluxModal('iaq','Air Quality (IAQ)','','#e8a030')">
+  <div class="card" onclick="openSensorModal('iaq','Air Quality (IAQ)','','#e8a030')">
     <div class="card-label">Air quality (IAQ)</div>
     <div class="card-value" id="iaq">--</div>
     <div class="card-sub" id="iaq-label">Loading...</div>
@@ -1939,19 +1939,19 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
 
     <div class="section">Current Conditions · BME680</div>
     <div class="grid">
-      <div class="card" onclick="openInfluxModal('temp_f','Temperature','°F','#4a9fd4')">
+      <div class="card" onclick="openSensorModal('temp_f','Temperature','°F','#4a9fd4')">
         <div class="card-label">Temperature</div>
         <div class="card-value info" id="wx-temp">--<span class="card-unit">°F</span></div>
         <div class="card-sub" id="wx-temp-sub">Loading...</div>
         <div class="card-spark-wrap"><canvas id="wx-spark-temp"></canvas></div>
       </div>
-      <div class="card" onclick="openInfluxModal('humidity','Humidity','%','#3db87a')">
+      <div class="card" onclick="openSensorModal('humidity','Humidity','%','#3db87a')">
         <div class="card-label">Humidity</div>
         <div class="card-value good" id="wx-humidity">--<span class="card-unit">%</span></div>
         <div class="card-sub">Relative humidity</div>
         <div class="card-spark-wrap"><canvas id="wx-spark-humidity"></canvas></div>
       </div>
-      <div class="card" onclick="openInfluxModal('pressure','Pressure','hPa','#a78bfa')">
+      <div class="card" onclick="openSensorModal('pressure','Pressure','hPa','#a78bfa')">
         <div class="card-label">Pressure</div>
         <div class="card-value purple" id="wx-pressure">--<span class="card-unit">hPa</span></div>
         <div class="card-sub" id="wx-pressure-sub">Loading...</div>
@@ -2697,8 +2697,8 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
             <span class="good">Running</span>
           </div>
           <div class="status-row">
-            <span><span class="sdot" id="influx-dot" style="background:#3db87a"></span>InfluxDB</span>
-            <span class="good" id="influx-status">Connected</span>
+            <span><span class="sdot" id="sensor-dot" style="background:#3db87a"></span>Cabin sensor (BME680)</span>
+            <span class="good" id="sensor-status">Online</span>
           </div>
           <div class="status-row">
             <span><span class="sdot" id="victron-dot" style="background:#3db87a"></span>Victron VRM</span>
@@ -3253,7 +3253,7 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
 // ─── State ───────────────────────────────────────────────────────────────────
 let trendChart = null;
 let trendChartPens = null; // which pens the current trendChart instance was built for -- see renderMultiPenChart's in-place-update path
-// Bumped by every loadPenHistory/loadVRMHistory/loadInfluxHistory call. A
+// Bumped by every loadPenHistory/loadVRMHistory/loadSensorHistory call. A
 // slow request (VRM's cloud API in particular) can resolve after the modal's
 // moved on to a different node/pens/duration -- without this, that late
 // response still paints its stale chart+legend over whatever's current,
@@ -4448,10 +4448,10 @@ function toggleStatus() {
 }
 
 function updateStatusSummary() {
-  const influxOk = document.getElementById('influx-dot').style.background.includes('61, 184');
+  const sensorOk = document.getElementById('sensor-dot').style.background.includes('61, 184');
   const victronOk = document.getElementById('victron-dot').style.background.includes('61, 184');
   const el = document.getElementById('status-summary');
-  if (influxOk && victronOk) {
+  if (sensorOk && victronOk) {
     el.textContent = '● All systems online'; el.style.color = '#3db87a';
   } else {
     el.textContent = '● Check systems'; el.style.color = '#e8a030';
@@ -5780,7 +5780,7 @@ async function fetchSystemSparklines() {
 
 // Weather tab's Temperature/Humidity/Pressure cards -- same /api/trend
 // endpoint the Overview cards' click-to-expand modal already uses (see
-// openInfluxModal/loadInfluxHistory), just rendered as an inline sparkline
+// openSensorModal/loadSensorHistory), just rendered as an inline sparkline
 // instead of a full chart. 6h gives enough span for pressure's slow-moving
 // tendency to actually show a shape, without being so long temp/humidity's
 // day/night swing dominates the whole line. Doesn't need the 15s cadence
@@ -5923,14 +5923,16 @@ async function fetchData() {
       bar.style.width = pct + '%'; bar.style.background = color;
     }
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
-    document.getElementById('influx-dot').style.background = 'rgb(61,184,122)';
-    document.getElementById('influx-status').textContent = 'Connected';
-    document.getElementById('influx-status').className = 'good';
+    // Cabin sensor status: green while /api/sensor has a recent reading
+    const sensorLive = d.temp_f !== undefined;
+    document.getElementById('sensor-dot').style.background = sensorLive ? 'rgb(61,184,122)' : 'rgb(232,160,48)';
+    document.getElementById('sensor-status').textContent = sensorLive ? 'Online' : 'No recent data';
+    document.getElementById('sensor-status').className = sensorLive ? 'good' : 'warn';
     updateStatusSummary();
   } catch (e) {
-    document.getElementById('influx-dot').style.background = 'rgb(224,80,80)';
-    document.getElementById('influx-status').textContent = 'Error';
-    document.getElementById('influx-status').className = 'error';
+    document.getElementById('sensor-dot').style.background = 'rgb(224,80,80)';
+    document.getElementById('sensor-status').textContent = 'Error';
+    document.getElementById('sensor-status').className = 'error';
     updateStatusSummary();
   }
 }
@@ -6229,10 +6231,10 @@ function refreshModalLive() {
   }
 }
 
-// ─── Modal: Influx chart (environment sensors) ────────────────────────────────
-function openInfluxModal(field, title, unit, color) {
+// ─── Modal: BME680 cabin sensor chart (MQTT history in MariaDB) ───────────────
+function openSensorModal(field, title, unit, color) {
   currentNode = null;
-  currentSeries = { code: field, label: title, unit, color, source: 'influx', field };
+  currentSeries = { code: field, label: title, unit, color, source: 'sensor', field };
   currentDuration = '1h';
   closePenModalUI();
 
@@ -6244,7 +6246,7 @@ function openInfluxModal(field, title, unit, color) {
   document.getElementById('modal').classList.add('open');
   document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`#modal-dur-btns .dur-btn[data-range="${currentDuration}"]`).classList.add('active');
-  loadInfluxHistory(field, unit, color);
+  loadSensorHistory(field, unit, color);
 }
 
 // ─── Modal: multi-pen trend (MariaDB-backed) ───────────────────────────────────
@@ -6339,8 +6341,8 @@ function setDuration(dur, btn) {
     loadPenHistory();
   } else if (currentNode) {
     loadVRMHistory();
-  } else if (currentSeries && currentSeries.source === 'influx') {
-    loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
+  } else if (currentSeries && currentSeries.source === 'sensor') {
+    loadSensorHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
   } else if (currentSeries && currentSeries.source === 'ac') {
     loadAcTrend();  // Velair AC card siloed addition
   }
@@ -6404,7 +6406,7 @@ async function loadVRMHistory() {
   }
 }
 
-async function loadInfluxHistory(field, unit, color) {
+async function loadSensorHistory(field, unit, color) {
   const seq = ++chartRequestSeq;
   showChartLoading('Loading...');
   try {
@@ -12098,7 +12100,7 @@ async function updateBmeOffline() {
       const when = new Date(d.last_seen).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       text = `⚠ Offline · last reading ${when} (${bmeAgoText(d.age_s)})`;
     } else {
-      text = d.error ? '⚠ Status unknown (InfluxDB query failed)' : '⚠ Offline · no readings in 30 days';
+      text = d.error ? '⚠ Status unknown (sensor history query failed)' : '⚠ Offline · no readings yet';
     }
   }
   ['temp', 'wx-temp'].forEach(id => {
