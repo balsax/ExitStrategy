@@ -23,6 +23,8 @@ that; the rest of this script ignores it.)
 """
 import sys
 import json
+import struct
+import math
 import time
 import subprocess
 import paho.mqtt.client as mqtt
@@ -91,6 +93,13 @@ PGN_MAP = {
         "Deviation": ("boat/nav/heading_deviation",   "slow", 1),
         "Variation": ("boat/nav/heading_variation",   "slow", 1),
     },
+    # ─── Rudder (added 2026-11-11) ─────────────────────────────────────────
+    # The GHP 12 CCU (src 1) broadcasts 127245 ~10 Hz; canboat gives Position
+    # in degrees (+ = starboard). Feeds the Chart tab's rudder indicator.
+    127245: {  # Rudder
+        "Position": ("boat/nav/rudder", "fast", 1),
+    },
+    # ─── end Rudder ─────────────────────────────────────────────────────────
     128259: {  # Speed, Water Referenced
         "Speed Water Referenced": ("boat/nav/speed_through_water", "fast", 2),
     },
@@ -168,6 +177,35 @@ TANK_INSTANCE_TOPICS = {
     2: 'diesel',
     3: 'black',
 }
+
+# ─── Garmin autopilot status (added 2026-11-11) ──────────────────────────────
+# The GHP 12 CCU broadcasts PGN 126720 Garmin (mfr 229) message 0x04d8, ~10 Hz
+# in Auto. canboat leaves it undecoded but passes the reassembled payload in
+# "data" (hex). Decoded from recordings of the boat's own bus, 2026-11-10/11:
+#   byte 58: last mode command -- 4 = Standby, 5 = Auto (heading hold),
+#            14 = heading being adjusted (still engaged)
+#   bytes 10-13: float32 target heading, radians
+# Feeds the Chart tab's autopilot panel (boat/nav/autopilot/mode is 'Standby'
+# or 'Engaged', the values its badges expect). To back out: delete this block
+# and its call in handle_line().
+AP_MODES = {4: "Standby", 5: "Engaged", 14: "Engaged"}
+
+
+def handle_garmin_autopilot(client, raw_hex):
+    try:
+        b = bytes.fromhex(raw_hex)
+    except (TypeError, ValueError):
+        return
+    if len(b) < 59 or b[0:2] != b"\xe5\x98" or b[2:4] != b"\xd8\x04":
+        return
+    mode = AP_MODES.get(b[58], f"Unknown ({b[58]})")
+    if should_publish("boat/nav/autopilot/mode", "fast"):
+        client.publish("boat/nav/autopilot/mode", mode, retain=False)
+    target = math.degrees(struct.unpack("<f", b[10:14])[0])
+    if mode == "Engaged" and math.isfinite(target) and should_publish("boat/nav/autopilot/heading_to_steer", "fast"):
+        client.publish("boat/nav/autopilot/heading_to_steer", f"{target % 360:.1f}", retain=False)
+# ─── end Garmin autopilot status ─────────────────────────────────────────────
+
 
 def handle_fluid_level(client, fields):
     tank = TANK_INSTANCE_TOPICS.get(fields.get("Instance"))
@@ -421,6 +459,9 @@ def handle_line(client, line):
     if pgn == 127505:
         handle_fluid_level(client, fields)
         return
+
+    if pgn == 126720 and fields.get("Manufacturer Code") == "Garmin":   # Garmin autopilot status (2026-11-11)
+        handle_garmin_autopilot(client, data.get("data"))
 
     mapping = PGN_MAP.get(pgn)
     if mapping:

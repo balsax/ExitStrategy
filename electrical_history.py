@@ -30,7 +30,7 @@ STALE_S = 60          # ignore MQTT values older than this (source stopped)
 
 # MQTT prefix -> key prefix stripped (keys come out as <device>_<field>,
 # same as /api/victron/sim and /api/victron/ble)
-SOURCES = ('boat/sim/victron/', 'boat/victron/')
+SOURCES = ('boat/victron/',)   # boat/sim/victron/ (victron_simulator.py) removed 2026-11-12
 
 # Chart range -> bucket seconds
 RANGE_SECONDS = {'10m': 600, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000}

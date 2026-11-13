@@ -6,3 +6,4 @@ __pycache__/
 chart_data/
 .venv-ble/
 electrical_history.db*
+ac_history.json*

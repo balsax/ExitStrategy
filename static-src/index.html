@@ -94,8 +94,6 @@ body{background:#0a0e1a;color:#e0e6f0;font-family:-apple-system,BlinkMacSystemFo
 .relay-toggle-btn.state-on{color:#3db87a;border-color:#2a7a4a;background:#0d2b1a}
 .relay-toggle-btn.state-off{color:#8fa3bd;border-color:#334455;background:#0a0e1a}
 .relay-toggle-btn.state-unknown{color:#6b82a0;border-color:#334455;background:#0a0e1a;opacity:.6}
-.sim-row{padding:10px 0;border-bottom:.5px solid #1a2438}
-.sim-row:last-child{border-bottom:none}
 .fan-mode-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .fan-mode-row .relay-toggle-btn{flex:1;min-width:100px;padding:9px 8px;font-size:12px}
 .fan-setpoint-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
@@ -788,6 +786,7 @@ body.chart-fullscreen-active .chart-controls-right .chart-fs-mob-btn{padding:7px
 .trip-recording-dot.active{display:inline-block}
 @keyframes trip-rec-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .chart-rudder-indicator svg{width:100%;height:100%;display:block}
+.ap-msg{font-size:11px;min-height:14px;margin-top:4px}
 .chart-me-ap-controls{display:flex;gap:3px;margin-top:6px}
 .chart-me-ap-controls .wm-btn{padding:4px 2px;font-size:11px;flex:1;min-width:0;text-align:center}
 .ais-target-label.leaflet-tooltip{background:#0f1628;border:.5px solid #2a3a5a;color:#c9d4e0;font-size:11px;padding:2px 7px;border-radius:5px;box-shadow:none;white-space:nowrap}
@@ -1180,6 +1179,9 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   </div>
 </div>
 
+<!-- ─── Tanks + AC side by side (siloed addition 2026-11-12) ─────────────── -->
+<div class="ov-tanks-ac">
+<div class="ov-col">
 <!-- Tanks -->
 <div class="section">Tanks</div>
 <div class="tank-row">
@@ -1204,6 +1206,97 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <div class="tank-label">Black Water</div>
   </div>
 </div>
+</div>
+<div class="ov-col">
+<div class="section">Air Conditioning · Velair</div>
+<!-- ─── Velair AC card (siloed addition 2026-11-12) ─────────────────────── -->
+<style>
+.ac-card .ac-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ac-card .ac-room{font-size:30px;font-weight:500;line-height:1;color:#e0e6f0}
+.ac-card .ac-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px}
+.ac-card .ac-row-label{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;min-width:58px}
+.ac-card .ac-sp{font-size:22px;font-weight:600;color:#e0e6f0;min-width:72px;text-align:center}
+.ac-card .ac-step{min-width:44px;font-size:18px;font-weight:700;padding:4px 12px}
+.ac-card.ac-off .ac-ctl{opacity:.45}
+.ac-card .wc-btn:disabled{opacity:.4;cursor:default}
+.ac-card .ac-err{color:#e06a66}
+.ac-card .ac-body{display:flex;gap:14px;align-items:stretch}
+.ac-card .ac-controls{flex:0 0 auto}
+.ac-card .ac-spark{flex:1;min-width:120px;display:flex;flex-direction:column;justify-content:flex-end;margin-top:12px}
+.ac-card .ac-spark-box{position:relative;height:110px;width:100%}
+.ac-card .ac-spark-label{font-size:11px;color:#6b82a0;text-align:right;margin-top:4px}
+#page-overview .ac-card .ac-spark-label{font-size:12px}
+/* Tanks + AC side by side; stacks below ~760px */
+.ov-tanks-ac{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:0 12px;align-items:stretch}
+.ov-tanks-ac .ov-col{display:flex;flex-direction:column}
+.ov-tanks-ac .ov-col > .tank-row, .ov-tanks-ac .ov-col > .ac-card{margin-bottom:10px;flex:1}
+/* Tank and AC cards share one height (grid row stretch + flex:1); the tank
+   bars are wider and grow to fill it (user, 2026-11-12) */
+.ov-tanks-ac .tank-row{justify-content:space-around;align-items:stretch;flex-wrap:nowrap;gap:12px}
+.ov-tanks-ac .tank-col{flex:1;min-width:0}
+.ov-tanks-ac .tank-bar-wrap{width:100%;max-width:90px;flex:1;min-height:150px}
+.ov-tanks-ac .tank-label{min-height:2.6em;display:flex;align-items:flex-start;justify-content:center;line-height:1.3}
+/* Larger text on the Overview tab only (user, 2026-11-12) */
+#page-overview .section{font-size:13px}
+#page-overview .card-label{font-size:13px}
+#page-overview .card-value{font-size:clamp(26px,2.8vw,36px)}
+#page-overview .card-unit{font-size:16px}
+#page-overview .card-sub{font-size:14px}
+#page-overview .tank-value{font-size:17px}
+#page-overview .tank-label{font-size:13px}
+#page-overview .relay-name{font-size:17px}
+#page-overview .relay-sub{font-size:13px}
+#page-overview .relay-toggle-btn{font-size:15px}
+#page-overview .ac-card .ac-room{font-size:clamp(26px,2.8vw,36px)}
+#page-overview .ac-card .ac-row-label{font-size:13px;min-width:70px}
+#page-overview .ac-card .wc-btn{font-size:15px;padding:7px 14px}
+#page-overview .ac-card .ac-step{font-size:20px}
+#page-overview .ac-card .ac-sp{font-size:26px;min-width:84px}
+@media (max-width:900px){#page-overview .ac-card .wc-btn{font-size:14px;padding:6px 10px}#page-overview .ac-card .ac-row-label{min-width:58px}}
+</style>
+<div class="card no-click ac-card ac-off" id="ac-card">
+  <div class="ac-top">
+    <div>
+      <div class="card-label">Room</div>
+      <div class="ac-room" id="ac-room">--<span class="card-unit">°F</span></div>
+      <div class="card-sub" id="ac-sub">Loading...</div>
+    </div>
+    <button class="relay-toggle-btn state-unknown" id="ac-power-btn" onclick="acCommand('power', !(acState && acState.power))">--</button>
+  </div>
+  <div class="ac-body">
+  <div class="ac-controls">
+  <div class="ac-row ac-ctl">
+    <span class="ac-row-label">Set to</span>
+    <button class="wc-btn ac-step" onclick="acStep(-1)" aria-label="Lower">−</button>
+    <span class="ac-sp" id="ac-sp">--°F</span>
+    <button class="wc-btn ac-step" onclick="acStep(1)" aria-label="Higher">+</button>
+  </div>
+  <div class="ac-row ac-ctl" id="ac-modes">
+    <span class="ac-row-label">Mode</span>
+    <button class="wc-btn" data-mode="cooling" onclick="acCommand('mode','cooling')">Cool</button>
+    <button class="wc-btn" data-mode="heating" onclick="acCommand('mode','heating')">Heat</button>
+    <button class="wc-btn" data-mode="dehumidification" onclick="acCommand('mode','dehumidification')">Dry</button>
+    <button class="wc-btn" data-mode="fanonly" onclick="acCommand('mode','fanonly')">Fan</button>
+    <button class="wc-btn" data-mode="auto" onclick="acCommand('mode','auto')">Auto</button>
+  </div>
+  <div class="ac-row ac-ctl" id="ac-fans">
+    <span class="ac-row-label">Fan</span>
+    <button class="wc-btn" data-fan="0" onclick="acCommand('fan',0)">Auto</button>
+    <button class="wc-btn" data-fan="1" onclick="acCommand('fan',1)">1</button>
+    <button class="wc-btn" data-fan="2" onclick="acCommand('fan',2)">2</button>
+    <button class="wc-btn" data-fan="3" onclick="acCommand('fan',3)">3</button>
+  </div>
+  </div>
+  <div class="ac-spark" title="Room temperature (solid) and set temperature (dashed), last 6 hours. Click for the full trend." onclick="openAcTrendModal()" style="cursor:pointer">
+    <div class="ac-spark-box"><canvas id="ac-spark-cv"></canvas></div>
+    <div class="ac-spark-label" id="ac-spark-label">Room · last 6 h</div>
+  </div>
+  </div>
+</div>
+<!-- ─── end Velair AC card ───────────────────────────────────────────────── -->
+</div>
+</div>
+<!-- ─── end Tanks + AC side by side ─────────────────────────────────────── -->
 
 <!-- House Battery -->
 <div class="section">House Battery</div>
@@ -1257,56 +1350,6 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <button class="relay-toggle-btn state-unknown" id="relay1-btn" onclick="toggleRelay1()">--</button>
   </div>
 </div>
-
-<!-- ─── Velair AC card (siloed addition 2026-11-12) ─────────────────────── -->
-<style>
-.ac-card .ac-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.ac-card .ac-room{font-size:30px;font-weight:500;line-height:1;color:#e0e6f0}
-.ac-card .ac-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px}
-.ac-card .ac-row-label{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;min-width:58px}
-.ac-card .ac-sp{font-size:22px;font-weight:600;color:#e0e6f0;min-width:72px;text-align:center}
-.ac-card .ac-step{min-width:44px;font-size:18px;font-weight:700;padding:4px 12px}
-.ac-card.ac-off .ac-ctl{opacity:.45}
-.ac-card .wc-btn:disabled{opacity:.4;cursor:default}
-.ac-card .ac-err{color:#e06a66}
-</style>
-<div class="section">Air Conditioning · Velair</div>
-<div class="card no-click ac-card ac-off" id="ac-card">
-  <div class="ac-top">
-    <div>
-      <div class="card-label">Room</div>
-      <div class="ac-room" id="ac-room">--<span class="card-unit">°F</span></div>
-      <div class="card-sub" id="ac-sub">Loading...</div>
-    </div>
-    <button class="relay-toggle-btn state-unknown" id="ac-power-btn" onclick="acCommand('power', !(acState && acState.power))">--</button>
-  </div>
-  <div class="ac-row ac-ctl">
-    <span class="ac-row-label">Set to</span>
-    <button class="wc-btn ac-step" onclick="acStep(-1)" aria-label="Lower">−</button>
-    <span class="ac-sp" id="ac-sp">--°F</span>
-    <button class="wc-btn ac-step" onclick="acStep(1)" aria-label="Higher">+</button>
-  </div>
-  <div class="ac-row ac-ctl" id="ac-modes">
-    <span class="ac-row-label">Mode</span>
-    <button class="wc-btn" data-mode="cooling" onclick="acCommand('mode','cooling')">Cool</button>
-    <button class="wc-btn" data-mode="heating" onclick="acCommand('mode','heating')">Heat</button>
-    <button class="wc-btn" data-mode="dehumidification" onclick="acCommand('mode','dehumidification')">Dry</button>
-    <button class="wc-btn" data-mode="fanonly" onclick="acCommand('mode','fanonly')">Fan</button>
-    <button class="wc-btn" data-mode="auto" onclick="acCommand('mode','auto')">Auto</button>
-  </div>
-  <div class="ac-row ac-ctl" id="ac-fans">
-    <span class="ac-row-label">Fan</span>
-    <button class="wc-btn" data-fan="0" onclick="acCommand('fan',0)">Auto</button>
-    <button class="wc-btn" data-fan="1" onclick="acCommand('fan',1)">1</button>
-    <button class="wc-btn" data-fan="2" onclick="acCommand('fan',2)">2</button>
-    <button class="wc-btn" data-fan="3" onclick="acCommand('fan',3)">3</button>
-    <span style="width:10px"></span>
-    <button class="wc-btn" id="ac-swing-btn" onclick="acCommand('swing', !(acState && acState.swing))">Swing</button>
-    <button class="wc-btn" id="ac-night-btn" onclick="acCommand('night', !(acState && acState.night))">Night</button>
-  </div>
-</div>
-<!-- ─── end Velair AC card ───────────────────────────────────────────────── -->
-
 </div> <!-- /page-overview -->
 
 <!-- ══════════════════════════════ Electrical page ══════════════════════════════ -->
@@ -1817,14 +1860,13 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
           <div class="chart-me-row"><span>Time To</span><span id="chart-dest-eta-in">--</span></div>
           <div class="chart-me-divider"></div>
           <div class="chart-me-section-label">Course Change</div>
-          <!-- Wired to autopilot_simulator.py's boat/nav/autopilot/cmd/adjust_heading
-               (dev only) -- same real-hardware caveat as Engage/Standby above: no
-               confirmed safe command path for actual GHP 12 / GHC 10 traffic yet. -->
+          <!-- Garmin GHP 12 course change (real pilot, PGN 61184 via the server);
+               only enabled while the pilot reports Engaged. -->
           <div class="chart-me-ap-controls" id="chart-me-ap-course-controls">
-            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(-10, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">-10°</button>
-            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(-1, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">-1°</button>
-            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(1, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">+1°</button>
-            <button class="wm-btn wm-btn-manual" onclick="wmAdjustAutopilotCourse(10, this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">+10°</button>
+            <button class="wm-btn wm-btn-manual ap-course-btn" onclick="wmAdjustAutopilotCourse(-10, this)" title="Change the autopilot heading by -10°">-10°</button>
+            <button class="wm-btn wm-btn-manual ap-course-btn" onclick="wmAdjustAutopilotCourse(-1, this)" title="Change the autopilot heading by -1°">-1°</button>
+            <button class="wm-btn wm-btn-manual ap-course-btn" onclick="wmAdjustAutopilotCourse(1, this)" title="Change the autopilot heading by +1°">+1°</button>
+            <button class="wm-btn wm-btn-manual ap-course-btn" onclick="wmAdjustAutopilotCourse(10, this)" title="Change the autopilot heading by +10°">+10°</button>
           </div>
         </div>
         <div class="chart-me-panel chart-side-panel" id="chart-me-panel">
@@ -1850,13 +1892,13 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
             <span>Autopilot</span>
             <span class="sys-badge" id="chart-me-ap-mode" style="color:#6b82a0;border-color:#334455;background:#0a0e1a">Not wired</span>
           </div>
-          <!-- Engage/Standby ARE wired, but only to autopilot_simulator.py's
-               boat/nav/autopilot/cmd/mode -- real hardware isn't on the bus and
-               there's still no confirmed safe transmit path even once it is. -->
+          <!-- Engage/Standby drive the real Garmin GHP 12 (server sends PGN 61184
+               and confirms against the pilot's own status). Engage asks first. -->
           <div class="chart-me-ap-controls" id="chart-me-ap-mode-controls">
-            <button class="wm-btn wm-btn-start" id="chart-me-ap-engage-btn" onclick="wmSetAutopilotMode('engage', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Engage</button>
-            <button class="wm-btn wm-btn-stop" id="chart-me-ap-standby-btn" onclick="wmSetAutopilotMode('standby', this)" title="Sends to autopilot_simulator.py (dev) -- no real autopilot on the bus">Standby</button>
+            <button class="wm-btn wm-btn-start" id="chart-me-ap-engage-btn" onclick="wmSetAutopilotMode('engage', this)" title="Engage the autopilot on the current heading">Engage</button>
+            <button class="wm-btn wm-btn-stop" id="chart-me-ap-standby-btn" onclick="wmSetAutopilotMode('standby', this)" title="Autopilot to Standby (hand steering)">Standby</button>
           </div>
+          <div class="ap-msg" id="chart-me-ap-msg"></div>
         </div>
         <div class="chart-trips-panel chart-side-panel" id="chart-trips-panel">
           <div class="chart-me-section-label">Trip Tracks</div>
@@ -2582,7 +2624,6 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
       <button class="diag-subtab-btn" id="diag-sub-mqtt-btn" onclick="showDiagSub('mqtt')">MQTT</button>
       <button class="diag-subtab-btn" id="diag-sub-canbus-btn" onclick="showDiagSub('canbus')">NMEA 2000</button>
       <button class="diag-subtab-btn" id="diag-sub-access-btn" onclick="showDiagSub('access')">Access Log</button>
-      <button class="diag-subtab-btn" id="diag-sub-sim-btn" onclick="showDiagSub('sim')" style="display:none">Simulators</button><!-- hidden 2026-10-29 for the move aboard: scripts archived in archive/simulators/; remove style to bring back -->
       <!-- siloed Admin tools: Console (Shell In A Box) + Database (phpMyAdmin) -->
       <button class="diag-subtab-btn" id="diag-sub-console-btn" onclick="showDiagSub('console')">Console</button>
       <button class="diag-subtab-btn" id="diag-sub-db-btn" onclick="showDiagSub('db')">Database</button>
@@ -2754,18 +2795,6 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
         </div>
       </div>
       <div class="access-log-table" id="access-log-table">
-        <div class="mqtt-empty">Loading…</div>
-      </div>
-    </div>
-
-    <div class="diag-panel" id="diag-panel-sim">
-      <div class="notice" style="margin-bottom:1rem"><span>⚠️</span> Dev-only: starts/stops the *_simulator.py stand-ins in this dev copy. No effect on production or the real N2K/MQTT devices.</div>
-      <div class="mqtt-toolbar">
-        <div class="mqtt-stats">
-          <span><b id="sim-running-count">--</b> of <b id="sim-total-count">--</b> running</span>
-        </div>
-      </div>
-      <div class="card no-click" id="sim-list">
         <div class="mqtt-empty">Loading…</div>
       </div>
     </div>
@@ -3439,8 +3468,9 @@ const NODE_DEFS = {
 
 // ─── Victron sim extras — siloed addition ───────────────────────────────────
 // Diesel + thruster SmartShunts, MPPT 150/35, Orion 12|48 and the diesel
-// alternator. Fed by /api/victron/sim (victron_simulator.py over MQTT) until
-// the real devices report through VRM. Keys are <device>_<field>, merged
+// alternator. Real data only: Orions over Bluetooth (/api/victron/ble), the
+// alternator from the ADAM-6017; the rest stay "--" until they report through
+// the Cerbo. (The victron_simulator.py feed was removed 2026-11-12.) Keys are <device>_<field>, merged
 // into victronData so the existing node modal can show them. Overrides the
 // old voltage-only bat12s/bowthrust entries above.
 Object.assign(NODE_DEFS, {
@@ -3573,10 +3603,7 @@ let victronSimData = {};
 let victronSimFlowSig = '';
 
 async function fetchVictronSim() {
-  let d = {};
-  try {
-    d = await (await fetch('/api/victron/sim')).json();
-  } catch (e) { /* treat as no sim data */ }
+  let d = {};   // (the victron_simulator.py feed was removed 2026-11-12; real sources only)
   try {
     Object.assign(d, await (await fetch('/api/victron/ble')).json()); // real Orions over Bluetooth
   } catch (e) { /* bridge not running */ }
@@ -5112,78 +5139,44 @@ async function wmResetFault(btn) {
   }
 }
 
-// Engage/Standby buttons in the Chart page's autopilot panel. Same request
-// shape as wmSetDevice below, but this panel has no feedback line to write
-// into -- errors just flash the button itself, and success is confirmed by
-// the mode badge updating on the next 3s poll (fetchChartAisLive) rather
-// than an explicit message here.
-async function wmSetAutopilotMode(mode, btn) {
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '…';
-  let failed = false;
-  try {
-    const res = await fetch('/api/autopilot/control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
-    });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error || 'Command failed');
-  } catch (e) {
-    failed = true;
-  }
-  btn.disabled = false;
-  btn.textContent = failed ? '⚠' : original;
-  if (failed) setTimeout(() => { btn.textContent = original; }, 1500);
+// ─── Autopilot control (siloed addition 2026-11-12) ──────────────────────────
+// Real Garmin GHP 12 via /api/autopilot/* (server sends PGN 61184 and waits for
+// the pilot's own status to confirm). Engage asks for confirmation first.
+// Errors are written to #chart-me-ap-msg; the mode badge updates from the
+// pilot's status on the next poll.
+var apBusy = false;
+function apMsg(text, isErr) {
+  const el = document.getElementById('chart-me-ap-msg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = isErr ? '#e06a66' : '#8fa3bd';
+  if (text) { clearTimeout(apMsg.t); apMsg.t = setTimeout(() => { el.textContent = ''; }, 6000); }
 }
-
-// Course-change buttons (-10/-1/+1/+10) in the same panel -- same
-// dev-simulator-only caveat and button-flash-on-error pattern as
-// wmSetAutopilotMode above.
-async function wmAdjustAutopilotCourse(delta, btn) {
+async function apPost(url, body, btn, busyText) {
   const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '…';
-  let failed = false;
+  apBusy = true; btn.disabled = true; btn.textContent = '…'; apMsg(busyText || '');
   try {
-    const res = await fetch('/api/autopilot/course_change', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ delta }),
-    });
-    const d = await res.json();
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(d.error || 'Command failed');
-  } catch (e) {
-    failed = true;
-  }
-  btn.disabled = false;
-  btn.textContent = failed ? '⚠' : original;
-  if (failed) setTimeout(() => { btn.textContent = original; }, 1500);
-}
-
-// Called from dragging the destination pin, or clicking the chart in Set
-// Destination mode (see chartToolMode below). No button to flash on failure
-// here (drag/click, not a click on a button), so failure just means the
-// pin's optimistic position gets overwritten by the next poll's real value
-// once chartDestSyncSuppressUntil expires -- a quiet, self-correcting revert.
-// Returns true/false so callers that DO have a button to flash (the "Set
-// Destination Here" popup button below) can show that failure instead of
-// just closing the popup as if nothing happened -- the drag call site above
-// still ignores the return value and keeps its existing silent-revert
-// behavior unchanged.
-async function wmSetDestination(lat, lon) {
-  try {
-    const res = await fetch('/api/autopilot/set_destination', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat, lon }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Command failed');
+    apMsg('');
     return true;
   } catch (e) {
-    console.error('Failed to set destination:', e.message);
+    apMsg(e.message, true);
     return false;
+  } finally {
+    apBusy = false; btn.textContent = original; btn.disabled = false;
   }
 }
+async function wmSetAutopilotMode(mode, btn) {
+  if (mode === 'engage' && !confirm('Engage the autopilot?\n\nIt will start steering on the current heading.')) return;
+  await apPost('/api/autopilot/control', { mode, confirm: mode === 'engage' }, btn,
+               mode === 'engage' ? 'Engaging…' : 'Going to Standby…');
+}
+async function wmAdjustAutopilotCourse(delta, btn) {
+  await apPost('/api/autopilot/course_change', { delta }, btn);
+}
+// ─── end Autopilot control ───────────────────────────────────────────────────
 
 async function wmSetDevice(device, state, btn) {
   const original = btn.textContent;
@@ -5408,7 +5401,6 @@ function showDiagSub(tab) {
   document.getElementById('diag-panel-canbus').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-panel-system').classList.toggle('active', tab === 'system');
   document.getElementById('diag-panel-access').classList.toggle('active', tab === 'access');
-  document.getElementById('diag-panel-sim').classList.toggle('active', tab === 'sim');
   document.getElementById('diag-panel-netmap').classList.toggle('active', tab === 'netmap');   // siloed Network Map
   document.getElementById('diag-sub-netmap-btn').classList.toggle('active', tab === 'netmap');
   if (typeof netMapTabPolling === 'function') netMapTabPolling(tab === 'netmap');
@@ -5416,80 +5408,10 @@ function showDiagSub(tab) {
   document.getElementById('diag-sub-canbus-btn').classList.toggle('active', tab === 'canbus');
   document.getElementById('diag-sub-system-btn').classList.toggle('active', tab === 'system');
   document.getElementById('diag-sub-access-btn').classList.toggle('active', tab === 'access');
-  document.getElementById('diag-sub-sim-btn').classList.toggle('active', tab === 'sim');
   updateSysSparklinePolling(tab);
   if (tab === 'access') fetchAccessLog();
-  updateSimPolling(tab);
 }
 
-// ─── Simulators (Diagnostics tab) ──────────────────────────────────────────────
-// Dev-only process control for the *_simulator.py stand-ins -- see
-// SIMULATORS in dashboard_api.py for the name->script registry. Status is
-// polled fresh from the backend (which shells out to pgrep) rather than
-// cached client-side, since another browser tab or a terminal could start/
-// stop these just as easily.
-let simPollInterval = null;
-let simBusy = {}; // name -> true while a start/stop request is in flight, to disable that row's button only
-// fetchSimulators() is called from three places (the 3s poll below, plus
-// twice from toggleSimulator -- once immediately on click, once after the
-// start/stop completes) with no ordering guarantee on their responses. Without
-// this, an earlier-fired request's response landing *after* a newer one
-// (e.g. the periodic poll was already in flight when you clicked) would
-// overwrite the row with stale data -- looking exactly like the simulator
-// you just started immediately turned back off, even though it's still
-// running fine. Same discard-superseded-response pattern as chartRequestSeq
-// elsewhere in this file.
-let simFetchSeq = 0;
-
-function updateSimPolling(tab) {
-  if (tab === 'sim') {
-    fetchSimulators();
-    if (!simPollInterval) simPollInterval = setInterval(ifVisible(fetchSimulators), 3000);
-  } else if (simPollInterval) {
-    clearInterval(simPollInterval);
-    simPollInterval = null;
-  }
-}
-
-async function fetchSimulators() {
-  const seq = ++simFetchSeq;
-  const list = document.getElementById('sim-list');
-  try {
-    const res = await fetch('/api/simulators/status');
-    const d = await res.json();
-    if (seq !== simFetchSeq) return; // superseded by a newer call -- discard this stale response
-    const sims = d.simulators || [];
-    setText('sim-total-count', String(sims.length));
-    setText('sim-running-count', String(sims.filter(s => s.running).length));
-    list.innerHTML = sims.map(s => `
-      <div class="relay-row sim-row">
-        <div class="relay-info">
-          <div class="relay-name">${escapeHtml(s.label)}</div>
-          <div class="relay-sub">${s.running ? `Running (pid ${s.pid})` : 'Stopped'}</div>
-        </div>
-        <button class="relay-toggle-btn ${s.running ? 'state-on' : 'state-off'}"
-                ${simBusy[s.name] ? 'disabled' : ''}
-                onclick="toggleSimulator('${s.name}', ${s.running})">${s.running ? 'ON' : 'OFF'}</button>
-      </div>`).join('') || '<div class="mqtt-empty">No simulators registered</div>';
-  } catch (e) {
-    if (seq === simFetchSeq) list.innerHTML = '<div class="mqtt-empty">Failed to load simulator status</div>';
-  }
-}
-
-async function toggleSimulator(name, running) {
-  simBusy[name] = true;
-  fetchSimulators();
-  try {
-    const res = await fetch(`/api/simulators/${name}/${running ? 'stop' : 'start'}`, { method: 'POST' });
-    const d = await res.json();
-    if (!res.ok) alert(d.error || 'Failed to toggle simulator');
-  } catch (e) {
-    alert('Failed to toggle simulator');
-  } finally {
-    simBusy[name] = false;
-    fetchSimulators();
-  }
-}
 
 // ─── Access log (Diagnostics tab) ──────────────────────────────────────────────
 // Page loads only (see record_access() in dashboard_api.py) -- fetched when
@@ -6419,6 +6341,8 @@ function setDuration(dur, btn) {
     loadVRMHistory();
   } else if (currentSeries && currentSeries.source === 'influx') {
     loadInfluxHistory(currentSeries.field, currentSeries.unit, currentSeries.color);
+  } else if (currentSeries && currentSeries.source === 'ac') {
+    loadAcTrend();  // Velair AC card siloed addition
   }
 }
 
@@ -8861,13 +8785,12 @@ let chartActiveTripId = null; // set while a trip is recording, from /api/trips
 // Until then get() always returns null here and the panel just shows "--".
 const AP_MODE_BADGES = {
   Standby:      { text: 'Standby',      color: '#6b82a0', border: '#334455', bg: '#0a0e1a' },
-  'Shadow Drive': { text: 'Shadow Drive', color: '#a78bfa', border: '#5a3a8a', bg: '#1a1030' },
   Engaged:      { text: 'Engaged',      color: '#3db87a', border: '#2a7a4a', bg: '#0d2b1a' },
 };
 // Horizontal rudder-angle indicator (dot on a line, port/starboard) --
 // full-scale is +/-RUDDER_RANGE_DEG each side of center. 30 is a generic
-// small-sailboat hard-over figure; the simulator's own rudder tops out at
-// +/-15 so in practice the dot never quite reaches either end. cx/radius
+// small-sailboat hard-over figure; this boat's GHP 12 limits are +33.5 /
+// -28.1 (lock-to-lock test 2026-11-11), so the dot pins at the ends there. cx/radius
 // are in the SVG's own 0-100 viewBox units, not pixels -- the element
 // scales to whatever width the panel's flex layout actually gives it.
 const RUDDER_RANGE_DEG = 30;
@@ -8891,7 +8814,7 @@ function updateChartMePanel(lat, lon, heading, cog, sog, apMode, apHts, apRudder
   setText('chart-me-cog', cog !== null ? `${Math.round(parseFloat(cog))}°` : '--°');
   setText('chart-me-sog', sog !== null ? `${parseFloat(sog).toFixed(1)} kn` : '-- kn');
 
-  const badge = AP_MODE_BADGES[apMode] || { text: 'Not wired', color: '#6b82a0', border: '#334455', bg: '#0a0e1a' };
+  const badge = AP_MODE_BADGES[apMode] || { text: apMode ? apMode : 'No signal', color: '#6b82a0', border: '#334455', bg: '#0a0e1a' };
   const modeEl = document.getElementById('chart-me-ap-mode');
   modeEl.textContent = badge.text;
   modeEl.style.color = badge.color;
@@ -8908,11 +8831,13 @@ function updateChartMePanel(lat, lon, heading, cog, sog, apMode, apHts, apRudder
   setText('chart-me-ap-hts', (apMode === 'Engaged' && apHts !== null) ? `${Math.round(parseFloat(apHts))}°` : '--°');
   updateRudderIndicator(apRudder);
 
-  // Disable whichever button matches the mode already in effect -- both stay
-  // enabled for Shadow Drive/not-wired, since neither Engage nor Standby is
-  // the current state then.
-  document.getElementById('chart-me-ap-engage-btn').disabled = (apMode === 'Engaged');
-  document.getElementById('chart-me-ap-standby-btn').disabled = (apMode === 'Standby');
+  // Engage only from a live Standby; Standby is never disabled (always safe to
+  // send); course changes only while Engaged. apBusy = a command in flight.
+  if (!apBusy) {
+    document.getElementById('chart-me-ap-engage-btn').disabled = (apMode !== 'Standby');
+    document.getElementById('chart-me-ap-standby-btn').disabled = false;
+    document.querySelectorAll('.ap-course-btn').forEach(b => b.disabled = (apMode !== 'Engaged'));
+  }
 }
 
 // Destination panel/layer has no checkbox of its own -- it rides on "My
@@ -8990,13 +8915,13 @@ function updateChartDestPanel(dist, bearing, vmg, etaTime, etaDate) {
   }
 }
 
-// ─── Chart tools: Set Destination (click-to-place) and Measure ────────────────
+// ─── Chart tools: Measure ─────────────────────────────────────────────────────
 // Mutually exclusive modes armed by the toolbar buttons over the map. A plain
 // map click only ever reaches handleChartMapClick when it misses every
 // marker -- Leaflet markers stop click propagation for their own popups, so
 // this naturally only fires for clicks "off" the destination pin/AIS targets/
 // chart features, no extra check needed for that.
-let chartToolMode = null; // null | 'destination' | 'measure'
+let chartToolMode = null; // null | 'measure'
 
 // Single source of truth for the cursor, called everywhere chartToolMode
 // changes -- a class + !important, not a plain style.cursor, since Leaflet's
@@ -9039,25 +8964,6 @@ function handleChartMapDblClick(e) {
   }
 }
 
-async function wmConfirmSetDestination(lat, lon, btn) {
-  // Previously closed the popup unconditionally, so a failed command (e.g.
-  // MQTT broker briefly down) looked identical to a successful one -- the
-  // popup vanished either way and nothing on screen ever told you it didn't
-  // take. Same disable/"…"/flash-"⚠"-on-failure pattern as the Engage/
-  // Standby/course-change buttons above; the popup now only closes on an
-  // actual success.
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = '…';
-  const ok = await wmSetDestination(lat, lon);
-  if (ok) {
-    chartMap.closePopup();
-    setChartToolMode(null); // one-shot -- placing a destination turns the tool back off
-  } else {
-    btn.disabled = false;
-    btn.textContent = '⚠ Failed';
-    setTimeout(() => { btn.textContent = original; }, 1500);
-  }
-}
 
 // Right-click: mid-measurement it's a shortcut for "finish here" (same as
 // double-click); otherwise it opens a quick menu, so either action is
@@ -9082,8 +8988,7 @@ function handleChartMapContextMenu(e) {
     .setLatLng(e.latlng)
     .setContent(`<div class="ais-popup-body">
       <div class="ais-popup-name">Chart Actions</div>
-      <button class="wm-btn wm-btn-start" style="width:100%;margin-top:4px" onclick="wmConfirmSetDestination(${lat}, ${lng}, this)">Set Destination Here</button>
-      <button class="wm-btn wm-btn-manual" style="width:100%;margin-top:6px" onclick="wmStartMeasureHere(${lat}, ${lng})">Start Measuring Here</button>
+      <button class="wm-btn wm-btn-manual" style="width:100%;margin-top:4px" onclick="wmStartMeasureHere(${lat}, ${lng})">Start Measuring Here</button>
     </div>`)
     .openOn(chartMap);
 }
@@ -9406,28 +9311,10 @@ async function fetchChartAisLive() {
     if (destLat !== null && destLon !== null) {
       const destLatLng = [parseFloat(destLat), parseFloat(destLon)];
       if (!chartDestMarker) {
-        chartDestMarker = L.marker(destLatLng, { icon: chartDestIcon(), draggable: true });
+        // Destination comes from the chartplotter's active Go To/route (PGN
+        // 129284); it can't be set from here, so the pin isn't draggable.
+        chartDestMarker = L.marker(destLatLng, { icon: chartDestIcon() });
         chartDestMarker.bindPopup('', { className: 'ais-popup' });
-        // Suppress poll-driven resync for a few seconds after a drag -- the
-        // simulator needs a round trip (MQTT command -> new position ->
-        // republished) before the live topics agree, and without this the
-        // pin would visibly snap back to the old spot for a tick or two.
-        // Fires continuously during the drag gesture (unlike dragend, once
-        // at release) -- keeps the rhumb line tracking the pin in real time
-        // instead of only catching up on the next 3s poll. Reads the own-
-        // vessel marker directly rather than closing over this call's own
-        // `latLng` const, which would go stale as soon as a later poll's own
-        // position moves (this handler is only ever registered once, here).
-        chartDestMarker.on('drag', e => {
-          if (chartDestLine && chartAisOwnMarker) {
-            chartDestLine.setLatLngs([chartAisOwnMarker.getLatLng(), e.target.getLatLng()]);
-          }
-        });
-        chartDestMarker.on('dragend', e => {
-          const ll = e.target.getLatLng();
-          chartDestSyncSuppressUntil = Date.now() + 4000;
-          wmSetDestination(ll.lat, ll.lng);
-        });
         chartDestGroup.addLayer(chartDestMarker);
       } else if (Date.now() > chartDestSyncSuppressUntil) {
         chartDestMarker.setLatLng(destLatLng);
@@ -10905,21 +10792,17 @@ function renderHeaderAlerts() {
 // LiFePO4 tolerates deep discharge, so it warns late; lead-acid/AGM is damaged below ~50%, and a start battery
 // under ~50% may not crank the diesel. The 12V house chemistry isn't
 // recorded anywhere yet -- assumed AGM; lower its numbers if it's lithium.
-// Diesel/thruster data comes from victron_simulator.py until the real
-// shunts are installed (they'll report through VRM instead).
+// Diesel/thruster entries stay idle until their SmartShunts are on the Cerbo
+// (their keys will then come through /api/victron).
 const BATTERY_ALERTS = [
   { id: 'bat48',      name: '48V house bank',      soc: 'soc',                warn: 30, crit: 20 },  // 200Ah LiFePO4; matches the server's ntfy push thresholds
   { id: 'bat12',      name: '12V house battery',   soc: 'soc_12v',            warn: 50, crit: 30 },  // assumed AGM
   { id: 'batdiesel',  name: 'Diesel start battery', soc: 'shunt_diesel_soc',   warn: 50, crit: 30, alarm: 'shunt_diesel_alarm' },
   { id: 'batthrust',  name: 'Bow thruster battery', soc: 'shunt_thruster_soc', warn: 50, crit: 30, alarm: 'shunt_thruster_alarm' },
 ];
-let hdrVictronSim = {};
 
 async function updateBatteryAlerts() {
-  try {
-    hdrVictronSim = await (await fetch('/api/victron/sim')).json();
-  } catch (e) { /* keep last values */ }
-  const d = Object.assign({}, victronData, hdrVictronSim);
+  const d = Object.assign({}, victronData);
   BATTERY_ALERTS.forEach(b => {
     const soc = d[b.soc] !== undefined && d[b.soc] !== null ? parseFloat(d[b.soc]) : NaN;
     const alarm = b.alarm && d[b.alarm] && d[b.alarm] !== 'None' ? d[b.alarm] : null;
@@ -13058,7 +12941,7 @@ fetchRelay1State();
 // ─── Velair AC card (siloed addition 2026-11-12) ─────────────────────────────
 // Overview > Air Conditioning. /api/ac/status (panel's local API via the
 // backend) every 10 s while the Overview is showing. The panel stores whole
-// degrees C (16-31); the card shows F and +/- moves one panel degree. Set-temp
+// degrees C (range from regs 202/203, 16-28 here); the card shows F and +/- moves one panel degree. Set-temp
 // presses are batched for 700 ms so several taps send one command.
 var acState = null, acBusy = false, acSpPending = null, acSpTimer = null;
 const AC_MODE_LABEL = { cooling: 'Cooling', heating: 'Heating', dehumidification: 'Drying', fanonly: 'Fan only', auto: 'Auto' };
@@ -13083,13 +12966,16 @@ function acRender() {
   document.getElementById('ac-sp').textContent = spC != null ? acCtoF(spC) + '°F' : '--°F';
   const fanTxt = s.fan ? 'fan ' + s.fan : 'fan auto';
   let sub = s.power ? (AC_MODE_LABEL[s.mode] || s.mode) + (s.mode === 'fanonly' ? '' : ' to ' + acCtoF(s.setpoint_c) + '°F') + ' · ' + fanTxt : 'Off';
+  if (s.power && s.mode === 'auto' && s.active) sub += ' · now ' + s.active;   // STAT reg 104
   if (s.night) sub += ' · night';
-  if (s.alarms && s.alarms.length) sub += ' · <span class="ac-err">alarm ' + s.alarms.join(', ') + '</span>';
+  if (s.standby && s.power) sub += ' · standby';
+  if (s.antifreeze) sub += ' · antifreeze';
+  const alarmTxt = (s.alarm_names && s.alarm_names.length) ? s.alarm_names.join(', ')
+                 : (s.alarms && s.alarms.length) ? 'code ' + s.alarms.join(', ') : '';
+  if (alarmTxt) sub += '<br><span class="ac-err">⚠ Alarm: ' + alarmTxt + '</span>';
   document.getElementById('ac-sub').innerHTML = sub;
   card.querySelectorAll('#ac-modes [data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === s.mode));
   card.querySelectorAll('#ac-fans [data-fan]').forEach(b => b.classList.toggle('active', +b.dataset.fan === s.fan));
-  document.getElementById('ac-swing-btn').classList.toggle('active', !!s.swing);
-  document.getElementById('ac-night-btn').classList.toggle('active', !!s.night);
 }
 async function acRefresh() {
   if (acBusy || acSpTimer) return;
@@ -13122,6 +13008,95 @@ function acStep(dir) {
 }
 acRefresh();
 setInterval(() => { if (currentPage === 'overview' && !document.hidden) acRefresh(); }, 10000);
+// Room-temperature sparkline (°F): /api/ac/history, one point a minute,
+// solid = room, dashed = set temperature, grey band where the AC was off.
+var acSparkChart = null;
+async function acSparkRefresh() {
+  const cv = document.getElementById('ac-spark-cv');
+  if (!cv || typeof Chart === 'undefined') return;
+  let pts = [];
+  try { pts = (await (await fetch('/api/ac/history?hours=6')).json()).points || []; } catch (e) { return; }
+  const room = pts.map(p => ({ x: p[0] * 1000, y: p[1] * 9 / 5 + 32 }));
+  const sp = pts.map(p => ({ x: p[0] * 1000, y: p[3] && p[2] != null ? acCtoF(p[2]) : null }));
+  const lbl = document.getElementById('ac-spark-label');
+  if (pts.length < 2) { lbl.textContent = 'Room · collecting history…'; }
+  else {
+    const h = (pts[pts.length - 1][0] - pts[0][0]) / 3600;
+    lbl.textContent = 'Room · last ' + (h >= 1 ? h.toFixed(h < 5.5 ? 1 : 0) + ' h' : Math.round(h * 60) + ' min');
+  }
+  const data = { datasets: [
+    { data: room, borderColor: '#4a9fd4', borderWidth: 2, pointRadius: 0, tension: .3 },
+    { data: sp, borderColor: '#6b82a0', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, stepped: true, spanGaps: false },
+  ] };
+  if (acSparkChart) { acSparkChart.data = data; acSparkChart.update('none'); return; }
+  acSparkChart = new Chart(cv, { type: 'line', data, options: {
+    responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: {
+      title: items => new Date(items[0].parsed.x).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      label: item => (item.datasetIndex ? 'Set ' : 'Room ') + Math.round(item.parsed.y) + '°F' } } },
+    scales: { x: { type: 'linear', display: false },
+              y: { display: true, position: 'right', grace: 1, ticks: { color: '#55667f', font: { size: 10 }, maxTicksLimit: 3,
+                   callback: v => Math.round(v) + '°' }, grid: { color: 'rgba(30,45,74,.5)' }, border: { display: false } } } } });
+}
+acSparkRefresh();
+setInterval(() => { if (currentPage === 'overview' && !document.hidden) acSparkRefresh(); }, 60000);
+// Click the sparkline -> shared trend modal (room solid + setpoint dashed),
+// from the same /api/ac/history (kept 7 days, so 30D shows what exists).
+const AC_TREND_HOURS = { '10m': 1 / 6, '1h': 1, '6h': 6, '24h': 24, '7d': 168, '30d': 168 };
+function openAcTrendModal() {
+  currentNode = null;
+  currentSeries = { code: 'ac_room', label: 'Cabin Temperature', unit: '°F', color: '#4a9fd4', source: 'ac' };
+  currentDuration = '6h';
+  closePenModalUI();
+  document.getElementById('modal-icon').textContent = '❄️';
+  document.getElementById('modal-title').textContent = 'Cabin Temperature (AC)';
+  document.getElementById('modal-live-grid').innerHTML = '';
+  document.getElementById('modal-soc-bar').style.display = 'none';
+  document.getElementById('chart-series-btns').innerHTML = '';
+  document.getElementById('modal').classList.add('open');
+  document.querySelectorAll('#modal-dur-btns .dur-btn').forEach(b => b.classList.toggle('active', b.dataset.range === currentDuration));
+  loadAcTrend();
+}
+async function loadAcTrend() {
+  const seq = ++chartRequestSeq;
+  const dur = currentDuration;
+  showChartLoading('Loading...');
+  let pts;
+  try {
+    pts = (await (await fetch('/api/ac/history?max=600&hours=' + (AC_TREND_HOURS[dur] || 6))).json()).points || [];
+  } catch (e) { if (seq === chartRequestSeq) showChartLoading('Error loading history'); return; }
+  if (seq !== chartRequestSeq) return;
+  if (pts.length < 2) { showChartLoading('No AC history for this period yet'); return; }
+  const room = pts.map(p => ({ x: p[0] * 1000, y: cToF(p[1]) }));
+  const sp = pts.map(p => ({ x: p[0] * 1000, y: p[3] && p[2] != null ? acCtoF(p[2]) : null }));
+  const ys = room.map(p => p.y);
+  const avg = ys.reduce((a, b) => a + b, 0) / ys.length;
+  document.getElementById('stat-min').textContent = Math.min(...ys).toFixed(1) + '°F';
+  document.getElementById('stat-avg').textContent = avg.toFixed(1) + '°F';
+  document.getElementById('stat-max').textContent = Math.max(...ys).toFixed(1) + '°F';
+  document.getElementById('chart-loading').style.display = 'none';
+  const c = document.getElementById('trend-chart');
+  c.style.display = 'block';
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  const long = (pts[pts.length - 1][0] - pts[0][0]) > 36 * 3600;
+  const fmtT = ms => long
+    ? new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric' })
+    : new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  trendChart = new Chart(c, { type: 'line', data: { datasets: [
+      { label: 'Room', data: room, borderColor: '#4a9fd4', backgroundColor: '#4a9fd422', fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .3 },
+      { label: 'Set', data: sp, borderColor: '#6b82a0', borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, stepped: true, spanGaps: false },
+    ] }, options: {
+      responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: true, labels: { color: '#6b82a0', boxHeight: 2, font: { size: 11 } } },
+        tooltip: { callbacks: { title: items => fmtT(items[0].parsed.x),
+          label: item => item.dataset.label + ' ' + item.parsed.y.toFixed(item.datasetIndex ? 0 : 1) + '°F' } } },
+      scales: {
+        x: { type: 'linear', min: room[0].x, max: room[room.length - 1].x,
+             ticks: { color: '#6b82a0', maxTicksLimit: 8, font: { size: 11 }, callback: v => fmtT(v) }, grid: { color: '#1e2d4a' } },
+        y: { grace: 1, ticks: { color: '#6b82a0', font: { size: 11 }, callback: v => Math.round(v) + '°' }, grid: { color: '#1e2d4a' } } } } });
+}
+
 // ─── end Velair AC card siloed addition ──────────────────────────────────────
 
 // ─── Night mode toggle (siloed addition; see the Night mode block in <head>) ──

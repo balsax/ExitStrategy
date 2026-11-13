@@ -67,86 +67,6 @@ def clear_access_log():
         _access_log.clear()
     return jsonify({'status': 'ok'})
 
-# ─── Simulator scripts (Diagnostics tab) ────────────────────────────────────
-# Dev-only process control for the *_simulator.py stand-ins this dev copy
-# uses instead of the real N2K/MQTT devices. Status is read fresh via pgrep
-# each time rather than trusting our own Popen handles, since a Flask reload
-# during dev editing would otherwise orphan a tracked process and make the
-# UI lie about it being stopped.
-SIMULATOR_DIR = os.path.dirname(os.path.abspath(__file__))
-SIMULATORS = {
-    'gps':        {'label': 'GPS / Depth',   'script': 'gps_simulator.py'},
-    'wind':       {'label': 'Wind',          'script': 'wind_simulator.py'},
-    'tank':       {'label': 'Tanks / Bilge', 'script': 'tank_simulator.py'},
-    'ais':        {'label': 'AIS',           'script': 'ais_simulator.py'},
-    'autopilot':  {'label': 'Autopilot',     'script': 'autopilot_simulator.py'},
-    'watermaker': {'label': 'Watermaker',    'script': 'watermaker_simulator.py'},
-    'garmin1243': {'label': 'Garmin 1243 (NMEA2000)', 'script': 'garmin_1243_simulator.py'},
-}
-
-def _simulator_script_path(name):
-    return os.path.join(SIMULATOR_DIR, SIMULATORS[name]['script'])
-
-def _simulator_pids(name):
-    script_path = _simulator_script_path(name)
-    # Anchored to the *exact* command line simulator_start below launches
-    # ('python3 <script_path>', nothing else) rather than pgrep -f's default
-    # substring-anywhere match -- an unanchored pattern here false-positives
-    # on any unrelated process that merely mentions this path in its own
-    # command line (a shell command investigating/grepping for the script,
-    # an editor, etc.), which reads to simulator_start as "already running"
-    # and makes it silently skip actually starting anything.
-    pattern = f'^python3? {re.escape(script_path)}$'
-    try:
-        result = subprocess.run(['pgrep', '-f', pattern], capture_output=True, text=True, timeout=3)
-        return [int(pid) for pid in result.stdout.split()]
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return []
-
-@app.route('/api/simulators/status')
-def simulators_status():
-    sims = []
-    for name, info in SIMULATORS.items():
-        pids = _simulator_pids(name)
-        sims.append({'name': name, 'label': info['label'], 'running': len(pids) > 0, 'pid': pids[0] if pids else None})
-    return jsonify({'simulators': sims})
-
-@app.route('/api/simulators/<name>/start', methods=['POST'])
-def simulator_start(name):
-    if name not in SIMULATORS:
-        return jsonify({'error': 'unknown simulator'}), 404
-    if _simulator_pids(name):
-        return jsonify({'status': 'ok', 'already_running': True})
-    try:
-        subprocess.Popen(['python3', _simulator_script_path(name)], cwd=SIMULATOR_DIR,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                          start_new_session=True)
-    except OSError as e:
-        return jsonify({'error': str(e)}), 500
-    return jsonify({'status': 'ok'})
-
-@app.route('/api/simulators/<name>/stop', methods=['POST'])
-def simulator_stop(name):
-    if name not in SIMULATORS:
-        return jsonify({'error': 'unknown simulator'}), 404
-    pids = _simulator_pids(name)
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGINT)  # simulators catch KeyboardInterrupt for a clean MQTT disconnect
-        except OSError:
-            pass
-    # Give each script a moment to unwind (disconnect its MQTT client, flush
-    # prints) before falling back to SIGKILL on anything still standing.
-    deadline = time.time() + 2.0
-    while time.time() < deadline and _simulator_pids(name):
-        time.sleep(0.1)
-    for pid in _simulator_pids(name):
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
-    return jsonify({'status': 'ok'})
-
 @app.route('/')
 def index():
     record_access()
@@ -602,6 +522,7 @@ def get_vrm_data(force_cloud=False):
 
 @app.route('/api/sensor')
 def sensor():
+    if BME_SOURCE == 'mqtt': return _bme_mqtt_sensor()  # BME680 via MQTT (siloed)
     s = get_secrets()
     data = {}
     for field in ['temp_f', 'humidity', 'pressure', 'iaq', 'co2_ppm', 'voc_ppm']:
@@ -646,6 +567,7 @@ BME_LAST_SEEN_TTL_S = 30
 
 @app.route('/api/sensor/last_seen')
 def sensor_last_seen():
+    if BME_SOURCE == 'mqtt': return _bme_mqtt_last_seen()  # BME680 via MQTT (siloed)
     now = time.time()
     if _bme_last_seen_cache['data'] is None or now - _bme_last_seen_cache['t'] > BME_LAST_SEEN_TTL_S:
         s = get_secrets()
@@ -673,6 +595,96 @@ def sensor_last_seen():
         data['age_s'] = round(now - ts.timestamp())
     return jsonify(data)
 # ─── end BME680 last-seen siloed addition ───────────────────────────────────
+
+# ─── BME680 via MQTT (siloed addition 2026-11-12) ──────────────────────────
+# The BME680 board now publishes to the Pi's mosquitto (boat/env/bme680/<field>,
+# firmware ~/bme680_mqtt) instead of InfluxDB Cloud. mqtt_logger.py stores those
+# topics in mqtt_readings like everything else, so the live values come from
+# mqtt_state and history from MariaDB. /api/sensor, /api/sensor/last_seen and
+# /api/trend each hand off to the functions below while BME_SOURCE == 'mqtt';
+# set it back to 'influx' (or delete this block and those three lines) to revert.
+BME_SOURCE = 'mqtt'
+BME_TOPIC = 'boat/env/bme680/'
+BME_FIELDS = ['temp_f', 'humidity', 'pressure', 'iaq', 'co2_ppm', 'voc_ppm']
+BME_LIVE_MAX_AGE_S = 3600   # same 1 h window the Influx query used
+
+def _bme_mqtt_live():
+    """{field: (value, aware datetime)} for boat/env/bme680/* currently in mqtt_state."""
+    out = {}
+    with mqtt_lock:
+        items = [(t, dict(v)) for t, v in mqtt_state['topics'].items() if t.startswith(BME_TOPIC)]
+    for topic, v in items:
+        try:
+            out[topic[len(BME_TOPIC):]] = (float(v['value']), datetime.fromisoformat(v['time']))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
+
+def _bme_mqtt_sensor():
+    now = datetime.now(timezone.utc)
+    live = _bme_mqtt_live()
+    data = {}
+    for field in BME_FIELDS:
+        if field in live and (now - live[field][1]).total_seconds() <= BME_LIVE_MAX_AGE_S:
+            data[field] = round(live[field][0], 2)
+    # 3 h barometric tendency, same 1 h window centred on -3 h as before
+    if 'pressure' in data:
+        try:
+            conn = get_boat_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT r.value FROM mqtt_readings r JOIN mqtt_topics t ON t.id = r.topic_id
+                WHERE t.topic = %s AND r.ts >= %s AND r.ts < %s
+                ORDER BY r.ts LIMIT 1
+            """, (BME_TOPIC + 'pressure', datetime.now() - timedelta(hours=3, minutes=30),
+                  datetime.now() - timedelta(hours=2, minutes=30)))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                delta = data['pressure'] - float(row[0])
+                data['pressure_delta_3h'] = round(delta, 2)
+                data['pressure_trend'] = 'rising' if delta > 1.0 else 'falling' if delta < -1.0 else 'steady'
+        except Exception:
+            pass
+    return jsonify(data)
+
+def _bme_mqtt_last_seen():
+    live = _bme_mqtt_live()
+    last = live['temp_f'][1] if 'temp_f' in live else None
+    if last is None:   # nothing since the dashboard started: ask the database
+        try:
+            conn = get_boat_db()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT MAX(r.ts) FROM mqtt_readings r JOIN mqtt_topics t ON t.id = r.topic_id
+                WHERE t.topic = %s
+            """, (BME_TOPIC + 'temp_f',))
+            row = cur.fetchone()
+            conn.close()
+            if row and row[0]:
+                last = row[0].astimezone()   # logger stores naive local time
+        except Exception as e:
+            return jsonify({'last_seen': None, 'error': str(e)})
+    if last is None:
+        return jsonify({'last_seen': None})
+    return jsonify({'last_seen': last.isoformat(),
+                    'age_s': round(time.time() - last.timestamp())})
+
+def _bme_mqtt_trend(field, range_val):
+    if field not in BME_FIELDS + ['temp_c', 'gas_kohm', 'iaq_accuracy']:
+        return jsonify({'times': [], 'values': [], 'error': 'unknown field'})
+    bucket = TREND_RANGE_BUCKET.get(range_val, 30)
+    start_dt = datetime.now() - timedelta(seconds=TREND_RANGE_SECONDS.get(range_val, 3600))
+    try:
+        conn = get_boat_db()
+        series = query_bucketed_series(conn.cursor(), BME_TOPIC + field, start_dt, bucket)
+        conn.close()
+    except Exception as e:
+        return jsonify({'times': [], 'values': [], 'error': str(e)})
+    keys = sorted(series.keys())
+    return jsonify({'times': [k.strftime('%Y-%m-%dT%H:%M:%S') for k in keys],
+                    'values': [round(series[k], 2) for k in keys]})
+# ─── end BME680 via MQTT siloed addition ────────────────────────────────────
 
 @app.route('/api/victron')
 def victron():
@@ -776,6 +788,7 @@ def victron_history():
 def trend():
     field = request.args.get('field', 'temp_f')
     range_val = request.args.get('range', '1h')
+    if BME_SOURCE == 'mqtt': return _bme_mqtt_trend(field, range_val)  # BME680 via MQTT (siloed)
     s = get_secrets()
 
     window_map = {
@@ -804,27 +817,98 @@ def mqtt_topics():
         'topics': topics,
     })
 
-# No real autopilot is on the N2K network yet, and even once one is, there's
-# no confirmed safe command path for it -- canboat's own reverse-engineering
-# of PGN 126720 marks the command-direction messages "decode-only... not a
-# transmit path" (see n2k_mqtt_bridge.py's PGN_MAP notes). This only ever
-# reaches autopilot_simulator.py, the dev stand-in listening on the same
-# boat/nav/autopilot/cmd/mode topic -- publishing here has zero effect on
-# any physical CAN bus regardless of what's connected to it.
-AUTOPILOT_MODES = {'engage', 'standby', 'shadow'}
+# ─── Garmin GHP 12 autopilot control (siloed addition 2026-11-12) ───────────
+# Replaces the old autopilot_simulator.py MQTT stand-in. Sends the same
+# proprietary PGN 61184 frames the GHC 20 sends (decoded 2026-11-11 and used by
+# ~/ap_wheel_cycle.py): to the GHP 12 CCU at N2K address 1, from 0xF9 (the
+# address the bridge and Boat Radio already use; the pilot accepts it).
+# Mode comes back from the pilot's own status (Garmin 0x04d8 byte 58), which
+# n2k_mqtt_bridge.py publishes as boat/nav/autopilot/mode about once a second;
+# every command is checked against it. Safety rules:
+#   - Standby is always allowed and sent twice.
+#   - Engage needs {"confirm": true} (the page asks first) and a live pilot.
+#   - +/-1 and +/-10 only while the pilot reports Engaged; +/-10 = ten 1 deg presses.
+#   - one command at a time.
+# To back out: delete this block and the marked "Autopilot control" JS block.
+AP_CAN_IF = 'can0'
+AP_PILOT_ADDR = 1
+AP_SRC_ADDR = 0xF9
+_AP_HDR = bytes.fromhex('e598da040404')
+AP_FRAMES = {
+    'engage':  [_AP_HDR + b'\x20\x05'],
+    'standby': [_AP_HDR + b'\x20\x04', bytes.fromhex('e598230504040000')],
+    'plus':    [_AP_HDR + b'\x29\x00', _AP_HDR + b'\x38\x01', _AP_HDR + b'\x20\x0e'],
+    'minus':   [_AP_HDR + b'\x29\x01', _AP_HDR + b'\x38\x01', _AP_HDR + b'\x20\x0e'],
+}
+AP_MODE_FRESH_S = 15          # pilot status older than this = pilot not on the bus
+AP_CONFIRM_TIMEOUT_S = 8      # status can come as slowly as every ~2 s
+AP_PRESS_GAP_S = 0.12
+AP_COURSE_DELTAS = {-10, -1, 1, 10}
+_ap_lock = threading.Lock()
+
+def _ap_mode():
+    """(mode, age_s, time) from the bridge's boat/nav/autopilot/mode topic."""
+    with mqtt_lock:
+        rec = mqtt_state['topics'].get('boat/nav/autopilot/mode')
+    if not rec:
+        return None, None, None
+    try:
+        t = datetime.fromisoformat(rec['time']).timestamp()
+    except (KeyError, ValueError):
+        return None, None, None
+    return rec.get('value'), time.time() - t, t
+
+def _ap_send(frames):
+    can_id = (7 << 26) | (0xEF << 16) | (AP_PILOT_ADDR << 8) | AP_SRC_ADDR | 0x80000000
+    with socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW) as sk:
+        sk.bind((AP_CAN_IF,))
+        for payload in frames:
+            sk.send(struct.pack('=IB3x8s', can_id, 8, payload))
+            time.sleep(0.002)
+
+def _ap_wait_mode(want, since):
+    deadline = time.time() + AP_CONFIRM_TIMEOUT_S
+    while time.time() < deadline:
+        mode, _, t = _ap_mode()
+        if t is not None and t > since and mode == want:
+            return True
+        time.sleep(0.2)
+    return False
+
+@app.route('/api/autopilot/status')
+def autopilot_status():
+    mode, age, _ = _ap_mode()
+    return jsonify({'mode': mode, 'age_s': round(age, 1) if age is not None else None,
+                    'online': age is not None and age < AP_MODE_FRESH_S})
 
 @app.route('/api/autopilot/control', methods=['POST'])
 def autopilot_control():
     data = request.get_json(silent=True) or {}
     mode = data.get('mode')
-    if mode not in AUTOPILOT_MODES:
-        return jsonify({'error': f'mode must be one of {sorted(AUTOPILOT_MODES)}'}), 400
-    if not mqtt_client or not mqtt_state['connected']:
-        return jsonify({'error': 'MQTT broker not connected'}), 503
-    mqtt_client.publish('boat/nav/autopilot/cmd/mode', mode)
-    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/mode', 'mode': mode})
-
-AUTOPILOT_COURSE_DELTAS = {-10, -1, 1, 10}  # matches the Chart page's four course-change buttons
+    if mode not in ('engage', 'standby'):
+        return jsonify({'error': 'mode must be engage or standby'}), 400
+    cur, age, _ = _ap_mode()
+    if mode == 'engage':
+        if data.get('confirm') is not True:
+            return jsonify({'error': 'engage needs confirmation'}), 400
+        if age is None or age > AP_MODE_FRESH_S:
+            return jsonify({'error': 'autopilot not heard on the NMEA 2000 bus'}), 503
+    if not _ap_lock.acquire(blocking=False):
+        return jsonify({'error': 'another autopilot command is in progress'}), 409
+    try:
+        since = time.time()
+        _ap_send(AP_FRAMES[mode])
+        if mode == 'standby':
+            time.sleep(0.3)
+            _ap_send(AP_FRAMES['standby'])
+        want = 'Engaged' if mode == 'engage' else 'Standby'
+        if not _ap_wait_mode(want, since):
+            return jsonify({'error': f'sent, but the pilot did not report {want}', 'mode': _ap_mode()[0]}), 504
+        return jsonify({'status': 'ok', 'mode': want})
+    except OSError as e:
+        return jsonify({'error': f'CAN bus: {e}'}), 503
+    finally:
+        _ap_lock.release()
 
 @app.route('/api/autopilot/course_change', methods=['POST'])
 def autopilot_course_change():
@@ -833,27 +917,26 @@ def autopilot_course_change():
         delta = int(data.get('delta'))
     except (TypeError, ValueError):
         return jsonify({'error': 'delta must be an integer'}), 400
-    if delta not in AUTOPILOT_COURSE_DELTAS:
-        return jsonify({'error': f'delta must be one of {sorted(AUTOPILOT_COURSE_DELTAS)}'}), 400
-    if not mqtt_client or not mqtt_state['connected']:
-        return jsonify({'error': 'MQTT broker not connected'}), 503
-    mqtt_client.publish('boat/nav/autopilot/cmd/adjust_heading', str(delta))
-    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/adjust_heading', 'delta': delta})
-
-@app.route('/api/autopilot/set_destination', methods=['POST'])
-def autopilot_set_destination():
-    data = request.get_json(silent=True) or {}
+    if delta not in AP_COURSE_DELTAS:
+        return jsonify({'error': f'delta must be one of {sorted(AP_COURSE_DELTAS)}'}), 400
+    cur, age, _ = _ap_mode()
+    if cur != 'Engaged' or age is None or age > AP_MODE_FRESH_S:
+        return jsonify({'error': 'autopilot is not engaged'}), 409
+    if not _ap_lock.acquire(blocking=False):
+        return jsonify({'error': 'another autopilot command is in progress'}), 409
     try:
-        lat = float(data.get('lat'))
-        lon = float(data.get('lon'))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'lat/lon must be numbers'}), 400
-    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-        return jsonify({'error': 'lat/lon out of range'}), 400
-    if not mqtt_client or not mqtt_state['connected']:
-        return jsonify({'error': 'MQTT broker not connected'}), 503
-    mqtt_client.publish('boat/nav/autopilot/cmd/set_destination', f"{lat},{lon}")
-    return jsonify({'status': 'sent', 'topic': 'boat/nav/autopilot/cmd/set_destination', 'lat': lat, 'lon': lon})
+        frames = AP_FRAMES['plus' if delta > 0 else 'minus']
+        for i in range(abs(delta)):
+            if i and _ap_mode()[0] != 'Engaged':      # pilot dropped out mid-way: stop pressing
+                return jsonify({'error': f'pilot left Engaged after {i} presses'}), 409
+            _ap_send(frames)
+            time.sleep(AP_PRESS_GAP_S)
+        return jsonify({'status': 'ok', 'delta': delta})
+    except OSError as e:
+        return jsonify({'error': f'CAN bus: {e}'}), 503
+    finally:
+        _ap_lock.release()
+# ─── end Garmin GHP 12 autopilot control ────────────────────────────────────
 
 WATERMAKER_MODES = {'start', 'stop', 'flush', 'auto', 'manual', 'reset'}  # 'reset' clears an active fault -- the device won't accept other manual commands until it's sent
 WATERMAKER_DEVICES = {'pump', 'boost_pump', 'divert', 'flush'}
@@ -3640,59 +3723,21 @@ def tides_current_directions():
     return jsonify(directions)
 # ─── end tides & currents siloed addition ───────────────────────────────────
 
-# ─── Victron simulator siloed addition ──────────────────────────────────────
-# Serves victron_simulator.py's boat/sim/victron/<device>/<field> topics
-# (diesel + thruster SmartShunts, MPPT 150/35, Orion 12|48, engine/alternator)
-# to the Electrical tab as flat <device>_<field> keys, e.g. mppt_pv_power.
-# Stale topics (simulator stopped) are dropped so the nodes fall back to "--".
-VICTRON_SIM_PREFIX = 'boat/sim/victron/'
-VICTRON_SIM_STALE_S = 30
-
-@app.route('/api/victron/sim')
-def victron_sim():
-    cutoff = datetime.now(timezone.utc).timestamp() - VICTRON_SIM_STALE_S
-    out = {}
-    with mqtt_lock:
-        items = [(t, v) for t, v in mqtt_state['topics'].items() if t.startswith(VICTRON_SIM_PREFIX)]
-    for topic, entry in items:
-        try:
-            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
-                continue
-        except (KeyError, ValueError):
-            continue
-        key = topic[len(VICTRON_SIM_PREFIX):].replace('/', '_')
-        try:
-            out[key] = float(entry['value'])
-        except ValueError:
-            out[key] = entry['value']
-    return jsonify(out)
-# ─── end Victron simulator siloed addition ──────────────────────────────────
-
 # ─── Critical battery push alerts (12V / diesel / thruster) siloed addition ─
 # tank_battery_monitor_loop above already pushes for the 48V house bank
 # (VRM 'soc'); this covers the other three batteries, critical level only,
 # with the same ntfy notify-on-trip + repeat-every-30-min pattern. Thresholds
 # match the header chips in static-src/index.html (BATTERY_ALERTS).
-# Diesel/thruster only exist as victron_simulator.py topics until the real
-# SmartShunts are installed; simulated readings push only from the dev
-# server (DEBUG_MODE) and are titled "SIM:", so prod never sends fake alarms.
+# Diesel/thruster get rows here once their SmartShunts are installed.
 CRIT_BATTERY_MONITOR_INTERVAL_S = 60
 CRIT_BATTERIES = [
     # key, label, crit %, source, soc field, alarm field
     ('bat12',     '12V house battery',    30.0, 'vrm', 'soc_12v',            None),  # assumed AGM
-    ('batdiesel', 'Diesel start battery', 30.0, 'sim', 'shunt_diesel/soc',   'shunt_diesel/alarm'),
-    ('batthrust', 'Bow thruster battery', 30.0, 'sim', 'shunt_thruster/soc', 'shunt_thruster/alarm'),
+    # Diesel start / bow thruster: add rows here once their SmartShunts are on
+    # the Cerbo (source 'vrm' with their keys). The simulated rows were removed
+    # 2026-11-12 along with victron_simulator.py's /api/victron/sim.
 ]
 _crit_battery_notified_at = {k[0]: 0 for k in CRIT_BATTERIES}
-
-def _sim_value(topics, field, cutoff):
-    rec = topics.get(VICTRON_SIM_PREFIX + field)
-    try:
-        if rec and datetime.fromisoformat(rec['time']).timestamp() >= cutoff:
-            return rec['value']
-    except (KeyError, ValueError):
-        pass
-    return None
 
 def crit_battery_monitor_loop():
     while True:
@@ -3700,17 +3745,9 @@ def crit_battery_monitor_loop():
         try:
             now = time.time()
             vrm = vrm_cached()
-            with mqtt_lock:
-                topics = dict(mqtt_state['topics'])
-            cutoff = now - VICTRON_SIM_STALE_S
             for key, label, crit, source, soc_field, alarm_field in CRIT_BATTERIES:
-                if source == 'sim' and not globals().get('DEBUG_MODE'):
-                    continue
-                if source == 'vrm':
-                    soc, alarm = vrm.get(soc_field), None
-                else:
-                    soc = _sim_value(topics, soc_field, cutoff)
-                    alarm = _sim_value(topics, alarm_field, cutoff) if alarm_field else None
+                soc = vrm.get(soc_field)
+                alarm = vrm.get(alarm_field) if alarm_field else None
                 try:
                     soc = float(soc) if soc is not None else None
                 except ValueError:
@@ -3723,12 +3760,11 @@ def crit_battery_monitor_loop():
                     continue
                 if now - _crit_battery_notified_at[key] <= TANK_BATTERY_NOTIFY_REPEAT_S:
                     continue
-                prefix = 'SIM: ' if source == 'sim' else ''
                 if alarm:
                     msg = f'🔋 {label}: {alarm}' + (f' ({soc:.0f}% SOC).' if soc is not None else '.')
                 else:
                     msg = f'🔋 {label} is at {soc:.0f}% -- at or below the {crit:.0f}% critical threshold.'
-                send_ntfy(f'{prefix}{label} critically low', msg, tags='warning', alert_key=f'crit_{key}')
+                send_ntfy(f'{label} critically low', msg, tags='warning', alert_key=f'crit_{key}')
                 _crit_battery_notified_at[key] = now
         except Exception as e:
             print(f'crit_battery_monitor_loop: {e}', flush=True)  # never let one bad reading kill the thread
@@ -5376,58 +5412,6 @@ def electrical_history_route():
         return jsonify({'series': {k: {'times': [], 'values': [], 'error': str(e)} for k in keys}})
 # ─── end Electrical history siloed addition ─────────────────────────────────
 
-# ─── Victron simulator as a user service — siloed addition ───────────────────
-# victron_simulator.py runs as the systemd *user* service victron-simulator
-# (unit file victron-simulator.service in this dir) so it survives reboots.
-# This adds it to Diagnostics -> Simulators by wrapping simulators_status()
-# and giving it its own start/stop routes (a literal path segment outranks
-# the <name> rule). ON = enable --now, OFF = disable --now, so the choice
-# also sticks across reboots. disable removes the linked unit's symlink too,
-# which is why start enables it by full path. The unit always lives in the
-# dev copy (it runs the dev script), so the path is fixed rather than based on
-# SIMULATOR_DIR, which is ~ in production. Delete this block to remove.
-VICTRON_SIM_UNIT_PATH = os.path.expanduser('~/dashboard-dev/victron-simulator.service')
-
-def _victron_sim_systemctl(*args):
-    uid = os.getuid()
-    env = dict(os.environ, XDG_RUNTIME_DIR=f'/run/user/{uid}',
-               DBUS_SESSION_BUS_ADDRESS=f'unix:path=/run/user/{uid}/bus')
-    return subprocess.run(['systemctl', '--user', *args], capture_output=True, text=True, timeout=15, env=env)
-
-def _victron_sim_entry():
-    try:
-        out = _victron_sim_systemctl('show', 'victron-simulator', '-p', 'ActiveState', '-p', 'MainPID').stdout
-        props = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
-    except (OSError, subprocess.SubprocessError):
-        props = {}
-    running = props.get('ActiveState') == 'active'
-    pid = int(props.get('MainPID') or 0)
-    return {'name': 'victron', 'label': 'Victron (Electrical)', 'running': running, 'pid': pid if running and pid else None}
-
-_simulators_status_before_victron = app.view_functions['simulators_status']
-
-def _simulators_status_with_victron():
-    data = _simulators_status_before_victron().get_json()
-    data['simulators'].append(_victron_sim_entry())
-    return jsonify(data)
-
-app.view_functions['simulators_status'] = _simulators_status_with_victron
-
-@app.route('/api/simulators/victron/start', methods=['POST'])
-def victron_sim_service_start():
-    r = _victron_sim_systemctl('enable', '--now', VICTRON_SIM_UNIT_PATH)
-    if r.returncode != 0:
-        return jsonify({'error': r.stderr.strip() or 'systemctl enable failed'}), 500
-    return jsonify({'status': 'ok'})
-
-@app.route('/api/simulators/victron/stop', methods=['POST'])
-def victron_sim_service_stop():
-    r = _victron_sim_systemctl('disable', '--now', 'victron-simulator')
-    if r.returncode != 0:
-        return jsonify({'error': r.stderr.strip() or 'systemctl disable failed'}), 500
-    return jsonify({'status': 'ok'})
-# ─── end Victron simulator service ───────────────────────────────────────────
-
 # ─── Disk free space (siloed addition, 2026-10-07) ───────────────────────────
 # The Server Health Disk Usage / Boot Partition cards only get a percentage
 # over MQTT (boat/system/disk_percent); this read-only route adds the absolute
@@ -5988,12 +5972,13 @@ def health():
 # has a local HTTP API, decoded from the Velair Android app: GET status, POST
 # commands, form-encoded, headers X-UID (MAC) + X-serial (empty: the panel was
 # never given one). No cloud involved. The panel stores whole degrees C only
-# (16-31); the dashboard shows F and steps one panel degree at a time.
+# (limits from regs 202/203: 16-28 on ours); the dashboard shows F and steps
+# one panel degree at a time.
 # To back out: delete this block and the marked "Velair AC" blocks in
 # static-src/index.html.
 AC_HOST = os.environ.get('VELAIR_HOST', '192.168.10.200')
 AC_UID = '8c:4f:00:4c:b7:c8'
-AC_SP_MIN_C, AC_SP_MAX_C = 16, 31
+AC_SP_MIN_C, AC_SP_MAX_C = 16, 28   # fallbacks; the unit's own limits come from regs 202/203
 AC_MODES = {0: 'heating', 1: 'cooling', 3: 'dehumidification', 4: 'fanonly', 5: 'auto'}
 AC_STATUS_TTL_S = 4
 _ac_cache = {'t': 0.0, 'data': None, 'lock': threading.Lock()}
@@ -6010,6 +5995,44 @@ def _ac_request(method, path, data=None):
         raise RuntimeError(j.get('error') or f'{path}: panel said no')
     return j
 
+# Registers from Innova's Modbus sheet N273025C (the panel runs Innova's
+# controller firmware; values matched our scan), read through the panel's
+# rs485/read endpoint. 104 STAT and 105 ALR_STAT every status refresh;
+# 202/203 setpoint limits and 222 fan hours every 5 min.
+AC_ALARM_BITS = {0: 'communication', 1: 'air sensor', 2: 'H4 sensor', 3: 'water temperature block', 4: 'H2 sensor',
+                 5: 'H4 water temperature', 6: 'heater over-temperature', 7: 'fan motor fault',
+                 8: 'front grille open', 9: 'water temperature not suitable', 10: 'dirty filter',
+                 11: 'second air sensor'}
+AC_SLOW_REGS_TTL_S = 300
+_ac_slow = {'t': 0.0, 'sp_min_c': AC_SP_MIN_C, 'sp_max_c': AC_SP_MAX_C, 'fan_hours': None}
+
+def _ac_reg(addr):
+    try:
+        j = requests.post(f'http://{AC_HOST}/api/v/1/rs485/read', data='{"address":%d}' % addr, timeout=3,
+                          headers={'X-UID': AC_UID, 'X-serial': '',
+                                   'Content-Type': 'application/x-www-form-urlencoded'}).json()
+        v = (j.get('RESULT') or {}).get('value') if j.get('success') else None
+        return v if isinstance(v, int) else None
+    except Exception:
+        return None
+
+def _ac_regs_extra():
+    stat, alr = _ac_reg(104), _ac_reg(105)
+    if time.time() - _ac_slow['t'] > AC_SLOW_REGS_TTL_S:
+        lo, hi, hours = _ac_reg(202), _ac_reg(203), _ac_reg(222)
+        if lo and hi and 50 <= lo < hi <= 400:
+            _ac_slow['sp_min_c'] = int(round(lo / 10))
+            _ac_slow['sp_max_c'] = int(hi // 10)          # 28.0 -> 28; never round above the limit
+        _ac_slow['fan_hours'] = hours
+        _ac_slow['t'] = time.time()
+    return {
+        'active': None if stat is None else ('cooling' if stat & 1 else 'heating' if stat & 2 else None),
+        'standby': None if stat is None else bool(stat & (1 << 11)),
+        'antifreeze': None if stat is None else bool(stat & (1 << 8)),
+        'alarm_names': [] if not alr else [AC_ALARM_BITS.get(b, f'bit {b}') for b in range(16) if alr & (1 << b)],
+        'sp_min_c': _ac_slow['sp_min_c'], 'sp_max_c': _ac_slow['sp_max_c'], 'fan_hours': _ac_slow['fan_hours'],
+    }
+
 def _ac_status(force=False):
     with _ac_cache['lock']:
         if not force and _ac_cache['data'] and time.time() - _ac_cache['t'] < AC_STATUS_TTL_S:
@@ -6017,17 +6040,11 @@ def _ac_status(force=False):
         try:
             r = _ac_request('GET', 'status').get('RESULT') or {}
             sp, t = r.get('sp'), r.get('t')
-            # Register 0 (read via the panel's rs485/read) = room temp in 0.1 C
-            # (272 when status said 27); fall back to the whole-degree value.
-            try:
-                reg0 = requests.post(f'http://{AC_HOST}/api/v/1/rs485/read', data='{"address":0}', timeout=3,
-                                     headers={'X-UID': AC_UID, 'X-serial': '',
-                                              'Content-Type': 'application/x-www-form-urlencoded'}).json()
-                v0 = (reg0.get('RESULT') or {}).get('value') if reg0.get('success') else None
-                if isinstance(v0, int) and 0 < v0 < 600 and isinstance(t, (int, float)) and abs(v0 / 10 - t) <= 1.5:
-                    t = v0 / 10
-            except Exception:
-                pass
+            # Room temp to 0.1 C from register 0 (T1); fall back to whole degrees.
+            v0 = _ac_reg(0)
+            if isinstance(v0, int) and 0 < v0 < 600 and isinstance(t, (int, float)) and abs(v0 / 10 - t) <= 1.5:
+                t = v0 / 10
+            regs = _ac_regs_extra()
             data = {
                 'available': True,
                 'power': r.get('ps') == 1,
@@ -6035,12 +6052,15 @@ def _ac_status(force=False):
                 'setpoint_c': sp, 'setpoint_f': _c_to_f(sp),
                 'room_c': t, 'room_f': _c_to_f(t),
                 'fan': r.get('fs'),                     # 0 auto, 1-3
-                'swing': bool(r.get('fr')),
                 'night': r.get('nm') == 1,
                 'alarms': r.get('a') or [],
                 'hotel_mode': r.get('hotelMode') == 1,
                 'wifi_signal': r.get('wifi_signal'),
-                'sp_min_c': AC_SP_MIN_C, 'sp_max_c': AC_SP_MAX_C,
+                'sp_min_c': regs['sp_min_c'], 'sp_max_c': regs['sp_max_c'],
+                'active': regs['active'],               # 'cooling' / 'heating' / None (STAT reg 104)
+                'standby': regs['standby'], 'antifreeze': regs['antifreeze'],
+                'alarm_names': regs['alarm_names'],     # decoded ALR_STAT reg 105
+                'fan_hours': regs['fan_hours'],         # ACL_TIM reg 222
             }
         except Exception as e:
             data = {'available': False, 'error': f'AC panel {AC_HOST}: {e}'}
@@ -6063,14 +6083,10 @@ def ac_command():
                 return jsonify({'ok': False, 'error': f'unknown mode {value!r}'}), 400
             _ac_request('POST', f'set/mode/{value}')
         elif action == 'setpoint_c':
-            c = max(AC_SP_MIN_C, min(AC_SP_MAX_C, int(value)))
+            c = max(_ac_slow['sp_min_c'], min(_ac_slow['sp_max_c'], int(value)))   # unit's own limits (regs 202/203)
             _ac_request('POST', 'set/setpoint', {'p_temp': c})
         elif action == 'fan':
             _ac_request('POST', 'set/fan', {'value': max(0, min(3, int(value)))})
-        elif action == 'swing':
-            _ac_request('POST', 'set/feature/rotation', {'value': 7 if value else 0})
-        elif action == 'night':
-            _ac_request('POST', 'set/feature/night', {'value': 1 if value else 0})
         else:
             return jsonify({'ok': False, 'error': f'unknown action {action!r}'}), 400
     except (TypeError, ValueError):
@@ -6078,6 +6094,65 @@ def ac_command():
     except Exception as e:
         return jsonify({'ok': False, 'error': f'AC panel: {e}'}), 502
     return jsonify({'ok': True, 'status': _ac_status(force=True)})
+# AC room-temperature history for the card's sparkline (2026-11-12): one
+# sample a minute (room C, setpoint C, power), last 7 days (was 24 h; raised
+# for the click-to-trend modal), kept in ac_history.json next to this file so
+# a restart doesn't lose it. Saved every 10 samples to go easy on the SD card.
+AC_HIST_EVERY_S = 60
+AC_HIST_KEEP_S = 7 * 24 * 3600
+AC_HIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ac_history.json')
+_ac_hist = {'pts': [], 'lock': threading.Lock()}
+
+def ac_history_loop():
+    try:
+        with open(AC_HIST_PATH) as f:
+            _ac_hist['pts'] = [p for p in json.load(f) if isinstance(p, list) and len(p) == 4]
+    except (OSError, ValueError):
+        pass
+    n = 0
+    while True:
+        try:
+            st = _ac_status()
+            if st.get('available') and st.get('room_c') is not None:
+                now = int(time.time())
+                with _ac_hist['lock']:
+                    _ac_hist['pts'].append([now, st['room_c'], st.get('setpoint_c'), 1 if st.get('power') else 0])
+                    _ac_hist['pts'] = [p for p in _ac_hist['pts'] if p[0] >= now - AC_HIST_KEEP_S]
+                    pts = list(_ac_hist['pts'])
+                n += 1
+                if n % 10 == 0:
+                    tmp = AC_HIST_PATH + '.tmp'
+                    with open(tmp, 'w') as f:
+                        json.dump(pts, f)
+                    os.replace(tmp, AC_HIST_PATH)
+        except Exception as e:
+            print(f'ac_history_loop: {e}', flush=True)
+        time.sleep(AC_HIST_EVERY_S)
+
+@app.route('/api/ac/history')
+def ac_history():
+    try:
+        hours = max(0.1, min(AC_HIST_KEEP_S / 3600, float(request.args.get('hours', 6))))
+    except ValueError:
+        hours = 6
+    cutoff = time.time() - hours * 3600
+    with _ac_hist['lock']:
+        pts = [p for p in _ac_hist['pts'] if p[0] >= cutoff]
+    # Optional ?max=N: thin long ranges (7 d = ~10k points) for the trend modal
+    # by bucket-averaging room temp; setpoint/power taken from the bucket's last point.
+    try:
+        mx = int(request.args.get('max', 0))
+    except ValueError:
+        mx = 0
+    if mx >= 10 and len(pts) > mx:
+        step = len(pts) / mx
+        out = []
+        for i in range(mx):
+            b = pts[int(i * step):int((i + 1) * step)]
+            if b:
+                out.append([b[-1][0], round(sum(p[1] for p in b) / len(b), 2), b[-1][2], b[-1][3]])
+        pts = out
+    return jsonify({'points': pts})
 # ─── end Velair AC siloed addition ──────────────────────────────────────────
 
 if __name__ == '__main__':
@@ -6097,6 +6172,7 @@ if __name__ == '__main__':
         threading.Thread(target=router_autorejoin_loop, daemon=True).start()     # boat router repeater auto-rejoin (siloed)
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
         electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
+        threading.Thread(target=ac_history_loop, daemon=True).start()            # Velair AC sparkline history (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a
