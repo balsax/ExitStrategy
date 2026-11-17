@@ -218,7 +218,7 @@ async def run(print_only):
         prev_t, prev_p = last.get(mac, (0, None))
         if now - prev_t < MIN_INTERVAL_S or (payload == prev_p and now - prev_t < HEARTBEAT_S):
             return
-        last[mac] = (now, payload)
+        last[mac] = (now, dict(payload))  # copy: adding rssi below must not change what the next reading is compared to
         payload['rssi'] = adv.rssi
         if print_only:
             print(cfg['name'], json.dumps(payload))
