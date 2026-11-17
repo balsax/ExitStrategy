@@ -212,6 +212,8 @@ def _cerbo_local_result():
     ttg = f(f'{s12}/TimeToGo', 0)                           # seconds; null while charging
     if ttg is not None:
         result['ttg_12v'] = round(ttg / 60)
+    if 'v_12v' not in result:                               # House SmartShunt Bluetooth fallback (siloed 2026-11-16)
+        _ble_house_shunt(result)                            # House SmartShunt Bluetooth fallback
     # MultiPlus (VE.Bus)
     vb = next((k.split('/')[1] for k in v if k.startswith('vebus/') and k.endswith('/State')), None)
     if vb is not None:
@@ -253,6 +255,7 @@ def _cerbo_local_result():
             result['ttg_mode_12v'] = 'discharge'
     else:
         result.pop('ttg_12v', None)
+    _cerbo_diesel_shunt(v, result)                          # Diesel start SmartShunt (siloed addition 2026-11-16)
     result['source'] = 'cerbo'
     result['source_age_s'] = v.get('age_s')
     return result
@@ -264,6 +267,120 @@ def victron_source():
     st['in_use'] = cerbo_local.snapshot() is not None
     return jsonify(st)
 # ─── end Cerbo local siloed addition ────────────────────────────────────────
+
+# ─── Diesel start SmartShunt (siloed addition 2026-11-16) ───────────────────
+# SmartShunt 500A/50mV on the diesel start battery's negative lug (so it sees
+# the starter motor and the alternator charge), VE.Direct into the Cerbo
+# (ttyS6, instance 278). Publishes the shunt_diesel_* keys the Electrical tab's
+# 12V Diesel node, popup, flow lines, header alerts and electrical_history
+# already read. Found by serial so a VE.Direct port swap (new instance) still
+# works. To back out: delete this block, its call line in _cerbo_local_result,
+# the matching VRM block in get_vrm_data, and the 'batdiesel' CRIT_BATTERIES row.
+DIESEL_SHUNT_SERIAL = 'HQ2549VENMA'
+DIESEL_SHUNT_INSTANCE = 278       # fallback (and the VRM instance)
+DIESEL_SHUNT_ALARMS = {'LowVoltage': 'Low voltage', 'HighVoltage': 'High voltage', 'LowSoc': 'Low SOC',
+                       'LowStarterVoltage': 'Low starter voltage', 'HighStarterVoltage': 'High starter voltage',
+                       'LowTemperature': 'Low temperature', 'HighTemperature': 'High temperature',
+                       'MidVoltage': 'Midpoint deviation'}
+
+def _cerbo_diesel_shunt(v, result):
+    inst = next((k.split('/')[1] for k, x in v.items()
+                 if k.startswith('battery/') and k.endswith('/Serial') and x == DIESEL_SHUNT_SERIAL),
+                str(DIESEL_SHUNT_INSTANCE))
+    s = f'battery/{inst}'
+    def num(path, nd):
+        x = v.get(f'{s}/{path}')
+        return round(float(x), nd) if isinstance(x, (int, float)) else None
+    for key, path, nd in (('voltage', 'Dc/0/Voltage', 2), ('current', 'Dc/0/Current', 1),
+                          ('power', 'Dc/0/Power', 0), ('soc', 'Soc', 1),
+                          ('consumed_ah', 'ConsumedAmphours', 1), ('capacity', 'Capacity', 0)):
+        x = num(path, nd)
+        if x is not None:
+            result[f'shunt_diesel_{key}'] = x
+    ttg = num('TimeToGo', 0)                                # seconds; null while charging / idle
+    if ttg is not None:
+        result['shunt_diesel_ttg'] = round(ttg / 60)
+    if 'shunt_diesel_voltage' in result:
+        alarms = [label for name, label in DIESEL_SHUNT_ALARMS.items()
+                  if isinstance(v.get(f'{s}/Alarms/{name}'), (int, float)) and v[f'{s}/Alarms/{name}'] >= 2]
+        result['shunt_diesel_alarm'] = ', '.join(alarms) if alarms else 'None'
+        result['shunt_diesel_source'] = 'cerbo'
+    else:
+        _ble_diesel_shunt(result)    # no VE.Direct cable to the Cerbo: use the Bluetooth readout
+
+# Bluetooth fallback: victron_ble_bridge.py publishes the shunt's Instant
+# Readout as boat/victron/smartshunt_diesel/* (the cable to the Cerbo is hard
+# to run). Used when the Cerbo doesn't have the shunt, and over VRM's copy
+# (VRM can keep serving a disconnected device's last values).
+DIESEL_SHUNT_BLE_NAME = 'smartshunt_diesel'
+DIESEL_SHUNT_BLE_STALE_S = 120
+
+def _ble_diesel_shunt(result):
+    prefix = f'boat/victron/{DIESEL_SHUNT_BLE_NAME}/'
+    cutoff = time.time() - DIESEL_SHUNT_BLE_STALE_S
+    with mqtt_lock:
+        items = [(t[len(prefix):], dict(e)) for t, e in mqtt_state['topics'].items() if t.startswith(prefix)]
+    vals = {}
+    for field, entry in items:
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
+                continue
+        except (KeyError, ValueError, TypeError):
+            continue
+        vals[field] = entry.get('value')
+    if 'voltage' not in vals:
+        return False
+    for k in [k for k in result if k.startswith('shunt_diesel_') and k != 'shunt_diesel_capacity']:
+        result.pop(k)
+    for field, nd in (('voltage', 2), ('current', 1), ('soc', 1), ('consumed_ah', 1), ('ttg', 0)):
+        try:
+            result[f'shunt_diesel_{field}'] = round(float(vals[field]), nd)
+        except (KeyError, TypeError, ValueError):
+            pass
+    if 'shunt_diesel_current' in result:
+        result['shunt_diesel_power'] = round(result['shunt_diesel_voltage'] * result['shunt_diesel_current'])
+    result['shunt_diesel_alarm'] = str(vals.get('alarm') or 'None')
+    result['shunt_diesel_source'] = 'bluetooth'
+    return True
+# ─── end Diesel start SmartShunt siloed addition ────────────────────────────
+
+# ─── House SmartShunt Bluetooth fallback (siloed addition 2026-11-16) ───────
+# The 12V house SmartShunt 300A (HQ2546RJRF3) is cabled to the Cerbo (battery/
+# 279); victron_ble_bridge.py also reads its Instant Readout as
+# boat/victron/smartshunt_house/*. Fills the v_12v/i_12v/soc_12v/cah_12v/
+# ttg_12v keys when the Cerbo doesn't have the shunt, and on the VRM path only
+# when fresh (over_vrm: VRM can keep a disconnected device's last values).
+# Runs before the 12V time-to-charged logic, which then works the same.
+# To back out: delete this block and its two call lines (Cerbo + VRM paths).
+HOUSE_SHUNT_BLE_NAME = 'smartshunt_house'
+
+def _ble_house_shunt(result, over_vrm=False):
+    prefix = f'boat/victron/{HOUSE_SHUNT_BLE_NAME}/'
+    cutoff = time.time() - DIESEL_SHUNT_BLE_STALE_S
+    with mqtt_lock:
+        items = [(t[len(prefix):], dict(e)) for t, e in mqtt_state['topics'].items() if t.startswith(prefix)]
+    vals = {}
+    for field, entry in items:
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() < cutoff:
+                continue
+        except (KeyError, ValueError, TypeError):
+            continue
+        vals[field] = entry.get('value')
+    if 'voltage' not in vals:
+        return False
+    if over_vrm:
+        for k in ('v_12v', 'i_12v', 'soc_12v', 'cah_12v', 'ttg_12v'):
+            result.pop(k, None)
+    for field, key, nd in (('voltage', 'v_12v', 2), ('current', 'i_12v', 1), ('soc', 'soc_12v', 1),
+                           ('consumed_ah', 'cah_12v', 1), ('ttg', 'ttg_12v', 0)):
+        try:
+            result[key] = round(float(vals[field]), nd)
+        except (KeyError, TypeError, ValueError):
+            pass
+    result['source_12v'] = 'bluetooth'
+    return True
+# ─── end House SmartShunt Bluetooth fallback siloed addition ────────────────
 
 def get_vrm_data(force_cloud=False):
     if not force_cloud:                                    # Cerbo local (siloed addition 2026-11-12)
@@ -366,6 +483,7 @@ def get_vrm_data(force_cloud=False):
             result['time_to_go'] = round(ah_left / abs(cur48) * 60)
             result['ttg_mode'] = 'charge' if charging48 else 'discharge'
     # ─── end 48V time to go siloed addition ──────────────────────────────────
+    _ble_house_shunt(result, over_vrm=True)   # House SmartShunt Bluetooth fallback (siloed 2026-11-16)
     # ─── 12V time to charged (siloed addition) ───────────────────────────────
     # The 12V SmartShunt (instance 279) reports real CE and TTG, but TTG is 0 h
     # while charging. Keep its TTG when discharging (it counts to the shunt's
@@ -392,6 +510,23 @@ def get_vrm_data(force_cloud=False):
     else:
         result.pop('ttg_12v', None)
     # ─── end 12V time to charged siloed addition ─────────────────────────────
+    # ─── Diesel start SmartShunt, VRM fallback (siloed addition 2026-11-16) ──
+    # Same shunt_diesel_* keys as _cerbo_diesel_shunt, from VRM's generic
+    # Battery Monitor codes for instance DIESEL_SHUNT_INSTANCE (TTG in hours).
+    _dsl = {'V': ('voltage', 2), 'I': ('current', 1), 'SOC': ('soc', 1), 'CE': ('consumed_ah', 1),
+            'TTG': ('ttg', 0), 'ca': ('capacity', 0)}
+    for r in data.get('records', []):
+        if r.get('instance') == DIESEL_SHUNT_INSTANCE and r.get('Device') == 'Battery Monitor' and r.get('code') in _dsl:
+            key, nd = _dsl[r['code']]
+            try:
+                val = float(r.get('rawValue'))
+            except (TypeError, ValueError):
+                continue
+            result[f'shunt_diesel_{key}'] = round(val * 60) if key == 'ttg' else round(val, nd)
+    if isinstance(result.get('shunt_diesel_voltage'), float) and isinstance(result.get('shunt_diesel_current'), float):
+        result['shunt_diesel_power'] = round(result['shunt_diesel_voltage'] * result['shunt_diesel_current'])
+    _ble_diesel_shunt(result)   # fresh Bluetooth readout wins over VRM's (possibly stale) copy
+    # ─── end Diesel start SmartShunt VRM fallback ────────────────────────────
     # 'ms' (mapped to mp_state above) is the Cerbo GX's serial number, not the
     # MultiPlus -- the VE.Bus state (Bulk / Absorption / Float / Inverting ...) is 'S'.
     # MultiPlus DC side on its own (the battery's current is the net of every
@@ -3599,6 +3734,7 @@ CRIT_BATTERY_MONITOR_INTERVAL_S = 60
 CRIT_BATTERIES = [
     # key, label, crit %, source, soc field, alarm field
     ('bat12',     '12V house battery',    30.0, 'vrm', 'soc_12v',            None),  # assumed AGM
+    ('batdiesel', 'Diesel start battery', 30.0, 'vrm', 'shunt_diesel_soc', 'shunt_diesel_alarm'),  # SmartShunt 500A (siloed 2026-11-16)
     # Diesel start / bow thruster: add rows here once their SmartShunts are on
     # the Cerbo (source 'vrm' with their keys). The simulated rows were removed
     # 2026-11-12 along with victron_simulator.py's /api/victron/sim.

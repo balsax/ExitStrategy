@@ -3602,6 +3602,19 @@ async function adamAlternatorOverride(d) {
 let victronSimData = {};
 let victronSimFlowSig = '';
 
+// ─── Diesel start SmartShunt (siloed addition 2026-11-16) ───────────────────
+// The diesel shunt's shunt_diesel_* keys now come from /api/victron (Cerbo LAN /
+// VRM), but the Electrical node + flow lines (renderVictronSim, vsimFlags) only
+// read victronSimData. Copy them across on every /api/victron fetch; the one
+// line in fetchVictronSim keeps them when the Bluetooth/ADAM data refreshes.
+// To back out: delete this block, its call in fetchVictron and that line.
+function dieselShuntSync(src) {
+  for (const k of Object.keys(victronSimData)) if (k.startsWith('shunt_diesel_') && !(k in src)) delete victronSimData[k];
+  for (const k of Object.keys(src)) if (k.startsWith('shunt_diesel_')) victronSimData[k] = src[k];
+  try { renderVictronSim(); } catch (e) { /* Electrical tab not built yet */ }
+}
+// ─── end Diesel start SmartShunt siloed addition ────────────────────────────
+
 async function fetchVictronSim() {
   let d = {};   // (the victron_simulator.py feed was removed 2026-11-12; real sources only)
   try {
@@ -3611,6 +3624,7 @@ async function fetchVictronSim() {
   // '--' means "not applicable" (e.g. time-to-go while charging) -- show as blank
   for (const k of Object.keys(d)) if (d[k] === '--') delete d[k];
   if (d.engine_running !== undefined) d.engine_state = d.engine_running ? 'Running' : 'Off';
+  for (const k of Object.keys(victronSimData)) if (k.startsWith('shunt_diesel_')) d[k] = victronSimData[k]; // Diesel start SmartShunt (siloed 2026-11-16)
   for (const k of Object.keys(victronSimData)) if (!(k in d)) delete victronData[k];
   victronSimData = d;
   Object.assign(victronData, d);
@@ -4262,6 +4276,18 @@ Object.entries(ELEC_HISTORY).forEach(([node, list]) => {
   NODE_DEFS[node].history = 'elec';
   NODE_DEFS[node].chartSeries = list.map(([code, label, unit, color]) => ({ code, label, unit, color }));
 });
+// ─── House SmartShunt history from Bluetooth (siloed addition 2026-11-16) ───
+// The 12V house shunt is going Bluetooth-only (Cerbo VE.Direct ports go to
+// solar / diesel / thruster), so VRM stops recording it. electrical_history.py
+// records the bridge's boat/victron/smartshunt_house/* (30 days) -- chart that.
+// To back out: delete this block (the popup goes back to VRM SOC@279 etc.).
+NODE_DEFS.bat12h.history = 'elec';
+NODE_DEFS.bat12h.chartSeries = [
+  { code: 'smartshunt_house_soc',     label: 'SOC',     unit: '%', color: '#2dd4bf' },
+  { code: 'smartshunt_house_voltage', label: 'Voltage', unit: 'V', color: '#4a9fd4' },
+  { code: 'smartshunt_house_current', label: 'Current', unit: 'A', color: '#3db87a' },
+];
+// ─── end House SmartShunt history siloed addition ───────────────────────────
 
 // Energy balance. Net = what every battery is actually gaining (+) or losing (-),
 // straight from the battery monitors. In/Out = sources vs loads; the gap between
@@ -5942,6 +5968,7 @@ async function fetchVictron() {
     const res = await fetch('/api/victron');
     const d = await res.json();
     victronData = d;
+    dieselShuntSync(d); // Diesel start SmartShunt (siloed 2026-11-16) -- before the merge below so fresh values win
     Object.assign(victronData, victronSimData); // Victron sim extras (siloed) -- keep sim keys across VRM refreshes
 
     const shoreOn = (d.grid || 0) > 10;

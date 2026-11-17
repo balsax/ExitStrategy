@@ -157,6 +157,22 @@ def _house_load_from_shunts(snap, vrm):
 # ─── end 12V house load siloed addition ─────────────────────────────────────
 
 
+# ─── Diesel start SmartShunt siloed addition (2026-11-16) ───────────────────
+# The diesel shunt comes through get_vrm_data() (Cerbo LAN / VRM) as
+# shunt_diesel_*, not as boat/victron/* MQTT topics, so copy it into the
+# snapshot for the popup history and redo the diesel DC load (_snapshot only
+# derives load_12s_w from MQTT keys). To back out: delete this block + its call.
+def _diesel_shunt_from_vrm(snap, vrm):
+    for k in ('voltage', 'current', 'soc', 'power', 'consumed_ah'):
+        val = vrm.get(f'shunt_diesel_{k}')
+        if isinstance(val, (int, float)) and f'shunt_diesel_{k}' not in snap:
+            snap[f'shunt_diesel_{k}'] = float(val)
+    i, v = snap.get('shunt_diesel_current'), snap.get('shunt_diesel_voltage')
+    if isinstance(i, float) and isinstance(v, float):
+        snap['load_12s_w'] = max(0.0, -i) * v
+# ─── end Diesel start SmartShunt siloed addition ────────────────────────────
+
+
 def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
     _init()
     last_rollup = 0
@@ -169,6 +185,7 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
             if vrm_fn:  # Energy balance needs the real VRM side (48V bank, shore, AC loads, 12V house)
                 try:
                     vrm = vrm_fn() or {}
+                    _diesel_shunt_from_vrm(snap, vrm)   # Diesel start SmartShunt (siloed 2026-11-16)
                     _house_load_from_shunts(snap, vrm)  # 12V house load from shunts (siloed)
                     snap.update(_energy_balance(snap, vrm))
                 except Exception as e:

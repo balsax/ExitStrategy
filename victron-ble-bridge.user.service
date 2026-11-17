@@ -1,5 +1,5 @@
 [Unit]
-Description=Victron Bluetooth Instant Readout -> MQTT (Orion-Tr Smart)
+Description=Victron Bluetooth Instant Readout -> MQTT (Orion-Tr Smart + diesel SmartShunt)
 After=network-online.target
 
 [Service]

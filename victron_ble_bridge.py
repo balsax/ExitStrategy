@@ -114,6 +114,49 @@ def decode_dcdc(decrypted):
     return out
 
 
+# ─── SmartShunt / battery monitor siloed addition (2026-11-16) ──────────────
+# The diesel start SmartShunt 500A (config name smartshunt_diesel) is read over
+# Bluetooth because its VE.Direct cable to the Cerbo is hard to run. Publishes
+# boat/victron/<name>/voltage|current|soc|consumed_ah|ttg|alarm|rssi; the
+# dashboard maps smartshunt_diesel_* to its shunt_diesel_* keys whenever the
+# Cerbo doesn't have the shunt. Decoded by hand like decode_dcdc: victron-ble's
+# AlarmReason(...) raises when two alarm bits are set at once.
+# To back out: delete this block and the two "battery monitor" lines in run().
+SHUNT_ALARM_BITS = [
+    (0x0001, 'Low voltage'), (0x0002, 'High voltage'), (0x0004, 'Low SOC'),
+    (0x0008, 'Low starter voltage'), (0x0010, 'High starter voltage'),
+    (0x0020, 'Low temperature'), (0x0040, 'High temperature'), (0x0080, 'Midpoint deviation'),
+    (0x0100, 'Overload'), (0x0200, 'DC ripple'), (0x1000, 'Short circuit'), (0x2000, 'BMS lockout'),
+]
+
+
+def decode_battery_monitor(decrypted):
+    r = BitReader(decrypted)
+    ttg = r.read_unsigned_int(16)          # minutes
+    volts = r.read_signed_int(16)          # 10 mV
+    alarm = r.read_unsigned_int(16)
+    r.read_unsigned_int(16)                # aux value (not wired on this shunt)
+    r.read_unsigned_int(2)                 # aux mode
+    amps = r.read_signed_int(22)           # mA
+    consumed = r.read_unsigned_int(20)     # 0.1 Ah, reported as negative
+    soc = r.read_unsigned_int(10)          # 0.1 %
+    out = {}
+    if volts != 0x7FFF:
+        out['voltage'] = round(volts / 100, 2)
+    if amps not in (0x1FFFFF, -0x200000):
+        out['current'] = round(amps / 1000, 2)
+    if soc != 0x3FF:
+        out['soc'] = round(soc / 10, 1)
+    if consumed != 0xFFFFF:
+        out['consumed_ah'] = round(-consumed / 10, 1)
+    if ttg != 0xFFFF:
+        out['ttg'] = ttg
+    alarms = [label for bit, label in SHUNT_ALARM_BITS if alarm & bit]
+    out['alarm'] = ', '.join(alarms) if alarms else 'None'
+    return out
+# ─── end SmartShunt / battery monitor siloed addition ───────────────────────
+
+
 async def discover(seconds):
     seen = {}
 
@@ -146,6 +189,7 @@ async def run(print_only):
 
     parsers = {}
     last = {}  # mac -> (time, payload)
+    decode_errors_logged = set()
 
     def cb(device, adv):
         mac = device.address.lower()
@@ -156,14 +200,19 @@ async def run(print_only):
         try:
             if mac not in parsers:
                 klass = detect_device_type(data)
-                if klass is None or klass.__name__ != 'DcDcConverter':
+                if klass is None or klass.__name__ not in ('DcDcConverter', 'BatteryMonitor'):  # + battery monitor (siloed 2026-11-16)
                     print(f"{cfg['name']}: not a DC-DC converter ({klass}), skipping")
                     devices.pop(mac)
                     return
                 parsers[mac] = klass(cfg['key'])
-            payload = decode_dcdc(parsers[mac].decrypt(data))
+            if type(parsers[mac]).__name__ == 'BatteryMonitor':  # battery monitor (siloed 2026-11-16)
+                payload = decode_battery_monitor(parsers[mac].decrypt(data))
+            else:
+                payload = decode_dcdc(parsers[mac].decrypt(data))
         except Exception as e:  # wrong key, truncated packet, ...
-            print(f"{cfg['name']}: could not decode ({e})")
+            if cfg['name'] not in decode_errors_logged:  # log once per device, not per packet (2026-11-16)
+                decode_errors_logged.add(cfg['name'])
+                print(f"{cfg['name']}: could not decode ({e}) -- check its key in {CONFIG_PATH}; further errors suppressed")
             return
         now = time.time()
         prev_t, prev_p = last.get(mac, (0, None))
