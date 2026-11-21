@@ -256,6 +256,7 @@ def _cerbo_local_result():
     else:
         result.pop('ttg_12v', None)
     _cerbo_diesel_shunt(v, result)                          # Diesel start SmartShunt (siloed addition 2026-11-16)
+    _cerbo_mppt(v, result)                                  # SmartSolar MPPT 150/35 (siloed addition 2026-11-18)
     result['source'] = 'cerbo'
     result['source_age_s'] = v.get('age_s')
     return result
@@ -343,6 +344,74 @@ def _ble_diesel_shunt(result):
     result['shunt_diesel_source'] = 'bluetooth'
     return True
 # ─── end Diesel start SmartShunt siloed addition ────────────────────────────
+
+# ─── SmartSolar MPPT 150/35 (siloed addition 2026-11-18) ────────────────────
+# Arch solar (1200 W) charger, VE.Direct into the Cerbo (ttyS7, instance 279),
+# charging the 48V bank under DVCC. Publishes the mppt_* keys the Electrical
+# tab's "Solar Arch" + "MPPT 150/35" nodes/popups, the 48V sign guard and
+# electrical_history's energy balance already read. Found by serial so a
+# VE.Direct port swap still works. To back out: delete this block, its call
+# line in _cerbo_local_result, and the matching VRM block in get_vrm_data.
+MPPT_SERIAL = 'HQ2443PQEX9'
+MPPT_INSTANCE = 279               # fallback (and the VRM instance)
+MPPT_STATES = {0: 'Off', 2: 'Fault', 3: 'Bulk', 4: 'Absorption', 5: 'Float', 6: 'Storage',
+               7: 'Equalize', 245: 'Starting up', 247: 'Auto equalize', 252: 'External control'}
+MPPT_OPMODES = {0: 'Off', 1: 'Limited', 2: 'MPPT'}   # MppOperationMode; shown while DVCC controls it (252)
+MPPT_ERRORS = {0: 'None', 2: 'Battery voltage too high', 17: 'Charger temperature too high',
+               18: 'Charger over-current', 19: 'Charger current reversed', 20: 'Bulk time limit exceeded',
+               21: 'Current sensor issue', 26: 'Terminals overheated', 28: 'Power stage issue',
+               33: 'PV voltage too high', 34: 'PV current too high', 38: 'Input shutdown (battery voltage)',
+               39: 'Input shutdown (current while off)', 65: 'Lost communication', 66: 'Synchronised charging config',
+               67: 'BMS connection lost', 68: 'Network misconfigured', 114: 'CPU temperature too high',
+               116: 'Calibration data lost', 119: 'Settings data lost'}
+
+def _cerbo_mppt(v, result):
+    inst = next((k.split('/')[1] for k, x in v.items()
+                 if k.startswith('solarcharger/') and k.endswith('/Serial') and x == MPPT_SERIAL),
+                str(MPPT_INSTANCE))
+    s = f'solarcharger/{inst}'
+    def num(path, nd):
+        x = v.get(f'{s}/{path}')
+        return round(float(x), nd) if isinstance(x, (int, float)) else None
+    for key, path, nd in (('pv_voltage', 'Pv/V', 1), ('pv_power', 'Yield/Power', 0),
+                          ('bat_voltage', 'Dc/0/Voltage', 2), ('bat_current', 'Dc/0/Current', 1),
+                          ('yield_today', 'History/Daily/0/Yield', 2),
+                          ('max_power_today', 'History/Daily/0/MaxPower', 0),
+                          ('yield_total', 'Yield/System', 1)):
+        x = num(path, nd)
+        if x is not None:
+            result[f'mppt_{key}'] = x
+    if 'mppt_bat_voltage' not in result:
+        return
+    pv_v, pv_w = result.get('mppt_pv_voltage'), result.get('mppt_pv_power')
+    if pv_v and pv_w is not None and pv_v > 5:
+        result['mppt_pv_current'] = round(pv_w / pv_v, 2)
+    st = num('State', 0)
+    if st is not None:
+        st = int(st)
+        mode = num('MppOperationMode', 0)
+        result['mppt_state'] = (MPPT_OPMODES.get(int(mode), 'External control')
+                                if st == 252 and mode is not None else MPPT_STATES.get(st, f'State {st}'))
+    err = num('ErrorCode', 0)
+    if err is not None:
+        result['mppt_error'] = MPPT_ERRORS.get(int(err), f'Error #{int(err)}')
+    _mppt_limited_flag(num, result)                         # Solar limited indicator (siloed addition 2026-11-19)
+    result['mppt_source'] = 'cerbo'
+# ─── end SmartSolar MPPT 150/35 siloed addition ─────────────────────────────
+
+# ─── Solar limited indicator (siloed addition 2026-11-19) ───────────────────
+# MppOperationMode 1 = the MPPT is holding back below what the panels could
+# give (battery nearly full / BMS CCL, ESS feed-in 0, loads below PV). That is
+# spare solar that a load (AC, watermaker) could use. mppt_limited is only set
+# with PV voltage clearly above the battery (daylight), so night = False.
+# Cerbo path only; VRM has no MppOperationMode. The header chip in index.html
+# reads it. To back out: delete this block and its call line in _cerbo_mppt.
+def _mppt_limited_flag(num, result):
+    mode, pv_v, bat_v = num('MppOperationMode', 0), result.get('mppt_pv_voltage'), result.get('mppt_bat_voltage')
+    if mode is None or pv_v is None or bat_v is None:
+        return
+    result['mppt_limited'] = bool(int(mode) == 1 and pv_v > bat_v + 5)
+# ─── end Solar limited indicator siloed addition ────────────────────────────
 
 # ─── House SmartShunt Bluetooth fallback (siloed addition 2026-11-16) ───────
 # The 12V house SmartShunt 300A (HQ2546RJRF3) is cabled to the Cerbo (battery/
@@ -527,6 +596,28 @@ def get_vrm_data(force_cloud=False):
         result['shunt_diesel_power'] = round(result['shunt_diesel_voltage'] * result['shunt_diesel_current'])
     _ble_diesel_shunt(result)   # fresh Bluetooth readout wins over VRM's (possibly stale) copy
     # ─── end Diesel start SmartShunt VRM fallback ────────────────────────────
+    # ─── SmartSolar MPPT 150/35, VRM fallback (siloed addition 2026-11-18) ──
+    # Same mppt_* keys as _cerbo_mppt, from VRM's Solar Charger codes.
+    _mp = {'PVV': ('pv_voltage', 1), 'PVP': ('pv_power', 0), 'ScV': ('bat_voltage', 2), 'ScI': ('bat_current', 1),
+           'YT': ('yield_today', 2), 'MCPT': ('max_power_today', 0)}
+    for r in data.get('records', []):
+        if r.get('Device') != 'Solar Charger' or r.get('instance') not in (None, MPPT_INSTANCE):
+            continue
+        c = r.get('code')
+        if c in _mp:
+            key, nd = _mp[c]
+            try:
+                result[f'mppt_{key}'] = round(float(r.get('rawValue')), nd)
+            except (TypeError, ValueError):
+                pass
+        elif c == 'ScS':
+            result['mppt_state'] = r.get('formattedValue', '')
+        elif c == 'ScERR':
+            e = r.get('formattedValue', '')
+            result['mppt_error'] = 'None' if e in ('', 'No error') else e
+    if 'mppt_bat_voltage' in result:
+        result['mppt_source'] = 'vrm'
+    # ─── end SmartSolar MPPT 150/35 VRM fallback ─────────────────────────────
     # 'ms' (mapped to mp_state above) is the Cerbo GX's serial number, not the
     # MultiPlus -- the VE.Bus state (Bulk / Absorption / Float / Inverting ...) is 'S'.
     # MultiPlus DC side on its own (the battery's current is the net of every
@@ -3772,6 +3863,64 @@ def crit_battery_monitor_loop():
             print(f'crit_battery_monitor_loop: {e}', flush=True)  # never let one bad reading kill the thread
 # ─── end Critical battery push alerts siloed addition ───────────────────────
 
+# ─── Orion charger error push alerts (siloed addition 2026-11-17) ───────────
+# victron_ble_bridge.py publishes each Orion-Tr Smart's Bluetooth readout as
+# boat/victron/<name>/charger_error ("None" or the error name). Push when one
+# reports an error on two checks in a row (a single bad packet won't trip it),
+# repeat every TANK_BATTERY_NOTIFY_REPEAT_S while it lasts, clear when it's
+# gone. Stale Bluetooth (no reading for ORION_ERROR_STALE_S) leaves the state
+# alone. The header chip is the matching block in static-src/index.html.
+# To back out: delete this block and its thread line at startup.
+ORION_ERROR_MONITOR_INTERVAL_S = 30
+ORION_ERROR_STALE_S = 120
+ORION_ERROR_DEVICES = [('orion_house', 'Orion house (48|12)'), ('orion_thruster', 'Orion thruster/diesel (48|12)')]
+_orion_error_state = {n: {'seen': 0, 'notified_at': 0} for n, _ in ORION_ERROR_DEVICES}
+
+def _orion_ble_fields(name):
+    prefix = f'boat/victron/{name}/'
+    cutoff = time.time() - ORION_ERROR_STALE_S
+    with mqtt_lock:
+        items = [(t[len(prefix):], dict(e)) for t, e in mqtt_state['topics'].items() if t.startswith(prefix)]
+    vals = {}
+    for field, entry in items:
+        try:
+            if datetime.fromisoformat(entry['time']).timestamp() >= cutoff:
+                vals[field] = entry.get('value')
+        except (KeyError, ValueError, TypeError):
+            pass
+    return vals
+
+def orion_error_monitor_loop():
+    while True:
+        time.sleep(ORION_ERROR_MONITOR_INTERVAL_S)
+        for name, label in ORION_ERROR_DEVICES:
+            try:
+                vals = _orion_ble_fields(name)
+                err = vals.get('charger_error')
+                if err is None:
+                    continue                                # no fresh Bluetooth reading: leave as is
+                st = _orion_error_state[name]
+                if err == 'None':
+                    st['seen'], st['notified_at'] = 0, 0
+                    alert_clear(f'orion_err_{name}')
+                    continue
+                st['seen'] += 1
+                now = time.time()
+                if st['seen'] < 2 or now - st['notified_at'] <= TANK_BATTERY_NOTIFY_REPEAT_S:
+                    continue
+                msg = f'⚡ {label} reports a charger error: {err}.'
+                extra = [f"state {vals['state']}" if vals.get('state') else None,
+                         f"in {vals['input_voltage']} V" if vals.get('input_voltage') is not None else None,
+                         f"out {vals['output_voltage']} V" if vals.get('output_voltage') is not None else None]
+                extra = [x for x in extra if x]
+                if extra:
+                    msg += f" ({', '.join(extra)})"
+                send_ntfy(f'{label} error', msg, tags='warning', alert_key=f'orion_err_{name}')
+                st['notified_at'] = now
+            except Exception as e:
+                print(f'orion_error_monitor_loop: {e}', flush=True)  # never let one bad reading kill the thread
+# ─── end Orion charger error push alerts siloed addition ────────────────────
+
 # ─── Bluetooth device list (Diagnostics > Server Health) siloed addition ───
 # Paired/connected devices as bluetoothd knows them, via `bluetoothctl`
 # (runs fine as this user, no sudo). Devices that were only seen in a scan
@@ -6157,6 +6306,412 @@ def ac_history():
     return jsonify({'points': pts})
 # ─── end Velair AC siloed addition ──────────────────────────────────────────
 
+# ─── Solar AC auto-run (siloed addition 2026-11-19) ─────────────────────────
+# Turns the Velair AC on when the MPPT is throttled (mppt_limited: spare solar)
+# and back off when solar can't keep up. Runs server-side every 30 s, so no
+# browser needs to be open. Settings + state in solar_ac_auto.json next to this
+# file (gitignored; dev and prod each keep their own, off by default -- enable
+# it in only ONE of them or both will drive the AC).
+# Rules:
+#  ON  when: enabled, AC off, not paused, cool-down over, SOC >= min_soc and
+#            mppt_limited for on_delay_min in a row. Optionally sets Cool and a
+#            set temperature.
+#  OFF only an AC this loop turned on, after min_on_min, when SOC < off_soc or
+#            the 48V battery discharges more than off_discharge_w for
+#            off_delay_min (solar no longer covers it), or Cerbo data has been
+#            missing 10 min.
+#  Someone turns the AC off while auto had it on -> paused until midnight.
+#  Unticking "enabled" while it runs leaves the AC as it is.
+# To back out: delete this block, its thread line under __main__, the
+# "Solar AC auto-run" blocks in static-src/index.html and the .gitignore line.
+# Equipment automation (this block + Shore charge target) runs in ONE dashboard
+# only: production (DEBUG_MODE False). The dev copy shows a note and refuses
+# changes, so the two never fight over the AC or the Cerbo.
+AUTOMATION_HERE = False
+AUTOMATION_ELSEWHERE_MSG = 'Runs on the production dashboard: change it there'
+SOLAR_AC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'solar_ac_auto.json')
+SOLAR_AC_EVERY_S = 30
+SOLAR_AC_DEFAULTS = {'enabled': False, 'min_soc': 97, 'on_delay_min': 5, 'set_cool': True, 'setpoint_f': None,
+                     'off_soc': 95, 'off_discharge_w': 400, 'off_delay_min': 5,
+                     'min_on_min': 15, 'min_off_min': 15}
+SOLAR_AC_LIMITS = {'min_soc': (50, 100), 'on_delay_min': (1, 60), 'off_soc': (50, 100), 'off_discharge_w': (100, 3000),
+                   'off_delay_min': (1, 60), 'min_on_min': (0, 240), 'min_off_min': (0, 240)}
+_solar_ac = {'lock': threading.Lock(), 'cfg': dict(SOLAR_AC_DEFAULTS), 'auto_on_since': None, 'paused_until': None,
+             'last_off': 0.0, 'limited_since': None, 'discharge_since': None, 'nodata_since': None,
+             'status': 'Starting…', 'events': []}
+
+def _solar_ac_save():
+    st = _solar_ac
+    data = {'cfg': st['cfg'], 'auto_on_since': st['auto_on_since'], 'paused_until': st['paused_until'],
+            'last_off': st['last_off'], 'events': st['events'][-30:]}
+    tmp = SOLAR_AC_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(data, f)
+    os.replace(tmp, SOLAR_AC_PATH)
+
+def _solar_ac_load():
+    try:
+        with open(SOLAR_AC_PATH) as f:
+            d = json.load(f)
+        _solar_ac['cfg'].update({k: v for k, v in (d.get('cfg') or {}).items() if k in SOLAR_AC_DEFAULTS})
+        for k in ('auto_on_since', 'paused_until', 'last_off', 'events'):
+            if d.get(k) is not None:
+                _solar_ac[k] = d[k]
+    except (OSError, ValueError):
+        pass
+
+def _solar_ac_event(msg):
+    _solar_ac['events'].append([int(time.time()), msg])
+    _solar_ac['events'] = _solar_ac['events'][-30:]
+    print(f'solar_ac: {msg}', flush=True)
+
+def _solar_ac_step():
+    st, cfg, now = _solar_ac, _solar_ac['cfg'], time.time()
+    v = None
+    try:
+        v = _cerbo_local_result()
+    except Exception as e:
+        print(f'solar_ac: cerbo read failed: {e}', flush=True)
+    ac = _ac_status()
+    limited = (v or {}).get('mppt_limited')
+    soc, batt_w = (v or {}).get('soc'), (v or {}).get('power')
+    have = limited is not None and soc is not None and ac.get('available')
+    st['nodata_since'] = None if have else (st['nodata_since'] or now)
+    if st['paused_until'] and now >= st['paused_until']:
+        st['paused_until'] = None
+    mins = lambda t: (now - t) / 60
+
+    if st['auto_on_since']:                                   # we're running it
+        if not have:
+            if mins(st['nodata_since']) >= 10:
+                if ac.get('available'):
+                    _ac_request('POST', 'power/off')
+                    _solar_ac_event('Turned AC off: no Cerbo data for 10 min')
+                else:
+                    _solar_ac_event('Gave up control: AC panel and/or Cerbo unreachable for 10 min')
+                st.update(auto_on_since=None, last_off=now, discharge_since=None)
+            else:
+                st['status'] = 'Running on solar · waiting for data'
+            return
+        if not ac.get('power'):
+            end = datetime.fromtimestamp(now).replace(hour=23, minute=59, second=59).timestamp()
+            st.update(auto_on_since=None, paused_until=end, last_off=now, discharge_since=None)
+            _solar_ac_event('AC was turned off by hand: auto paused until midnight')
+            return
+        grid_w = (v or {}).get('grid')
+        # Deficit = battery discharge + shore import above the ESS 50 W grid setpoint. Shore counts
+        # because in 'Keep batteries charged' (shore charge target) the battery never discharges.
+        deficit = max(0.0, -(batt_w or 0)) + max(0.0, (grid_w or 0) - 50)
+        draining = (batt_w is not None or grid_w is not None) and deficit > cfg['off_discharge_w']
+        st['discharge_since'] = (st['discharge_since'] or now) if draining else None
+        reason = None
+        if soc < cfg['off_soc']:
+            reason = f'SOC {soc:.0f}% below {cfg["off_soc"]}%'
+        elif st['discharge_since'] and mins(st['discharge_since']) >= cfg['off_delay_min']:
+            reason = f'solar short by {deficit:.0f} W (battery + shore) for {cfg["off_delay_min"]} min'
+        if reason and mins(st['auto_on_since']) >= cfg['min_on_min']:
+            _ac_request('POST', 'power/off')
+            st.update(auto_on_since=None, last_off=now, discharge_since=None, limited_since=None)
+            _solar_ac_event(f'Turned AC off: {reason}')
+            _ac_status(force=True)
+            return
+        since = datetime.fromtimestamp(st['auto_on_since']).strftime('%H:%M')
+        st['status'] = (f'Running on solar since {since}' +
+                        (f' · will stop ({reason}) after min run time' if reason else
+                         f' · battery {batt_w:+.0f} W' if batt_w is not None else ''))
+        return
+
+    st['discharge_since'] = None
+    if not cfg['enabled']:
+        st.update(status='Off', limited_since=None)
+        return
+    if not have:
+        st.update(status='Waiting for Cerbo / AC data', limited_since=None)
+        return
+    if st['paused_until']:
+        st.update(status='Paused until midnight (AC was turned off by hand)', limited_since=None)
+        return
+    if ac.get('power'):
+        st.update(status='AC already on (not started by auto)', limited_since=None)
+        return
+    if st['last_off'] and mins(st['last_off']) < cfg['min_off_min']:
+        st.update(status=f'Cool-down: can restart in {cfg["min_off_min"] - mins(st["last_off"]):.0f} min',
+                  limited_since=None)
+        return
+    if not (limited and soc >= cfg['min_soc']):
+        st.update(status='Waiting for spare solar' + ('' if limited else ' (not limited)') +
+                  (f' · SOC {soc:.0f}% < {cfg["min_soc"]}%' if soc < cfg['min_soc'] else ''), limited_since=None)
+        return
+    st['limited_since'] = st['limited_since'] or now
+    if mins(st['limited_since']) < cfg['on_delay_min']:
+        st['status'] = f'Spare solar for {mins(st["limited_since"]):.0f}/{cfg["on_delay_min"]} min…'
+        return
+    _ac_request('POST', 'power/on')
+    extra = ''
+    if cfg['set_cool']:
+        _ac_request('POST', 'set/mode/cooling'); extra += ', Cool'
+    if cfg['setpoint_f'] is not None:
+        c = max(_ac_slow['sp_min_c'], min(_ac_slow['sp_max_c'], round((cfg['setpoint_f'] - 32) * 5 / 9)))
+        _ac_request('POST', 'set/setpoint', {'p_temp': c}); extra += f', {round(c * 9 / 5 + 32)}°F'
+    st.update(auto_on_since=now, limited_since=None)
+    _solar_ac_event(f'Turned AC on{extra}: solar limited {cfg["on_delay_min"]} min, SOC {soc:.0f}%')
+    _ac_status(force=True)
+    st['status'] = 'Running on solar since ' + datetime.now().strftime('%H:%M')
+
+def solar_ac_loop():
+    _solar_ac_load()
+    while True:
+        with _solar_ac['lock']:
+            try:
+                _solar_ac_step()
+            except Exception as e:
+                _solar_ac['status'] = f'Error: {e}'
+                print(f'solar_ac: {e}', flush=True)
+            try:
+                _solar_ac_save()
+            except OSError as e:
+                print(f'solar_ac save: {e}', flush=True)
+        time.sleep(SOLAR_AC_EVERY_S)
+
+def _solar_ac_view():
+    st = _solar_ac
+    return {'config': st['cfg'], 'status': st['status'] if AUTOMATION_HERE else AUTOMATION_ELSEWHERE_MSG,
+            'automation_here': AUTOMATION_HERE, 'running': bool(st['auto_on_since']),
+            'auto_on_since': st['auto_on_since'], 'paused_until': st['paused_until'],
+            'events': list(reversed(st['events'][-10:]))}
+
+@app.route('/api/solar_ac')
+def solar_ac_get():
+    with _solar_ac['lock']:
+        return jsonify(_solar_ac_view())
+
+@app.route('/api/solar_ac/config', methods=['POST'])
+def solar_ac_config():
+    if not AUTOMATION_HERE:
+        return jsonify({'ok': False, 'error': AUTOMATION_ELSEWHERE_MSG}), 409
+    body = request.get_json(silent=True) or {}
+    with _solar_ac['lock']:
+        cfg = dict(_solar_ac['cfg'])
+        try:
+            for k in ('enabled', 'set_cool'):
+                if k in body:
+                    cfg[k] = bool(body[k])
+            for k, (lo, hi) in SOLAR_AC_LIMITS.items():
+                if k in body:
+                    cfg[k] = max(lo, min(hi, int(body[k])))
+            if 'setpoint_f' in body:
+                cfg['setpoint_f'] = None if body['setpoint_f'] in (None, '') else max(60, min(82, int(body['setpoint_f'])))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'bad value'}), 400
+        if cfg['off_soc'] >= cfg['min_soc']:
+            return jsonify({'ok': False, 'error': 'Stop-below SOC must be lower than start-at SOC'}), 400
+        if 'resume' in body:
+            _solar_ac['paused_until'] = None
+        changed = {k: cfg[k] for k in cfg if cfg[k] != _solar_ac['cfg'].get(k)}
+        _solar_ac['cfg'] = cfg
+        if changed:
+            _solar_ac_event('Settings changed: ' + ', '.join(f'{k}={v}' for k, v in changed.items()))
+        try:
+            _solar_ac_save()
+        except OSError:
+            pass
+        return jsonify({'ok': True, **_solar_ac_view()})
+# ─── end Solar AC auto-run siloed addition ──────────────────────────────────
+
+# ─── Shore charge target (siloed addition 2026-11-20) ───────────────────────
+# Picks how ESS uses shore power by writing two Cerbo settings over its LAN
+# MQTT (W/ topics): Settings/CGwacs/BatteryLife/State and MinimumSocLimit.
+#  'normal' : Optimized w/o BatteryLife (State 10), Minimum SOC = normal_floor.
+#             Solar first; the battery may drop to the floor overnight, then
+#             shore covers loads (ESS recharges from shore ~5% below it).
+#  'charge' : Keep batteries charged (State 9) -- shore charges at full rate --
+#             until SOC >= charge_target; under 100 it then holds there as
+#             State 10 with Minimum SOC = charge_target. Optional revert_at
+#             (epoch s) switches back to 'normal' (e.g. after departure).
+#  'off'    : leave the Cerbo settings alone (the default).
+# The loop only writes when the Cerbo differs from what's wanted, every 60 s,
+# so a change made on the Cerbo/VRM is overwritten unless mode is 'off'.
+# cerbo_local.py stays read-only; this uses its own short MQTT connections.
+# Settings/state in shore_charge.json next to this file (gitignored). Enable in
+# only ONE dashboard (dev or prod).
+# To back out: delete this block, its thread line under __main__, the "Shore
+# charge target" blocks in static-src/index.html and the .gitignore line.
+SHORE_CHG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shore_charge.json')
+SHORE_CHG_EVERY_S = 60
+ESS_STATE_NAMES = {9: 'Keep batteries charged', 10: 'Optimized (no BatteryLife)', 11: 'Optimized (no BatteryLife)',
+                   12: 'Optimized (no BatteryLife)', 1: 'Optimized + BatteryLife', 2: 'Optimized + BatteryLife',
+                   3: 'Optimized + BatteryLife', 4: 'Optimized + BatteryLife', 5: 'Optimized + BatteryLife',
+                   6: 'Optimized + BatteryLife', 7: 'Optimized + BatteryLife', 8: 'Optimized + BatteryLife',
+                   0: 'External control'}
+_shore_chg = {'lock': threading.Lock(),
+              'cfg': {'mode': 'off', 'normal_floor': 85, 'charge_target': 100, 'revert_at': None},
+              'reached': False, 'cerbo': {}, 'cerbo_t': 0.0, 'status': 'Starting…', 'events': []}
+
+def _ess_mqtt(writes=None, timeout=6):
+    """Optionally write BatteryLife settings, then read State + MinimumSocLimit back."""
+    portal = cerbo_local.status().get('portal')
+    if not portal:
+        raise RuntimeError('Cerbo portal id not known yet')
+    base = f'{portal}/settings/0/Settings/CGwacs/BatteryLife'
+    topics = {f'N/{base}/State': 'State', f'N/{base}/MinimumSocLimit': 'MinimumSocLimit'}
+    got, ev = {}, threading.Event()
+    def on_msg(c, u, m):
+        k = topics.get(m.topic)
+        if k:
+            try:
+                got[k] = json.loads(m.payload).get('value')
+            except ValueError:
+                return
+            if len(got) == len(topics):
+                ev.set()
+    c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f'boat-dash-ess-{os.getpid()}-{uuid.uuid4().hex[:6]}')
+    c.on_message = on_msg
+    c.connect(cerbo_local.CERBO_HOST, cerbo_local.CERBO_PORT, keepalive=15)
+    c.loop_start()
+    try:
+        for k, val in (writes or {}).items():
+            c.publish(f'W/{base}/{k}', json.dumps({'value': val}), qos=1).wait_for_publish(3)
+        if writes:
+            time.sleep(1.5)
+        for t in topics:
+            c.subscribe(t)
+            c.publish('R/' + t[2:], '')
+        ev.wait(timeout)
+    finally:
+        c.loop_stop(); c.disconnect()
+    if len(got) < len(topics):
+        raise RuntimeError('no reply from Cerbo settings')
+    return got
+
+def _shore_chg_event(msg):
+    _shore_chg['events'] = (_shore_chg['events'] + [[int(time.time()), msg]])[-30:]
+    print(f'shore_charge: {msg}', flush=True)
+
+def _shore_chg_save():
+    st = _shore_chg
+    tmp = SHORE_CHG_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump({'cfg': st['cfg'], 'reached': st['reached'], 'events': st['events']}, f)
+    os.replace(tmp, SHORE_CHG_PATH)
+
+def _shore_chg_step():
+    st, cfg, now = _shore_chg, _shore_chg['cfg'], time.time()
+    if cfg['mode'] == 'charge' and cfg['revert_at'] and now >= cfg['revert_at']:
+        cfg.update(mode='normal', revert_at=None); st['reached'] = False
+        _shore_chg_event(f'Revert time reached: back to normal (floor {cfg["normal_floor"]}%)')
+    st['cerbo'] = _ess_mqtt(); st['cerbo_t'] = now
+    if cfg['mode'] == 'off':
+        st['status'] = 'Not managed (Cerbo settings left as they are)'
+        return
+    v = cerbo_local.snapshot() and _cerbo_local_result()
+    soc = (v or {}).get('soc')
+    if cfg['mode'] == 'normal':
+        want, desc = {'State': 10, 'MinimumSocLimit': cfg['normal_floor']}, f'Solar first, may drop to {cfg["normal_floor"]}% overnight'
+    else:
+        tgt = cfg['charge_target']
+        if soc is not None and soc >= tgt and not st['reached']:
+            st['reached'] = True
+            _shore_chg_event(f'Reached {tgt}% (SOC {soc:.0f}%)' + (': holding full' if tgt >= 100 else f': holding at {tgt}%'))
+        if not st['reached'] or tgt >= 100:
+            want = {'State': 9}
+            desc = (f'Holding full on shore' if st['reached'] else
+                    f'Charging to {tgt}% from shore' + (f' (now {soc:.0f}%)' if soc is not None else ''))
+        else:
+            want, desc = {'State': 10, 'MinimumSocLimit': tgt}, f'Holding at {tgt}%'
+        if cfg['revert_at']:
+            desc += ' · back to normal ' + datetime.fromtimestamp(cfg['revert_at']).strftime('%a %H:%M')
+    cur = st['cerbo']
+    diff = {k: x for k, x in want.items()
+            if not (k == 'State' and x == 10 and cur.get('State') in (10, 11, 12)) and cur.get(k) != x}
+    if diff:
+        st['cerbo'] = _ess_mqtt(writes=diff)
+        _shore_chg_event('Set Cerbo ' + ', '.join(f'{k}={x}' for k, x in diff.items()) +
+                         f' (was {", ".join(f"{k}={cur.get(k)}" for k in diff)})')
+    st['status'] = desc
+
+def shore_charge_loop():
+    try:
+        with open(SHORE_CHG_PATH) as f:
+            d = json.load(f)
+        _shore_chg['cfg'].update({k: x for k, x in (d.get('cfg') or {}).items() if k in _shore_chg['cfg']})
+        _shore_chg['reached'] = bool(d.get('reached')); _shore_chg['events'] = d.get('events') or []
+    except (OSError, ValueError):
+        pass
+    time.sleep(20)                        # let cerbo_local learn the portal id first
+    while True:
+        with _shore_chg['lock']:
+            try:
+                _shore_chg_step()
+            except Exception as e:
+                _shore_chg['status'] = f'Error: {e}'
+                print(f'shore_charge: {e}', flush=True)
+            try:
+                _shore_chg_save()
+            except OSError as e:
+                print(f'shore_charge save: {e}', flush=True)
+        time.sleep(SHORE_CHG_EVERY_S)
+
+def _shore_chg_view():
+    st, c = _shore_chg, _shore_chg['cerbo']
+    v = cerbo_local.snapshot() and _cerbo_local_result()
+    soc, cur = (v or {}).get('soc'), (v or {}).get('current')
+    tgt = st['cfg']['charge_target'] if st['cfg']['mode'] == 'charge' else None
+    eta = None
+    if tgt and soc is not None and cur and cur > 1 and soc < tgt:
+        eta = round((tgt - soc) / 100 * 200 / cur * 60)       # minutes; 200 Ah bank
+    return {'config': st['cfg'], 'status': st['status'] if AUTOMATION_HERE else 'Error: ' + AUTOMATION_ELSEWHERE_MSG,
+            'automation_here': AUTOMATION_HERE, 'reached': st['reached'], 'soc': soc, 'current': cur,
+            'eta_min': eta, 'events': list(reversed(st['events'][-10:])),
+            'cerbo': {'state': c.get('State'), 'state_name': ESS_STATE_NAMES.get(c.get('State'), c.get('State')),
+                      'min_soc': c.get('MinimumSocLimit'),
+                      'age_s': round(time.time() - st['cerbo_t']) if st['cerbo_t'] else None}}
+
+@app.route('/api/shore_charge')
+def shore_charge_get():
+    return jsonify(_shore_chg_view())
+
+@app.route('/api/shore_charge/config', methods=['POST'])
+def shore_charge_config():
+    if not AUTOMATION_HERE:
+        return jsonify({'ok': False, 'error': AUTOMATION_ELSEWHERE_MSG}), 409
+    body = request.get_json(silent=True) or {}
+    with _shore_chg['lock']:
+        cfg = dict(_shore_chg['cfg'])
+        try:
+            if 'mode' in body:
+                if body['mode'] not in ('off', 'normal', 'charge'):
+                    return jsonify({'ok': False, 'error': 'bad mode'}), 400
+                cfg['mode'] = body['mode']
+            if 'normal_floor' in body:
+                cfg['normal_floor'] = max(20, min(100, int(body['normal_floor'])))
+            if 'charge_target' in body:
+                cfg['charge_target'] = max(50, min(100, int(body['charge_target'])))
+            if 'revert_at' in body:
+                r = body['revert_at']
+                cfg['revert_at'] = None if r in (None, '', 0) else int(r)
+                if cfg['revert_at'] and cfg['revert_at'] <= time.time():
+                    return jsonify({'ok': False, 'error': 'Back-to-normal time is in the past'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'bad value'}), 400
+        old = _shore_chg['cfg']
+        if cfg['mode'] != old['mode'] or cfg['charge_target'] != old['charge_target']:
+            _shore_chg['reached'] = False
+        changed = {k: cfg[k] for k in cfg if cfg[k] != old.get(k)}
+        _shore_chg['cfg'] = cfg
+        if changed:
+            _shore_chg_event('Settings: ' + ', '.join(
+                f'{k}={datetime.fromtimestamp(x).strftime("%a %H:%M") if k == "revert_at" and x else x}' for k, x in changed.items()))
+            try:
+                _shore_chg_step()                 # apply now, not in up to 60 s
+            except Exception as e:
+                _shore_chg['status'] = f'Error: {e}'
+        try:
+            _shore_chg_save()
+        except OSError:
+            pass
+    return jsonify({'ok': True, **_shore_chg_view()})
+# ─── end Shore charge target siloed addition ────────────────────────────────
+
 if __name__ == '__main__':
     # DEBUG_MODE=True uses Flask's auto-reloader, which forks a child process —
     # WERKZEUG_RUN_MAIN is only set in that child, so gating on it avoids starting
@@ -6170,11 +6725,16 @@ if __name__ == '__main__':
         threading.Thread(target=system_health_loop, daemon=True).start()
         threading.Thread(target=tank_battery_monitor_loop, daemon=True).start()
         threading.Thread(target=crit_battery_monitor_loop, daemon=True).start()  # 12V/diesel/thruster critical push (siloed)
+        threading.Thread(target=orion_error_monitor_loop, daemon=True).start()   # Orion charger error push (siloed)
         threading.Thread(target=alert_ntfy_ack_loop, daemon=True).start()        # phone Acknowledge button (siloed)
         threading.Thread(target=router_autorejoin_loop, daemon=True).start()     # boat router repeater auto-rejoin (siloed)
         threading.Thread(target=_load_tides_station_cache, daemon=True).start()
         electrical_history.start(mqtt_state, mqtt_lock, vrm_cached)  # Electrical history (siloed)
         threading.Thread(target=ac_history_loop, daemon=True).start()            # Velair AC sparkline history (siloed)
+        if not DEBUG_MODE:                       # equipment automation: production only (siloed)
+            AUTOMATION_HERE = True
+            threading.Thread(target=solar_ac_loop, daemon=True).start()          # Solar AC auto-run (siloed)
+            threading.Thread(target=shore_charge_loop, daemon=True).start()      # Shore charge target (siloed)
     # threaded=True matters a lot for the Chart tab specifically: a browser
     # loads a viewport's worth of tile <img> requests in parallel, and
     # without this the dev server handles them one at a time -- fine for a

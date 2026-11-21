@@ -1286,6 +1286,14 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <button class="wc-btn" data-fan="2" onclick="acCommand('fan',2)">2</button>
     <button class="wc-btn" data-fan="3" onclick="acCommand('fan',3)">3</button>
   </div>
+  <!-- Solar AC auto-run (siloed addition 2026-11-19) -->
+  <div class="ac-row sac-row">
+    <label class="sac-toggle" title="Turn the AC on automatically when the solar charger is being limited (spare solar), and off again when solar can't keep up">
+      <input type="checkbox" id="sac-enabled" onchange="sacSave({enabled: this.checked})"> ☀️ Auto on spare solar</label>
+    <button class="wc-btn sac-gear" onclick="sacOpen()" title="Solar auto-run settings">⚙</button>
+  </div>
+  <div class="sac-status" id="sac-status"></div>
+  <!-- end Solar AC auto-run -->
   </div>
   <div class="ac-spark" title="Room temperature (solid) and set temperature (dashed), last 6 hours. Click for the full trend." onclick="openAcTrendModal()" style="cursor:pointer">
     <div class="ac-spark-box"><canvas id="ac-spark-cv"></canvas></div>
@@ -1294,6 +1302,51 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
   </div>
 </div>
 <!-- ─── end Velair AC card ───────────────────────────────────────────────── -->
+<!-- ─── Solar AC auto-run (siloed addition 2026-11-19) ──────────────────── -->
+<style>
+.ac-card .sac-row{gap:10px}
+.ac-card .sac-toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:#c8d4e6;cursor:pointer;user-select:none}
+.ac-card .sac-toggle input{width:20px;height:20px;accent-color:#e0a030;cursor:pointer}
+.ac-card .sac-gear{padding:4px 10px;font-size:15px}
+.ac-card .sac-status{font-size:12px;color:#6b82a0;margin-top:6px;max-width:330px}
+.ac-card .sac-status.sac-run{color:#ffc04d}
+#sac-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;align-items:center;justify-content:center}
+#sac-modal.open{display:flex}
+#sac-modal .sac-box{background:#111a2b;border:1px solid #2a3a55;border-radius:12px;padding:18px 20px;width:min(460px,94vw);max-height:90vh;overflow:auto;color:#c8d4e6;font-size:14px}
+#sac-modal h3{margin:0 0 4px;font-size:17px;color:#e0e6f0}
+#sac-modal .sac-help{font-size:12px;color:#6b82a0;margin:0 0 12px}
+#sac-modal .sac-grp{font-size:11px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px}
+#sac-modal .sac-f{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0}
+#sac-modal .sac-f input[type=number]{width:72px;background:#0b1322;border:1px solid #2a3a55;color:#e0e6f0;border-radius:6px;padding:5px 6px;font-size:14px;text-align:right}
+#sac-modal .sac-f input[type=checkbox]{width:18px;height:18px;accent-color:#e0a030}
+#sac-modal .sac-btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+#sac-modal .sac-err{color:#e06a66;font-size:12px;min-height:1em;margin-top:8px}
+#sac-modal .sac-ev{font-size:12px;color:#8ea2bf;margin:2px 0}
+</style>
+<div id="sac-modal" onclick="if (event.target === this) sacClose()">
+  <div class="sac-box">
+    <h3>☀️ AC auto-run on spare solar</h3>
+    <p class="sac-help">Turns the AC on when the solar charger is being limited (battery full, panels could give more), and off when solar can't keep up. It only turns off an AC it started itself. If you switch the AC off by hand, it pauses until midnight.</p>
+    <div class="sac-f"><label for="sac-f-enabled">Enabled</label><input type="checkbox" id="sac-f-enabled"></div>
+    <div class="sac-grp">Turn on when</div>
+    <div class="sac-f"><label for="sac-f-min_soc">Battery at least (%)</label><input type="number" id="sac-f-min_soc" min="50" max="100"></div>
+    <div class="sac-f"><label for="sac-f-on_delay_min">Solar limited for (min)</label><input type="number" id="sac-f-on_delay_min" min="1" max="60"></div>
+    <div class="sac-f"><label for="sac-f-set_cool">Switch to Cool when starting</label><input type="checkbox" id="sac-f-set_cool"></div>
+    <div class="sac-f"><label for="sac-f-setpoint_f">Set temperature (°F, blank = keep)</label><input type="number" id="sac-f-setpoint_f" min="60" max="82" placeholder="keep"></div>
+    <div class="sac-grp">Turn off when</div>
+    <div class="sac-f"><label for="sac-f-off_soc">Battery drops below (%)</label><input type="number" id="sac-f-off_soc" min="50" max="100"></div>
+    <div class="sac-f"><label for="sac-f-off_discharge_w">or battery discharging over (W)</label><input type="number" id="sac-f-off_discharge_w" min="100" max="3000" step="50"></div>
+    <div class="sac-f"><label for="sac-f-off_delay_min">&nbsp;&nbsp;…for (min)</label><input type="number" id="sac-f-off_delay_min" min="1" max="60"></div>
+    <div class="sac-grp">Protect the compressor</div>
+    <div class="sac-f"><label for="sac-f-min_on_min">Minimum run time (min)</label><input type="number" id="sac-f-min_on_min" min="0" max="240"></div>
+    <div class="sac-f"><label for="sac-f-min_off_min">Minimum off time before restart (min)</label><input type="number" id="sac-f-min_off_min" min="0" max="240"></div>
+    <div class="sac-err" id="sac-err"></div>
+    <div class="sac-btns"><button class="wc-btn" id="sac-resume" style="display:none" onclick="sacSave({resume: true}).then(sacClose)">Resume now</button><button class="wc-btn" onclick="sacClose()">Cancel</button><button class="wc-btn" onclick="sacSubmit()">Save</button></div>
+    <div class="sac-grp">Recent activity</div>
+    <div id="sac-events"><div class="sac-ev">None yet</div></div>
+  </div>
+</div>
+<!-- ─── end Solar AC auto-run ────────────────────────────────────────────── -->
 </div>
 </div>
 <!-- ─── end Tanks + AC side by side ─────────────────────────────────────── -->
@@ -1327,6 +1380,46 @@ try { if (localStorage.getItem('nightMode') === '1') document.documentElement.cl
     <div class="card-sub" id="shore-sub">Loading...</div>
   </div>
 </div>
+<!-- ─── Shore charge target (siloed addition 2026-11-20) ───────────────── -->
+<!-- Lives in a hidden holder; the JS moves it into the 48V battery popup. -->
+<style>
+.sc-card .sc-title{font-size:12px;color:#6b82a0;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.sc-card .sc-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:640px){.sc-card .sc-opts{grid-template-columns:1fr}}
+.sc-card .sc-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #2a3a55;border-radius:10px;padding:7px 10px;cursor:pointer;background:#0b1322;transition:border-color .15s,background .15s}
+.sc-card .sc-opt:hover{border-color:#3d5577}
+.sc-card .sc-opt.sc-on{border-color:#4a9fd4;background:#12263f}
+.sc-card .sc-opt-head{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:#e0e6f0}
+.sc-card .sc-radio{width:16px;height:16px;border-radius:50%;border:2px solid #4b6283;flex:0 0 auto;box-sizing:border-box}
+.sc-card .sc-opt.sc-on .sc-radio{border-color:#4a9fd4;background:radial-gradient(#4a9fd4 45%,transparent 50%)}
+.sc-card .sc-step-row{display:flex;align-items:center;gap:6px}
+.sc-card .sc-step-lbl{font-size:12px;color:#6b82a0;margin-right:auto}
+.sc-card .sc-val{font-size:19px;font-weight:600;color:#e0e6f0;min-width:52px;text-align:center}
+.sc-card .sc-step{min-width:36px;font-size:16px;font-weight:700;padding:2px 8px}
+.sc-card .sc-status{font-size:13px;margin-top:8px}
+.sc-card .sc-status:empty{display:none}
+.sc-card .sc-err{color:#e06a66}
+#modal .sc-card{margin:.6rem 0 .4rem;padding:10px 12px;background:rgba(255,255,255,.02)}
+</style>
+<div id="sc-holder" style="display:none">
+<div class="card no-click sc-card" id="sc-card">
+  <div class="sc-title">On shore power</div>
+  <div class="sc-opts">
+    <div class="sc-opt" data-scmode="normal" onclick="scPick('normal')" title="Solar and the battery run the boat. The battery may drop overnight; shore takes over at this level.">
+      <div class="sc-opt-head"><span class="sc-radio"></span>Use solar first</div>
+      <div class="sc-step-row" title="Shore takes over at">
+        <button class="wc-btn sc-step" onclick="event.stopPropagation();scStep('normal_floor',-5)">−</button><span class="sc-val" id="sc-floor">--%</span><button class="wc-btn sc-step" onclick="event.stopPropagation();scStep('normal_floor',5)">+</button></div>
+    </div>
+    <div class="sc-opt" data-scmode="charge" onclick="scPick('charge')" title="Charge now at full rate and keep it there, e.g. before leaving. Stays on until you pick Use solar first.">
+      <div class="sc-opt-head"><span class="sc-radio"></span>Charge from shore</div>
+      <div class="sc-step-row" title="Charge to">
+        <button class="wc-btn sc-step" onclick="event.stopPropagation();scStep('charge_target',-5)">−</button><span class="sc-val" id="sc-target">--%</span><button class="wc-btn sc-step" onclick="event.stopPropagation();scStep('charge_target',5)">+</button></div>
+    </div>
+  </div>
+  <div class="sc-status" id="sc-status"></div>
+</div>
+</div>
+<!-- ─── end Shore charge target ──────────────────────────────────────────── -->
 
 <!-- Bilge Pump -->
 <div class="section">Bilge Pump</div>
@@ -3614,6 +3707,18 @@ function dieselShuntSync(src) {
   try { renderVictronSim(); } catch (e) { /* Electrical tab not built yet */ }
 }
 // ─── end Diesel start SmartShunt siloed addition ────────────────────────────
+// ─── SmartSolar MPPT 150/35 (siloed addition 2026-11-18) ────────────────────
+// /api/victron now carries mppt_* (Cerbo VE.Direct, VRM fallback). The Solar
+// Arch / MPPT 150/35 nodes render from victronSimData, so copy them across
+// like dieselShuntSync. To back out: delete this block, its call in
+// fetchVictron and its keep-line in fetchVictronSim.
+function mpptSync(src) {
+  for (const k of Object.keys(victronSimData)) if (k.startsWith('mppt_') && !k.startsWith('mppt_bimini_') && !(k in src)) delete victronSimData[k];
+  for (const k of Object.keys(src)) if (k.startsWith('mppt_') && !k.startsWith('mppt_bimini_')) victronSimData[k] = src[k];
+  try { renderVictronSim(); } catch (e) { /* Electrical tab not built yet */ }
+}
+NODE_DEFS.solar.liveFields.splice(2, 0, { key: 'mppt_pv_current', label: 'PV Current', unit: 'A', color: '#4a9fd4' });
+// ─── end SmartSolar MPPT 150/35 siloed addition ─────────────────────────────
 
 async function fetchVictronSim() {
   let d = {};   // (the victron_simulator.py feed was removed 2026-11-12; real sources only)
@@ -3625,6 +3730,7 @@ async function fetchVictronSim() {
   for (const k of Object.keys(d)) if (d[k] === '--') delete d[k];
   if (d.engine_running !== undefined) d.engine_state = d.engine_running ? 'Running' : 'Off';
   for (const k of Object.keys(victronSimData)) if (k.startsWith('shunt_diesel_')) d[k] = victronSimData[k]; // Diesel start SmartShunt (siloed 2026-11-16)
+  for (const k of Object.keys(victronSimData)) if (k.startsWith('mppt_') && !k.startsWith('mppt_bimini_')) d[k] = victronSimData[k]; // SmartSolar MPPT 150/35 (siloed 2026-11-18)
   for (const k of Object.keys(victronSimData)) if (!(k in d)) delete victronData[k];
   victronSimData = d;
   Object.assign(victronData, d);
@@ -5969,6 +6075,7 @@ async function fetchVictron() {
     const d = await res.json();
     victronData = d;
     dieselShuntSync(d); // Diesel start SmartShunt (siloed 2026-11-16) -- before the merge below so fresh values win
+    mpptSync(d); // SmartSolar MPPT 150/35 (siloed 2026-11-18)
     Object.assign(victronData, victronSimData); // Victron sim extras (siloed) -- keep sim keys across VRM refreshes
 
     const shoreOn = (d.grid || 0) > 10;
@@ -10880,6 +10987,50 @@ setInterval(ifVisible(() => {
 
 setTimeout(updateBatteryAlerts, 3000);   // after the first fetchVictron()
 setInterval(ifVisible(updateBatteryAlerts), 30000);
+
+// ─── Orion charger error header chips (siloed addition 2026-11-17) ──────────
+// Red chip while an Orion's Bluetooth readout reports a charger error; matches
+// the server's ntfy push (orion_error_monitor_loop in dashboard_api.py).
+// Fetches /api/victron/ble itself: fetchVictronSim only runs on the Electrical
+// tab. To back out: delete this block.
+const ORION_ERROR_ALERTS = [['orion_house', 'Orion house'], ['orion_thruster', 'Orion thruster']];
+async function updateOrionErrorAlerts() {
+  let d;
+  try { d = await (await fetch('/api/victron/ble')).json(); } catch (e) { return; }  // keep last state
+  ORION_ERROR_ALERTS.forEach(([n, name]) => {
+    const err = d[`${n}_charger_error`];
+    if (err === undefined) return;                     // no fresh Bluetooth reading: leave as is
+    setHeaderAlert(`orion_err_${n}`, err && err !== 'None'
+      ? { level: 'crit', icon: '⚡', text: `${name}: ${err}`, page: 'electrical',
+          title: `${name} reports a charger error: ${err}` + (d[`${n}_state`] ? ` (state ${d[`${n}_state`]})` : '') }
+      : null);
+  });
+}
+setTimeout(updateOrionErrorAlerts, 4000);
+setInterval(ifVisible(updateOrionErrorAlerts), 30000);
+// ─── end Orion charger error header chips ───────────────────────────────────
+
+// ─── Solar limited header chip (siloed addition 2026-11-19) ─────────────────
+// Sun chip while the MPPT is throttled (mppt_limited from /api/victron, Cerbo
+// only) = spare solar a load could use. Needs 2 checks in a row to show or
+// clear, so a passing cloud or one poll doesn't make it flicker. To back out:
+// delete this block and _mppt_limited_flag in dashboard_api.py.
+let solarLimitedRun = 0;
+function updateSolarLimitedAlert() {
+  const lim = victronData.mppt_limited;
+  if (lim === undefined) { solarLimitedRun = 0; setHeaderAlert('solar_limited', null); return; }
+  solarLimitedRun = lim ? Math.max(1, solarLimitedRun + 1) : Math.min(-1, solarLimitedRun - 1);
+  if (solarLimitedRun >= 2) {
+    const w = victronData.mppt_pv_power, soc = victronData.soc;
+    setHeaderAlert('solar_limited', { level: 'info', icon: '☀️', page: 'electrical',
+      text: 'Spare solar' + (w !== undefined ? ` — limited at ${Math.round(w)} W` : ''),
+      title: 'The MPPT is holding back: the panels could give more, but the battery'
+        + (soc !== undefined ? ` (${Math.round(soc)}%)` : '') + ' and loads can\'t take it. A good time to run the AC or watermaker.' });
+  } else if (solarLimitedRun <= -2) setHeaderAlert('solar_limited', null);
+}
+setTimeout(updateSolarLimitedAlert, 3500);
+setInterval(ifVisible(updateSolarLimitedAlert), 30000);
+// ─── end Solar limited header chip ──────────────────────────────────────────
 // Bilge pump header chip removed 2026-09-29 (user asked); the Overview Bilge Pump
 // card still shows it. To restore, uncomment:
 // setInterval(ifVisible(updateBilgeAlert), 10000);
@@ -13127,6 +13278,120 @@ async function loadAcTrend() {
 }
 
 // ─── end Velair AC card siloed addition ──────────────────────────────────────
+
+// ─── Solar AC auto-run (siloed addition 2026-11-19) ─────────────────────────
+// Checkbox + status line on the AC card, settings modal. The logic runs on the
+// server (solar_ac_loop in dashboard_api.py); this only shows and edits it.
+// To back out: delete this block and the two "Solar AC auto-run" HTML blocks.
+var sacData = null;
+const SAC_NUM = ['min_soc', 'on_delay_min', 'setpoint_f', 'off_soc', 'off_discharge_w', 'off_delay_min', 'min_on_min', 'min_off_min'];
+function sacRender() {
+  const d = sacData, cb = document.getElementById('sac-enabled'), stEl = document.getElementById('sac-status');
+  if (!cb || !d) return;
+  cb.checked = !!d.config.enabled;
+  cb.disabled = d.automation_here === false;   // dev copy: automation runs in production only
+  stEl.textContent = d.status || '';
+  stEl.classList.toggle('sac-run', !!d.running);
+  const ev = document.getElementById('sac-events');
+  if (ev) ev.innerHTML = d.events.length ? d.events.map(([t, m]) =>
+    `<div class="sac-ev">${new Date(t * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})} · ${escapeHtml(m)}</div>`).join('')
+    : '<div class="sac-ev">None yet</div>';
+  const rs = document.getElementById('sac-resume');
+  if (rs) rs.style.display = d.paused_until ? '' : 'none';
+}
+async function sacFetch() {
+  try { sacData = await (await fetch('/api/solar_ac')).json(); sacRender(); } catch (e) { /* keep last */ }
+}
+async function sacSave(patch) {
+  const err = document.getElementById('sac-err');
+  try {
+    const j = await (await fetch('/api/solar_ac/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(patch)})).json();
+    if (!j.ok) { if (err) err.textContent = j.error || 'Not saved'; sacRender(); return false; }
+    sacData = j; sacRender(); if (err) err.textContent = ''; return true;
+  } catch (e) { if (err) err.textContent = 'Dashboard server not reachable'; sacRender(); return false; }
+}
+function sacOpen() {
+  if (!sacData) return;
+  const c = sacData.config;
+  document.getElementById('sac-f-enabled').checked = !!c.enabled;
+  document.getElementById('sac-f-set_cool').checked = !!c.set_cool;
+  SAC_NUM.forEach(k => { document.getElementById('sac-f-' + k).value = c[k] == null ? '' : c[k]; });
+  document.getElementById('sac-err').textContent = '';
+  sacRender();
+  document.getElementById('sac-modal').classList.add('open');
+}
+function sacClose() { document.getElementById('sac-modal').classList.remove('open'); }
+async function sacSubmit() {
+  const p = { enabled: document.getElementById('sac-f-enabled').checked, set_cool: document.getElementById('sac-f-set_cool').checked };
+  SAC_NUM.forEach(k => { const v = document.getElementById('sac-f-' + k).value.trim(); p[k] = v === '' ? (k === 'setpoint_f' ? null : sacData.config[k]) : Number(v); });
+  if (await sacSave(p)) sacClose();
+}
+setTimeout(sacFetch, 1500);
+setInterval(ifVisible(sacFetch), 15000);
+// ─── end Solar AC auto-run siloed addition ──────────────────────────────────
+
+// ─── Shore charge target (siloed addition 2026-11-20) ───────────────────────
+// Overview > House Battery. Picks how ESS uses shore power; the server
+// (shore_charge_loop in dashboard_api.py) writes the Cerbo settings. Steps are
+// batched 800 ms so several taps send one change. To back out: delete this
+// block and the "Shore charge target" HTML block.
+var scData = null, scPending = {}, scTimer = null;
+function scRender(err) {
+  const d = scData; if (!d || !document.getElementById('sc-card')) return;
+  const c = Object.assign({}, d.config, scPending);
+  document.querySelectorAll('#sc-card [data-scmode]').forEach(b => b.classList.toggle('sc-on', b.dataset.scmode === c.mode));
+  document.getElementById('sc-floor').textContent = c.normal_floor + '%';
+  document.getElementById('sc-target').textContent = c.charge_target + '%';
+  // Status/ETA are shown at the top of the popup already; only errors show here.
+  if (d.status && d.status.startsWith('Error')) err = err || d.status;
+  else if (!err && c.mode === 'off') err = 'Not set from the dashboard: pick an option';
+  document.getElementById('sc-status').innerHTML = err ? `<span class="sc-err">${escapeHtml(err)}</span>` : '';
+  const cb = d.cerbo || {};
+  document.querySelector('#sc-card .sc-title').title = cb.state != null
+    ? 'Cerbo ESS now: ' + (cb.state === 9 ? 'Keep batteries charged' : `Optimized, minimum SOC ${cb.min_soc}%`) : '';
+}
+function scPick(mode) {
+  if (!scData || scData.config.mode === mode) return;
+  scSave({ mode });
+}
+async function scFetch() {
+  try { scData = await (await fetch('/api/shore_charge')).json(); scRender(); } catch (e) { /* keep last */ }
+}
+async function scSave(patch) {
+  try {
+    const j = await (await fetch('/api/shore_charge/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(patch)})).json();
+    scPending = {};
+    if (!j.ok) { scRender(j.error || 'Not saved'); return; }
+    scData = j; scRender();
+  } catch (e) { scPending = {}; scRender('Dashboard server not reachable'); }
+}
+function scStep(key, delta) {
+  if (!scData) return;
+  const lo = key === 'normal_floor' ? 20 : 50;
+  const cur = scPending[key] != null ? scPending[key] : scData.config[key];
+  scPending[key] = Math.max(lo, Math.min(100, cur + delta));
+  scRender();
+  clearTimeout(scTimer);
+  scTimer = setTimeout(() => scSave(Object.assign({}, scPending)), 800);
+}
+// Shown inside the 48V battery and MultiPlus popups (SC_NODES; the battery one
+// also opens from the Overview battery cards): openNodeModal is wrapped to move
+// the card in after the SOC bar slot and back to its hidden holder otherwise.
+const SC_NODES = ['bat48', 'multiplus'];   // popups that show the shore charging control
+const _scOpenNodeModal = openNodeModal;
+openNodeModal = function (nodeKey) {
+  const r = _scOpenNodeModal.apply(this, arguments);
+  const card = document.getElementById('sc-card'), bar = document.getElementById('modal-soc-bar');
+  if (card && bar) {
+    if (SC_NODES.includes(nodeKey)) { bar.after(card); scFetch(); }
+    else document.getElementById('sc-holder').appendChild(card);
+  }
+  return r;
+};
+function scShown() { return SC_NODES.includes(currentNode) && document.getElementById('modal').classList.contains('open'); }
+setInterval(ifVisible(() => { if (scShown()) scFetch(); }), 15000);
+// ─── end Shore charge target siloed addition ────────────────────────────────
+
 
 // ─── Night mode toggle (siloed addition; see the Night mode block in <head>) ──
 function updateNightToggleBtn() {

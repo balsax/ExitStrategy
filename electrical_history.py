@@ -172,6 +172,17 @@ def _diesel_shunt_from_vrm(snap, vrm):
         snap['load_12s_w'] = max(0.0, -i) * v
 # ─── end Diesel start SmartShunt siloed addition ────────────────────────────
 
+# ─── SmartSolar MPPT 150/35 siloed addition (2026-11-18) ────────────────────
+# The MPPT comes through get_vrm_data() (Cerbo LAN / VRM) as mppt_*, so copy
+# it into the snapshot for the Solar Arch / MPPT popup history and the energy
+# balance's solar input. To back out: delete this block + its call.
+def _mppt_from_vrm(snap, vrm):
+    for k in ('pv_power', 'pv_voltage', 'pv_current', 'bat_voltage', 'bat_current', 'yield_today'):
+        val = vrm.get(f'mppt_{k}')
+        if isinstance(val, (int, float)) and f'mppt_{k}' not in snap:
+            snap[f'mppt_{k}'] = float(val)
+# ─── end SmartSolar MPPT 150/35 siloed addition ─────────────────────────────
+
 
 def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
     _init()
@@ -186,6 +197,7 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
                 try:
                     vrm = vrm_fn() or {}
                     _diesel_shunt_from_vrm(snap, vrm)   # Diesel start SmartShunt (siloed 2026-11-16)
+                    _mppt_from_vrm(snap, vrm)           # SmartSolar MPPT 150/35 (siloed 2026-11-18)
                     _house_load_from_shunts(snap, vrm)  # 12V house load from shunts (siloed)
                     snap.update(_energy_balance(snap, vrm))
                 except Exception as e:
