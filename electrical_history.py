@@ -92,6 +92,42 @@ def _rollup_and_prune(conn, now):
     conn.execute('DELETE FROM rollup WHERE ts < ?', (now - ROLLUP_KEEP_S,))
 
 
+# ─── Orion 12|48 output estimate — siloed addition 2026-11-23 ──────────────
+# The 12|48 (alternator -> 48V) reports state over Bluetooth but no current.
+# It's the only unmeasured source on the 48V bus, so while it's charging:
+# output = 48V battery charge + Orion 48|12 draws - MPPTs - MultiPlus DC (minus
+# any 48V DC loads). Same formula as orionChargerEstimate on the Electrical tab.
+# Its input (output / 0.88) stands in for the alternator in the energy balance
+# until the alternator shunt is wired. To back out: delete this block, its call
+# in the sample loop and the orion_charger_input_power term in _energy_balance.
+ORION_CHARGER_ACTIVE = (3, 4, 5, 6, 7, 11, 246, 247)
+
+def _orion_charger_estimate(snap, vrm):
+    num = lambda v: isinstance(v, (int, float))
+    code = snap.get('orion_charger_state_code')
+    if code is None:
+        return
+    if int(code) not in ORION_CHARGER_ACTIVE:
+        snap['orion_charger_output_power'] = snap['orion_charger_input_power'] = 0.0
+        return
+    v, i, mp = vrm.get('voltage'), vrm.get('current'), vrm.get('mp_dc_power')
+    if not (num(v) and num(i) and num(mp)):
+        return
+    vi = lambda a, b: a * b if num(a) and num(b) else 0.0
+    into = vi(vrm.get('mppt_bat_voltage'), vrm.get('mppt_bat_current')) + \
+           vi(vrm.get('mppt_bimini_bat_voltage'), vrm.get('mppt_bimini_bat_current')) + mp
+    # Orion 48|12 house draw = (12V house loads + house battery charging) / 0.9
+    house = (snap.get('load_12h_w') or 0) + max(0.0, vi(vrm.get('v_12v'), vrm.get('i_12v')))
+    thr = 0.0
+    for vk, ik in (('shunt_thruster_voltage', 'shunt_thruster_current'), ('shunt_diesel_voltage', 'shunt_diesel_current')):
+        if num(snap.get(ik)) and snap[ik] > 0 and not snap.get('engine_running'):
+            thr += vi(snap.get(vk), snap[ik])
+    out_w = max(0.0, v * i + (house + thr) / 0.9 - into)
+    snap['orion_charger_output_power'] = out_w
+    snap['orion_charger_input_power'] = out_w / 0.88
+# ─── end Orion 12|48 output estimate siloed addition ────────────────────────
+
+
 def _energy_balance(snap, vrm):
     """Same formulas as the Electrical tab's Energy balance card (watts)."""
     num = lambda v: isinstance(v, (int, float))
@@ -100,7 +136,8 @@ def _energy_balance(snap, vrm):
         vals = [v for v in vals if num(v)]
         return sum(vals) if vals else None
     alt = vi(snap.get('shunt_diesel_voltage'), snap.get('engine_alternator_current')) if snap.get('engine_running') else None
-    in_w = total([snap.get('mppt_pv_power'), snap.get('mppt_bimini_pv_power'), vrm.get('grid'), alt])
+    in_w = total([snap.get('mppt_pv_power'), snap.get('mppt_bimini_pv_power'), vrm.get('grid'),
+                  alt if alt is not None else snap.get('orion_charger_input_power')])  # Orion 12|48 stands in (siloed 2026-11-23)
     out_w = total([vrm.get('ac_load'), snap.get('load_48_w'), snap.get('load_12h_w'), snap.get('load_12s_w'), snap.get('load_bt_w')])
     net_w = total([vi(vrm.get('voltage'), vrm.get('current')), vi(vrm.get('v_12v'), vrm.get('i_12v')),
                    vi(snap.get('shunt_diesel_voltage'), snap.get('shunt_diesel_current')),
@@ -199,6 +236,7 @@ def _loop(mqtt_state, mqtt_lock, vrm_fn=None):
                     _diesel_shunt_from_vrm(snap, vrm)   # Diesel start SmartShunt (siloed 2026-11-16)
                     _mppt_from_vrm(snap, vrm)           # SmartSolar MPPT 150/35 (siloed 2026-11-18)
                     _house_load_from_shunts(snap, vrm)  # 12V house load from shunts (siloed)
+                    _orion_charger_estimate(snap, vrm)  # Orion 12|48 output from the 48V balance (siloed 2026-11-23)
                     snap.update(_energy_balance(snap, vrm))
                 except Exception as e:
                     print(f'electrical_history: energy balance skipped ({e})')

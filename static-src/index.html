@@ -3726,6 +3726,7 @@ async function fetchVictronSim() {
     Object.assign(d, await (await fetch('/api/victron/ble')).json()); // real Orions over Bluetooth
   } catch (e) { /* bridge not running */ }
   await adamAlternatorOverride(d); // real alternator current from the ADAM-6017 (siloed)
+  orionChargerMap(d); // real Orion 12|48 over Bluetooth -> orion_alt_* (siloed 2026-11-23)
   // '--' means "not applicable" (e.g. time-to-go while charging) -- show as blank
   for (const k of Object.keys(d)) if (d[k] === '--') delete d[k];
   if (d.engine_running !== undefined) d.engine_state = d.engine_running ? 'Running' : 'Off';
@@ -3788,7 +3789,7 @@ function renderVictronSim() {
   if (f.solar) src.push(`Arch ${Math.round(d.mppt_pv_power)}W`);
   if (f.solar2) src.push(`Bimini ${Math.round(d.mppt_bimini_pv_power)}W`);
   if (f.alt) src.push(`Alternator ${d.engine_alternator_measured ? '' : '~'}${Math.round(d.engine_alternator_current)}A`);
-  if (f.orion) src.push(`Orion 12|48 ${d.orion_alt_output_current.toFixed(1)}A → 48V`);
+  if (f.orion) src.push(typeof d.orion_alt_output_current === 'number' ? `Orion 12|48 ${d.orion_alt_output_current.toFixed(1)}A → 48V` : `Orion 12|48 → 48V (${d.orion_alt_state})`);
   if (d.engine_running && f.thrCharge) src.push('Thruster charging from diesel (Cyrix)');
   else if (!d.engine_running && orionBleActive('orion_thruster', false)) src.push('Orion 48→12 → Thruster + Diesel');
   setText('elec-info-dc', Object.keys(d).length === 0 ? '--' : src.length ? src.join(' · ') : 'None');
@@ -4248,6 +4249,55 @@ renderOrionBle = function () {
 };
 // ─── end ADAM-6017 Orion currents siloed addition ───────────────────────────
 
+// ─── Orion 12|48 (alternator → 48V) over Bluetooth — siloed addition 2026-11-23 ─
+// victron_ble_bridge.py publishes the real 12|48 as orion_charger_* (devices.json
+// name). The Orion 12|48 node / popup / flow lines were built for the old
+// simulator's orion_alt_* keys, so copy the Bluetooth fields across under those
+// names. The broadcast has no current, so output current/power are estimated
+// from the 48V battery balance (orionChargerEstimate). History comes from electrical_history.py (orion_charger_*).
+// To back out: delete this block, its orionChargerMap(d) line in fetchVictronSim
+// and the ELEC_HISTORY.orionAlt line after ELEC_HISTORY, and restore the original
+// f.orion src.push line in renderVictronSim and the inW line in computeEnergyBalance.
+function orionChargerMap(d) {
+  for (const f of ['state', 'state_code', 'off_reason', 'input_voltage', 'output_voltage', 'charger_error', 'rssi'])
+    if (d[`orion_charger_${f}`] !== undefined) d[`orion_alt_${f}`] = d[`orion_charger_${f}`];
+  orionChargerEstimate(d);
+}
+// Output estimate from the 48V balance: the only unmeasured source on the 48V
+// bus is this Orion, so (battery charge + Orion 48|12 draws) - (MPPTs + MultiPlus
+// DC) = its output minus any 48V DC loads (watermaker etc., normally off while
+// motoring). Only while its Bluetooth state says it's charging; 0 when off.
+// Smoothed because the BMS / MPPT / MultiPlus readings update at different times.
+const ORION_CHARGER_ACTIVE = [3, 4, 5, 6, 7, 11, 246, 247];
+let orionChargerEstW = null;
+function orionChargerEstimate(d) {
+  const code = d.orion_alt_state_code;
+  if (code === undefined) { orionChargerEstW = null; return; }
+  if (!ORION_CHARGER_ACTIVE.includes(code)) { orionChargerEstW = null; d.orion_alt_output_power = 0; d.orion_alt_output_current = 0; return; }
+  const v = Object.assign({}, victronData, d);
+  if ([v.voltage, v.current, v.mp_dc_power].some(x => typeof x !== 'number')) return;
+  const vi = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a * b : 0;
+  const into = vi(v.mppt_bat_voltage, v.mppt_bat_current) + vi(v.mppt_bimini_bat_voltage, v.mppt_bimini_bat_current) + v.mp_dc_power;
+  const out = v.voltage * v.current + (FLOW_WATTS['nd-48v|nd-or1'](v) || 0) + (FLOW_WATTS['nd-48v|nd-or2'](v) || 0);
+  const w = Math.max(0, out - into);
+  orionChargerEstW = orionChargerEstW === null ? w : orionChargerEstW * 0.5 + w * 0.5;
+  d.orion_alt_output_power = Math.round(orionChargerEstW);
+  d.orion_alt_output_current = Math.round(orionChargerEstW / v.voltage * 10) / 10;
+  d.orion_alt_output_estimated = 1;
+}
+NODE_DEFS.orionAlt.liveFields = [
+  { key: 'orion_alt_state',          label: 'State',            unit: '',    color: '#5a8ab0', isText: true },
+  { key: 'orion_alt_off_reason',     label: 'Off Reason',       unit: '',    color: '#6b82a0', isText: true },
+  { key: 'orion_alt_input_voltage',  label: 'Input (12V)',      unit: 'V',   color: '#f97316' },
+  { key: 'orion_alt_output_voltage', label: 'Output (48V)',     unit: 'V',   color: '#e8a030' },
+  { key: 'orion_alt_output_current', label: 'Output Current (est.)', unit: 'A', color: '#3db87a' },
+  { key: 'orion_alt_output_power',   label: 'Output Power (est.)',   unit: 'W', color: '#a78bfa' },
+  { key: 'orion_alt_charger_error',  label: 'Error',            unit: '',    color: '#6b82a0', isText: true },
+  { key: 'orion_alt_rssi',           label: 'Bluetooth Signal', unit: 'dBm', color: '#6b82a0' },
+];
+// (its ELEC_HISTORY.orionAlt line sits right after the ELEC_HISTORY table)
+// ─── end Orion 12|48 Bluetooth siloed addition ──────────────────────────────
+
 // ─── Battery symbols + device LEDs ───
 // Vertical bar-graph battery: fill height = SOC, color by level, SOC number
 // at the bottom, lightning bolt while charging. Drawn in a 60x100 viewBox and
@@ -4378,6 +4428,10 @@ const ELEC_HISTORY = {
   energy:     [['energy_net_w', 'Net', 'W', '#3db87a'], ['energy_in_w', 'In', 'W', '#facc15'],
                ['energy_out_w', 'Out', 'W', '#e06a66'], ['energy_losses_w', 'Losses', 'W', '#6b82a0']],
 };
+ELEC_HISTORY.orionAlt = [['orion_charger_output_power', 'Output Power (est.)', 'W', '#a78bfa'],   // Orion 12|48 Bluetooth (siloed 2026-11-23)
+                         ['orion_charger_input_voltage', 'Input (12V)', 'V', '#f97316'],
+                         ['orion_charger_output_voltage', 'Output (48V)', 'V', '#e8a030'],
+                         ['orion_charger_state_code', 'State (0 off, 3 bulk, 4 abs, 5 float)', '', '#5a8ab0']];
 Object.entries(ELEC_HISTORY).forEach(([node, list]) => {
   NODE_DEFS[node].history = 'elec';
   NODE_DEFS[node].chartSeries = list.map(([code, label, unit, color]) => ({ code, label, unit, color }));
@@ -4403,8 +4457,9 @@ function computeEnergyBalance() {
   const d = victronData, num = v => typeof v === 'number' && !isNaN(v);
   const vi = (v, i) => (num(v) && num(i)) ? v * i : null;
   const sum = arr => { const k = arr.filter(num); return k.length ? k.reduce((a, b) => a + b, 0) : null; };
+  const altW = d.engine_running ? vi(d.shunt_diesel_voltage, d.engine_alternator_current) : null;
   const inW = sum([d.mppt_pv_power, d.mppt_bimini_pv_power, d.grid,
-                   d.engine_running ? vi(d.shunt_diesel_voltage, d.engine_alternator_current) : null]);
+                   altW !== null ? altW : orionAltInW(d)]);  // no alternator reading: the Orion 12|48's input stands in (siloed 2026-11-23)
   const outW = sum([d.ac_load, d.load_48_w, d.load_12h_w, d.load_12s_w, d.load_bt_w]);
   const netW = sum([vi(d.voltage, d.current), vi(d.v_12v, d.i_12v),
                     vi(d.shunt_diesel_voltage, d.shunt_diesel_current), vi(d.shunt_thruster_voltage, d.shunt_thruster_current)]);
